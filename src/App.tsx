@@ -307,7 +307,7 @@ export default function App() {
             <input
               value={settings.subtitleScale}
               min="0.8"
-              max="1.35"
+              max="1.5"
               step="0.05"
               onChange={(event) => updateSubtitleScale(Number(event.target.value))}
               type="range"

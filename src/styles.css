@@ -248,7 +248,7 @@ button {
   min-height: 0;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: clamp(18px, 2.2vw, 40px);
 }
 
 .empty-stage {
@@ -259,18 +259,22 @@ button {
 .empty-subtitle {
   margin: 0;
   color: #64748b;
-  font-size: calc(3.8rem * var(--subtitle-scale));
+  font-size: clamp(
+    calc(3rem * var(--subtitle-scale)),
+    calc(5.2vw * var(--subtitle-scale)),
+    calc(5.4rem * var(--subtitle-scale))
+  );
   font-weight: 780;
   text-align: center;
 }
 
 .subtitle-stack {
-  width: min(1180px, 100%);
-  min-height: 72dvh;
+  width: min(97vw, 1960px);
+  min-height: min(78dvh, calc(100dvh - 148px));
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 22px;
+  gap: clamp(14px, 2dvh, 26px);
 }
 
 .subtitle-line {
@@ -280,29 +284,40 @@ button {
 .subtitle-line p {
   margin: 0;
   letter-spacing: 0;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 
 .subtitle-line.latest p {
   color: #0f172a;
-  font-size: calc(5.2rem * var(--subtitle-scale));
+  font-size: clamp(
+    calc(4.8rem * var(--subtitle-scale)),
+    calc(5.8vw * var(--subtitle-scale)),
+    calc(8.2rem * var(--subtitle-scale))
+  );
   font-weight: 810;
-  line-height: 1.14;
+  line-height: 1.06;
 }
 
 .subtitle-line.previous p {
   color: #64748b;
-  font-size: calc(2.25rem * var(--subtitle-scale));
+  font-size: clamp(
+    calc(1.75rem * var(--subtitle-scale)),
+    calc(2.9vw * var(--subtitle-scale)),
+    calc(3.15rem * var(--subtitle-scale))
+  );
   font-weight: 650;
   line-height: 1.2;
 }
 
 .subtitle-line small {
   display: block;
-  width: min(900px, 100%);
+  width: min(82vw, 1400px);
   margin: 16px auto 0;
   color: #475569;
-  font-size: 1.1rem;
+  font-size: clamp(1rem, 1.45vw, 1.55rem);
   line-height: 1.55;
+  text-wrap: balance;
 }
 
 .records-view,
@@ -490,25 +505,38 @@ button {
   }
 
   .subtitle-stage {
-    padding: 18px;
+    padding: 18px 14px;
   }
 
   .subtitle-stack {
-    min-height: 70dvh;
-    gap: 16px;
+    width: min(94vw, 100%);
+    min-height: min(72dvh, calc(100dvh - 132px));
+    gap: 14px;
   }
 
   .empty-subtitle {
-    font-size: calc(2.45rem * var(--subtitle-scale));
+    font-size: clamp(
+      calc(2.2rem * var(--subtitle-scale)),
+      calc(9.2vw * var(--subtitle-scale)),
+      calc(3.6rem * var(--subtitle-scale))
+    );
   }
 
   .subtitle-line.latest p {
-    font-size: calc(3.2rem * var(--subtitle-scale));
-    line-height: 1.16;
+    font-size: clamp(
+      calc(3rem * var(--subtitle-scale)),
+      calc(13vw * var(--subtitle-scale)),
+      calc(5.2rem * var(--subtitle-scale))
+    );
+    line-height: 1.08;
   }
 
   .subtitle-line.previous p {
-    font-size: calc(1.5rem * var(--subtitle-scale));
+    font-size: clamp(
+      calc(1.25rem * var(--subtitle-scale)),
+      calc(5vw * var(--subtitle-scale)),
+      calc(2rem * var(--subtitle-scale))
+    );
   }
 
   .document-header {
