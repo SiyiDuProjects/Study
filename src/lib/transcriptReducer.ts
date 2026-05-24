@@ -1,0 +1,106 @@
+import type { RealtimeTranscriptDelta, TranscriptSegment, TranscriptState } from "../types";
+import { createId } from "./id";
+
+const HARD_SEGMENT_LIMIT = 260;
+
+export function createTranscriptState(): TranscriptState {
+  return {
+    segments: [],
+    activeSegment: null
+  };
+}
+
+export function applyTranscriptDelta(
+  state: TranscriptState,
+  event: RealtimeTranscriptDelta,
+  nowIso = new Date().toISOString()
+): TranscriptState {
+  const delta = event.delta;
+  if (!delta) {
+    return state;
+  }
+
+  const activeSegment = state.activeSegment ?? createSegment(event.elapsedMs ?? inferNextStartMs(state), nowIso);
+  const nextActive: TranscriptSegment = {
+    ...activeSegment,
+    sourceText: event.channel === "source" ? activeSegment.sourceText + delta : activeSegment.sourceText,
+    translatedText: event.channel === "translation" ? activeSegment.translatedText + delta : activeSegment.translatedText,
+    updatedAt: nowIso
+  };
+
+  if (nextActive.translatedText.length >= HARD_SEGMENT_LIMIT && hasSoftBoundary(nextActive.translatedText)) {
+    return commitActiveSegment({ ...state, activeSegment: nextActive }, nowIso);
+  }
+
+  return {
+    ...state,
+    activeSegment: nextActive
+  };
+}
+
+export function commitActiveSegment(state: TranscriptState, nowIso = new Date().toISOString()): TranscriptState {
+  const active = state.activeSegment;
+  if (!active || isBlankSegment(active)) {
+    return {
+      ...state,
+      activeSegment: null
+    };
+  }
+
+  const endedAtMs = Math.max(active.startedAtMs, inferSegmentEndMs(active));
+  return {
+    segments: [
+      ...state.segments,
+      {
+        ...active,
+        endedAtMs,
+        isFinal: true,
+        updatedAt: nowIso
+      }
+    ],
+    activeSegment: null
+  };
+}
+
+export function getDisplaySegments(state: TranscriptState, count = 3): TranscriptSegment[] {
+  const all = state.activeSegment ? [...state.segments, state.activeSegment] : state.segments;
+  return all.slice(Math.max(0, all.length - count));
+}
+
+export function getAllSegments(state: TranscriptState): TranscriptSegment[] {
+  return state.activeSegment ? [...state.segments, state.activeSegment] : state.segments;
+}
+
+function createSegment(startedAtMs: number, nowIso: string): TranscriptSegment {
+  return {
+    id: createId("seg"),
+    startedAtMs,
+    sourceText: "",
+    translatedText: "",
+    isFinal: false,
+    createdAt: nowIso,
+    updatedAt: nowIso
+  };
+}
+
+function inferNextStartMs(state: TranscriptState): number {
+  const last = state.segments.at(-1);
+  return last?.endedAtMs ?? last?.startedAtMs ?? 0;
+}
+
+function inferSegmentEndMs(segment: TranscriptSegment): number {
+  if (segment.endedAtMs !== undefined) {
+    return segment.endedAtMs;
+  }
+
+  const readableLength = Math.max(segment.sourceText.length, segment.translatedText.length);
+  return segment.startedAtMs + Math.max(1200, readableLength * 90);
+}
+
+function isBlankSegment(segment: TranscriptSegment): boolean {
+  return !segment.sourceText.trim() && !segment.translatedText.trim();
+}
+
+function hasSoftBoundary(text: string): boolean {
+  return /[。！？!?.\n]\s*$/.test(text);
+}

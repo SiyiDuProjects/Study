@@ -1,0 +1,17 @@
+{
+  "name": "中韩课堂字幕器",
+  "short_name": "课堂字幕",
+  "description": "韩语课堂实时中文字幕与本机逐字稿保存。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#f8fafc",
+  "icons": [
+    {
+      "src": "/icons/subtitle-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
