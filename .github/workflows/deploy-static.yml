@@ -1,0 +1,134 @@
+name: Deploy Jiahuan static app
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - ".github/workflows/deploy-static.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-jiahuan-static
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Configure SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${SSH_PORT:-22}" "$SSH_HOST" >> ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host deploy-server
+            HostName $SSH_HOST
+            Port ${SSH_PORT:-22}
+            User $SSH_USER
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Upload static files
+        env:
+          DEPLOY_PATH: ${{ secrets.JIAHUAN_DEPLOY_PATH || '/opt/jiahuan/dist' }}
+          REMOTE_TMP: /tmp/jiahuan-dist-${{ github.sha }}
+        run: |
+          test -n "$DEPLOY_PATH"
+          case "$REMOTE_TMP" in /tmp/jiahuan-dist-*) ;; *) exit 1 ;; esac
+          ssh deploy-server "rm -rf '$REMOTE_TMP' && mkdir -p '$REMOTE_TMP'"
+          rsync -az --delete dist/ deploy-server:"$REMOTE_TMP"/
+          ssh deploy-server "DEPLOY_PATH='$DEPLOY_PATH' REMOTE_TMP='$REMOTE_TMP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          case "$REMOTE_TMP" in /tmp/jiahuan-dist-*) ;; *) exit 1 ;; esac
+          sudo mkdir -p "$DEPLOY_PATH"
+          sudo rsync -a --delete "$REMOTE_TMP"/ "$DEPLOY_PATH"/
+          rm -rf "$REMOTE_TMP"
+          REMOTE
+
+      - name: Refresh static container
+        env:
+          COMPOSE_PATH: ${{ secrets.COMPOSE_PATH }}
+          COMPOSE_SERVICE: ${{ secrets.JIAHUAN_COMPOSE_SERVICE || 'jiahuan_web' }}
+        run: |
+          test -n "$COMPOSE_PATH"
+          test -n "$COMPOSE_SERVICE"
+          ssh deploy-server "COMPOSE_PATH='$COMPOSE_PATH' COMPOSE_SERVICE='$COMPOSE_SERVICE' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$COMPOSE_PATH"
+          sudo docker compose up -d "$COMPOSE_SERVICE"
+          sudo docker ps --filter "name=$COMPOSE_SERVICE"
+          REMOTE
+
+      - name: Public URL check
+        env:
+          PUBLIC_URL: ${{ secrets.JIAHUAN_PUBLIC_URL }}
+        run: |
+          test -n "$PUBLIC_URL"
+          for attempt in $(seq 1 24); do
+            if curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL" >/dev/null; then
+              exit 0
+            fi
+            echo "Public URL check failed; retrying in 5 seconds ($attempt/24)."
+            sleep 5
+          done
+          curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL" >/dev/null
