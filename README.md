@@ -88,7 +88,7 @@ sudo docker compose up -d jiahuan_web
 
 ## CI/CD 部署
 
-本仓库已添加 GitHub Actions workflow：`.github/workflows/deploy-static.yml`。当前本地仓库还没有 GitHub remote，需要先创建 GitHub 项目并 push `main`。
+本仓库已添加 GitHub Actions workflow：`.github/workflows/deploy-static.yml`。GitHub repo 是 `https://github.com/SiyiDuProjects/Jiahuan`。
 
 workflow 会执行：
 
@@ -97,6 +97,7 @@ npm ci
 npm test
 npm run build
 rsync dist/ 到 VPS
+修正静态文件权限
 docker compose up -d jiahuan_web
 curl 公网 URL
 ```
@@ -118,9 +119,8 @@ JIAHUAN_PUBLIC_URL=https://jiahuan.gaid.studio
 
 ## GitHub 连接
 
-当前机器已安装 GitHub CLI，但本机 `gh` token 失效。重新登录后可以执行：
+当前 remote 指向：
 
 ```bash
-gh auth login -h github.com
-gh repo create korean-class-subtitler --private --source=. --remote=origin --push
+https://github.com/SiyiDuProjects/Jiahuan.git
 ```

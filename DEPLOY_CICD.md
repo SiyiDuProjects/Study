@@ -2,7 +2,7 @@
 
 This repo deploys a static Vite build to the existing VPS used by the sibling `Interview` and `connection` projects.
 
-There is currently no GitHub remote configured in this local checkout. Create the GitHub repository first, then push `main` so the workflow can run.
+GitHub repository: `https://github.com/SiyiDuProjects/Jiahuan`.
 
 ## What It Does
 
@@ -14,6 +14,7 @@ GitHub Actions
 -> npm test
 -> npm run build
 -> rsync dist/ to VPS
+-> normalize static file permissions
 -> docker compose up -d jiahuan_web
 -> curl public URL
 ```
@@ -89,20 +90,20 @@ Service: http://localhost:8091
 
 The app uses the microphone, so it must be served over HTTPS. Cloudflare Tunnel provides that for the public hostname.
 
-## GitHub Repository Setup
+## GitHub Repository
 
-After creating the GitHub repo:
+The local checkout should point at the organization repository:
 
 ```powershell
-git remote add origin git@github.com:SiyiDuProjects/<repo-name>.git
+git remote set-url origin https://github.com/SiyiDuProjects/Jiahuan.git
 git push -u origin main
 ```
 
-If using GitHub CLI after login:
+If recreating from scratch with GitHub CLI:
 
 ```powershell
 gh auth login -h github.com
-gh repo create SiyiDuProjects/korean-class-subtitler --private --source=. --remote=origin --push
+gh repo create SiyiDuProjects/Jiahuan --private --source=. --remote=origin --push
 ```
 
 ## Troubleshooting

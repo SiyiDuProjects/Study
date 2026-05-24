@@ -33,7 +33,7 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 
 This repo is a static React/Vite PWA. Vercel is not required; `npm.cmd run build` produces `dist/`, which can be served by any HTTPS static host.
 
-There is currently no GitHub remote configured in this local checkout. Before CI/CD can run, create a GitHub repository and push `main`.
+GitHub remote: `https://github.com/SiyiDuProjects/Jiahuan.git`.
 
 Known VPS context from sibling `Interview` and `connection` projects:
 
@@ -81,3 +81,4 @@ CI/CD deployment:
 - Required shared GitHub Actions secrets: `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_KEY`, `COMPOSE_PATH`
 - Required project-specific secrets: `JIAHUAN_DEPLOY_PATH`, `JIAHUAN_COMPOSE_SERVICE`, `JIAHUAN_PUBLIC_URL`
 - The workflow runs `npm ci`, `npm test`, `npm run build`, syncs `dist/` to the VPS, runs `docker compose up -d jiahuan_web`, then checks the public URL.
+- After syncing `dist/`, the workflow normalizes file permissions to `755` for directories and `644` for files so nginx can read them.

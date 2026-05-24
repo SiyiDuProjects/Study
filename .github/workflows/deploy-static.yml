@@ -102,6 +102,8 @@ jobs:
           case "$REMOTE_TMP" in /tmp/jiahuan-dist-*) ;; *) exit 1 ;; esac
           sudo mkdir -p "$DEPLOY_PATH"
           sudo rsync -a --delete "$REMOTE_TMP"/ "$DEPLOY_PATH"/
+          sudo find "$DEPLOY_PATH" -type d -exec chmod 755 {} +
+          sudo find "$DEPLOY_PATH" -type f -exec chmod 644 {} +
           rm -rf "$REMOTE_TMP"
           REMOTE
 
