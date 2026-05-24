@@ -2,8 +2,12 @@ node_modules
 dist
 .DS_Store
 *.local
+*.log
 .env
 .env.*
+.api-key*
+secrets/
+*.pem
 coverage
 playwright-report
 test-results
