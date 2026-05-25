@@ -1,4 +1,4 @@
-import type { RealtimeTranscriptDelta, TranscriptSegment, TranscriptState } from "../types";
+import type { RealtimeTranscriptDelta, RealtimeTranscriptSegment, TranscriptSegment, TranscriptState } from "../types";
 import { createId } from "./id";
 
 const HARD_SEGMENT_LIMIT = 260;
@@ -58,6 +58,37 @@ export function commitActiveSegment(state: TranscriptState, nowIso = new Date().
         updatedAt: nowIso
       }
     ],
+    activeSegment: null
+  };
+}
+
+export function appendTranscriptSegment(
+  state: TranscriptState,
+  segment: RealtimeTranscriptSegment,
+  nowIso = new Date().toISOString()
+): TranscriptState {
+  const sourceText = segment.sourceText.trim();
+  const translatedText = segment.translatedText.trim();
+  if (!sourceText && !translatedText) {
+    return state;
+  }
+
+  const committedState = commitActiveSegment(state, nowIso);
+  const startedAtMs = segment.elapsedMs ?? inferNextStartMs(committedState);
+  const nextSegment: TranscriptSegment = {
+    id: createId("seg"),
+    startedAtMs,
+    endedAtMs: startedAtMs + Math.max(1200, Math.max(sourceText.length, translatedText.length) * 90),
+    sourceText,
+    translatedText,
+    isFinal: true,
+    createdAt: nowIso,
+    updatedAt: nowIso
+  };
+
+  return {
+    ...committedState,
+    segments: [...committedState.segments, nextSegment],
     activeSegment: null
   };
 }

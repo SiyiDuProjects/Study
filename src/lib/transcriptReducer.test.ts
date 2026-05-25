@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyTranscriptDelta, commitActiveSegment, createTranscriptState, getDisplaySegments } from "./transcriptReducer";
+import {
+  appendTranscriptSegment,
+  applyTranscriptDelta,
+  commitActiveSegment,
+  createTranscriptState,
+  getDisplaySegments
+} from "./transcriptReducer";
 
 describe("transcript reducer", () => {
   it("merges Korean source and Chinese translation into the active segment", () => {
@@ -34,5 +40,25 @@ describe("transcript reducer", () => {
     }
 
     expect(getDisplaySegments(state, 2).map((segment) => segment.translatedText)).toEqual(["三", "四"]);
+  });
+
+  it("appends a finalized source and translation segment", () => {
+    let state = createTranscriptState();
+
+    state = appendTranscriptSegment(
+      state,
+      {
+        sourceText: "오늘은 문법을 이야기합니다.",
+        translatedText: "今天讨论语法。",
+        elapsedMs: 1200
+      },
+      "2026-05-24T00:00:00.000Z"
+    );
+
+    expect(state.activeSegment).toBeNull();
+    expect(state.segments).toHaveLength(1);
+    expect(state.segments[0].sourceText).toBe("오늘은 문법을 이야기합니다.");
+    expect(state.segments[0].translatedText).toBe("今天讨论语法。");
+    expect(state.segments[0].startedAtMs).toBe(1200);
   });
 });

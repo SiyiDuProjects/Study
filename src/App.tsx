@@ -4,7 +4,7 @@ import {
   Download,
   Eye,
   EyeOff,
-  KeyRound,
+  FolderOpen,
   Library,
   Mic,
   Pause,
@@ -14,30 +14,53 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import type { AppSettings, ClassSession, ConnectionStatus, RealtimeTranscriptDelta, TranscriptState } from "./types";
+import { COURSES, DAILY_COURSE_ID, type CourseOption } from "../shared/courses";
+import type {
+  AppSettings,
+  ClassSession,
+  ClassSessionSummary,
+  ConnectionStatus,
+  RealtimeTranscriptDelta,
+  RealtimeTranscriptSegment,
+  TextTranslationModel,
+  TranslationMode,
+  TranscriptState
+} from "./types";
+import {
+  createRealtimeClientSecret,
+  deleteRemoteSession,
+  fetchCourses,
+  getRemoteSession,
+  listRemoteSessions,
+  saveRemoteSession
+} from "./lib/api";
 import { createId } from "./lib/id";
 import { downloadMarkdown } from "./lib/markdown";
+import { RealtimeTranscriptionTranslationClient } from "./lib/realtimeTranscriptionTranslation";
 import { RealtimeTranslationClient } from "./lib/realtimeTranslation";
 import {
+  appendTranscriptSegment,
   applyTranscriptDelta,
   commitActiveSegment,
   createTranscriptState,
   getAllSegments,
   getDisplaySegments
 } from "./lib/transcriptReducer";
-import { deleteSession, defaultSettings, listSessions, loadSettings, saveSession, saveSettings } from "./lib/storage";
+import { defaultSettings, loadSettings, saveSettings } from "./lib/storage";
 import { formatDateTime, formatDuration, formatTimestamp } from "./lib/time";
 
 type ViewMode = "live" | "records" | "document";
+type LiveSubtitleClient = Pick<RealtimeTranslationClient, "start" | "pause" | "resume" | "stop">;
 
 const COMMIT_DELAY_MS = 1800;
 
 export default function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
-  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [courses, setCourses] = useState<CourseOption[]>(COURSES);
+  const [selectedCourseId, setSelectedCourseId] = useState("");
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [viewMode, setViewMode] = useState<ViewMode>("live");
-  const [sessions, setSessions] = useState<ClassSession[]>([]);
+  const [sessions, setSessions] = useState<ClassSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
   const [transcriptState, setTranscriptState] = useState<TranscriptState>(createTranscriptState);
   const [startedAt, setStartedAt] = useState<Date | null>(null);
@@ -45,23 +68,52 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const clientRef = useRef<RealtimeTranslationClient | null>(null);
+  const clientRef = useRef<LiveSubtitleClient | null>(null);
   const transcriptRef = useRef<TranscriptState>(transcriptState);
   const commitTimerRef = useRef<number | null>(null);
+  const recordingCourseRef = useRef<CourseOption | null>(null);
 
   const visibleSegments = useMemo(() => getDisplaySegments(transcriptState, 3), [transcriptState]);
   const latestSegment = visibleSegments.at(-1);
-  const canStart = status === "idle" || status === "error";
+  const selectedCourse = useMemo(
+    () => courses.find((course) => course.id === selectedCourseId) ?? null,
+    [courses, selectedCourseId]
+  );
+  const canStart = (status === "idle" || status === "error") && Boolean(selectedCourse);
   const isLive = status === "recording" || status === "paused" || status === "connecting" || status === "closing";
 
   useEffect(() => {
+    let active = true;
+
     loadSettings()
       .then((loaded) => {
-        setSettings(loaded);
-        setApiKeyInput(loaded.apiKey ?? "");
+        if (active) {
+          setSettings(loaded);
+        }
       })
       .catch(() => setErrorMessage("读取本机设置失败。"));
-    refreshSessions();
+
+    fetchCourses()
+      .then((remoteCourses) => {
+        if (active) {
+          setCourses(remoteCourses);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setCourses(COURSES);
+        }
+      });
+
+    refreshSessions().catch(() => {
+      if (active) {
+        setErrorMessage("读取服务器记录失败。");
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -90,7 +142,7 @@ export default function App() {
   }, []);
 
   async function refreshSessions() {
-    setSessions(await listSessions());
+    setSessions(await listRemoteSessions());
   }
 
   async function persistSettings(nextSettings: AppSettings) {
@@ -99,20 +151,14 @@ export default function App() {
   }
 
   async function startClass() {
-    const apiKey = apiKeyInput.trim();
-    if (!apiKey) {
-      setErrorMessage("需要先输入 OpenAI API key。");
+    if (!selectedCourse) {
+      setErrorMessage("请先选择课程，或选择日常 / 不选课程。");
       return;
     }
 
-    const nextSettings: AppSettings = {
-      ...settings,
-      apiKey: settings.rememberApiKey ? apiKey : undefined
-    };
-    await persistSettings(nextSettings);
-
     const startTime = new Date();
     const initialState = createTranscriptState();
+    recordingCourseRef.current = selectedCourse;
     setTranscriptState(initialState);
     transcriptRef.current = initialState;
     setStartedAt(startTime);
@@ -121,19 +167,26 @@ export default function App() {
     setViewMode("live");
     setStatus("connecting");
 
-    const client = new RealtimeTranslationClient(apiKey, {
+    const getClientSecret = async () => {
+      const { clientSecret } = await createRealtimeClientSecret(settings.translationMode);
+      return clientSecret;
+    };
+    const callbacks = {
       onOpen: () => setStatus("recording"),
       onDelta: handleRealtimeDelta,
-      onError: (message) => {
+      onSegment: handleRealtimeSegment,
+      onError: (message: string) => {
         setErrorMessage(message);
         setStatus("error");
       },
       onClose: () => {
-        if (status !== "closing") {
-          setStatus((current) => (current === "closing" ? current : "idle"));
-        }
+        setStatus((current) => (current === "closing" ? current : "idle"));
       }
-    });
+    };
+    const client =
+      settings.translationMode === "realtime-translate"
+        ? new RealtimeTranslationClient(getClientSecret, callbacks)
+        : new RealtimeTranscriptionTranslationClient(getClientSecret, settings.textTranslationModel, callbacks);
 
     clientRef.current = client;
     try {
@@ -151,6 +204,14 @@ export default function App() {
       return next;
     });
     scheduleCommit();
+  }
+
+  function handleRealtimeSegment(segment: RealtimeTranscriptSegment) {
+    setTranscriptState((current) => {
+      const next = appendTranscriptSegment(current, segment);
+      transcriptRef.current = next;
+      return next;
+    });
   }
 
   function scheduleCommit() {
@@ -190,49 +251,84 @@ export default function App() {
 
     const endTime = new Date();
     const started = startedAt ?? endTime;
+    const course = recordingCourseRef.current ?? selectedCourse ?? COURSES.find((item) => item.id === DAILY_COURSE_ID) ?? COURSES[0];
     const session: ClassSession = {
       id: createId("class"),
-      title: `韩语课堂 ${formatDateTime(started.toISOString())}`,
+      title: `${course.id === DAILY_COURSE_ID ? "日常" : course.name} ${formatDateTime(started.toISOString())}`,
+      courseId: course.id,
+      courseCode: course.code,
+      courseName: course.name,
+      courseTerm: course.term,
+      courseFolderName: course.folderName,
       startedAt: started.toISOString(),
       endedAt: endTime.toISOString(),
       durationMs: endTime.getTime() - started.getTime(),
       sourceLanguage: "ko",
       targetLanguage: "zh",
       models: {
-        translation: "gpt-realtime-translate",
-        transcription: "gpt-realtime-whisper"
+        translation:
+          settings.translationMode === "realtime-translate" ? "gpt-realtime-translate" : settings.textTranslationModel,
+        transcription: "gpt-realtime-whisper",
+        mode: settings.translationMode
       },
       segments: getAllSegments(finalTranscript).map((segment) => ({ ...segment, isFinal: true }))
     };
 
-    await saveSession(session);
-    await refreshSessions();
-    setSelectedSession(session);
-    setViewMode("document");
-    setStatus("idle");
-    setStartedAt(null);
-    setElapsedMs(0);
+    try {
+      const savedSession = await saveRemoteSession(session);
+      await refreshSessions();
+      setSelectedSession(savedSession);
+      setErrorMessage("");
+    } catch (error) {
+      setSelectedSession(session);
+      setErrorMessage(error instanceof Error ? `记录已生成，但保存到服务器失败：${error.message}` : "记录已生成，但保存到服务器失败。");
+    } finally {
+      recordingCourseRef.current = null;
+      setViewMode("document");
+      setStatus("idle");
+      setStartedAt(null);
+      setElapsedMs(0);
+    }
   }
 
-  async function removeSession(session: ClassSession) {
-    await deleteSession(session.id);
+  async function openSession(session: ClassSessionSummary) {
+    try {
+      const fullSession = await getRemoteSession(session.id);
+      setSelectedSession(fullSession);
+      setViewMode("document");
+      setErrorMessage("");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "读取记录失败。");
+    }
+  }
+
+  async function exportSession(session: ClassSessionSummary) {
+    try {
+      downloadMarkdown(await getRemoteSession(session.id));
+      setErrorMessage("");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "导出记录失败。");
+    }
+  }
+
+  async function removeSession(session: ClassSessionSummary) {
+    await deleteRemoteSession(session.id);
     if (selectedSession?.id === session.id) {
       setSelectedSession(null);
     }
     await refreshSessions();
   }
 
-  async function updateRememberApiKey(rememberApiKey: boolean) {
-    const nextSettings: AppSettings = {
-      ...settings,
-      rememberApiKey,
-      apiKey: rememberApiKey ? apiKeyInput.trim() : undefined
-    };
-    await persistSettings(nextSettings);
-  }
-
   async function updateSubtitleScale(value: number) {
     await persistSettings({ ...settings, subtitleScale: value });
+  }
+
+  async function updateTranslationMode(translationMode: TranslationMode) {
+    await persistSettings({ ...settings, translationMode });
+  }
+
+  async function updateTextTranslationModel(textTranslationModel: TextTranslationModel) {
+    await persistSettings({ ...settings, textTranslationModel });
   }
 
   async function toggleKoreanInline() {
@@ -260,15 +356,15 @@ export default function App() {
           <button className="icon-button secondary-nav" type="button" onClick={() => setViewMode("records")} title="记录">
             <Library size={20} />
           </button>
-          {canStart ? (
-            <button className="primary-action" type="button" onClick={startClass} title="开始">
-              <Mic size={19} />
-              <span className="control-label">开始</span>
-            </button>
-          ) : status === "paused" ? (
+          {status === "paused" ? (
             <button className="primary-action" type="button" onClick={resumeClass} title="继续">
               <Play size={19} />
               <span className="control-label">继续</span>
+            </button>
+          ) : canStart || status === "idle" || status === "error" ? (
+            <button className="primary-action" type="button" onClick={startClass} title="开始" disabled={!canStart}>
+              <Mic size={19} />
+              <span className="control-label">开始</span>
             </button>
           ) : (
             <button className="icon-button control" type="button" onClick={pauseClass} title="暂停" disabled={status !== "recording"}>
@@ -283,24 +379,27 @@ export default function App() {
 
       {settingsOpen ? (
         <section className="settings-panel" aria-label="设置">
-          <label className="key-field">
-            <KeyRound size={18} />
-            <input
-              value={apiKeyInput}
-              onChange={(event) => setApiKeyInput(event.target.value)}
-              type="password"
-              placeholder="OpenAI API key"
-              autoComplete="off"
-              spellCheck={false}
-            />
+          <label className="select-field">
+            翻译
+            <select
+              value={settings.translationMode}
+              onChange={(event) => updateTranslationMode(event.target.value as TranslationMode)}
+              disabled={isLive}
+            >
+              <option value="transcribe-then-translate">转录 + GPT 翻译</option>
+              <option value="realtime-translate">Realtime Translate</option>
+            </select>
           </label>
-          <label className="checkbox-field">
-            <input
-              checked={settings.rememberApiKey}
-              onChange={(event) => updateRememberApiKey(event.target.checked)}
-              type="checkbox"
-            />
-            记住本设备
+          <label className="select-field">
+            模型
+            <select
+              value={settings.textTranslationModel}
+              onChange={(event) => updateTextTranslationModel(event.target.value as TextTranslationModel)}
+              disabled={isLive || settings.translationMode === "realtime-translate"}
+            >
+              <option value="gpt-5.4-mini">GPT-5.4 mini</option>
+              <option value="gpt-5.4-nano">GPT-5.4 nano</option>
+            </select>
           </label>
           <label className="range-field">
             字号
@@ -342,21 +441,13 @@ export default function App() {
             status={status}
             segments={visibleSegments}
             showKorean={settings.showKoreanInline}
-            hasApiKey={Boolean(apiKeyInput.trim())}
-            onOpenSettings={() => setSettingsOpen(true)}
+            courses={courses}
+            selectedCourseId={selectedCourseId}
+            canChooseCourse={!isLive}
+            onSelectCourse={setSelectedCourseId}
           />
         ) : null}
-        {viewMode === "records" ? (
-          <RecordsView
-            sessions={sessions}
-            onSelect={(session) => {
-              setSelectedSession(session);
-              setViewMode("document");
-            }}
-            onDelete={removeSession}
-            onExport={downloadMarkdown}
-          />
-        ) : null}
+        {viewMode === "records" ? <RecordsView sessions={sessions} onSelect={openSession} onDelete={removeSession} onExport={exportSession} /> : null}
         {viewMode === "document" ? (
           <DocumentView
             session={selectedSession}
@@ -390,27 +481,28 @@ function LiveSubtitleView({
   status,
   segments,
   showKorean,
-  hasApiKey,
-  onOpenSettings
+  courses,
+  selectedCourseId,
+  canChooseCourse,
+  onSelectCourse
 }: {
   status: ConnectionStatus;
   segments: ReturnType<typeof getDisplaySegments>;
   showKorean: boolean;
-  hasApiKey: boolean;
-  onOpenSettings: () => void;
+  courses: CourseOption[];
+  selectedCourseId: string;
+  canChooseCourse: boolean;
+  onSelectCourse: (courseId: string) => void;
 }) {
   const hasText = segments.some((segment) => segment.translatedText.trim());
 
   if (!hasText) {
     return (
       <section className="subtitle-stage empty-stage">
-        <p className="empty-subtitle">{emptyMessage(status, hasApiKey)}</p>
-        {!hasApiKey ? (
-          <button className="ghost-button" type="button" onClick={onOpenSettings}>
-            <KeyRound size={18} />
-            输入 API key
-          </button>
+        {canChooseCourse ? (
+          <CoursePicker courses={courses} selectedCourseId={selectedCourseId} onSelectCourse={onSelectCourse} />
         ) : null}
+        <p className="empty-subtitle">{emptyMessage(status, Boolean(selectedCourseId))}</p>
       </section>
     );
   }
@@ -432,17 +524,52 @@ function LiveSubtitleView({
   );
 }
 
+function CoursePicker({
+  courses,
+  selectedCourseId,
+  onSelectCourse
+}: {
+  courses: CourseOption[];
+  selectedCourseId: string;
+  onSelectCourse: (courseId: string) => void;
+}) {
+  return (
+    <div className="course-picker" aria-label="选择课程">
+      <div className="course-picker-title">
+        <FolderOpen size={18} />
+        <span>选择课程</span>
+      </div>
+      <div className="course-grid">
+        {courses.map((course) => (
+          <button
+            className={`course-button ${course.id === selectedCourseId ? "selected" : ""}`}
+            type="button"
+            key={course.id}
+            aria-pressed={course.id === selectedCourseId}
+            onClick={() => onSelectCourse(course.id)}
+          >
+            <strong>{course.name}</strong>
+            <span>{course.id === DAILY_COURSE_ID ? "日常" : `${course.code} · ${course.term}`}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RecordsView({
   sessions,
   onSelect,
   onDelete,
   onExport
 }: {
-  sessions: ClassSession[];
-  onSelect: (session: ClassSession) => void;
-  onDelete: (session: ClassSession) => void;
-  onExport: (session: ClassSession) => void;
+  sessions: ClassSessionSummary[];
+  onSelect: (session: ClassSessionSummary) => void;
+  onDelete: (session: ClassSessionSummary) => void;
+  onExport: (session: ClassSessionSummary) => void;
 }) {
+  const groups = groupSessionsByCourse(sessions);
+
   return (
     <section className="records-view">
       <div className="section-heading">
@@ -450,28 +577,36 @@ function RecordsView({
         <h1>记录</h1>
       </div>
       {sessions.length === 0 ? (
-        <p className="muted">结束一节课后，完整中韩逐字稿会保存在这里。</p>
+        <p className="muted">结束一节课后，完整中韩逐字稿会保存到服务器。</p>
       ) : (
-        <ul className="session-list">
-          {sessions.map((session) => (
-            <li className="session-row" key={session.id}>
-              <button type="button" onClick={() => onSelect(session)}>
-                <strong>{session.title}</strong>
-                <span>
-                  {formatDuration(session.durationMs)} · {session.segments.length} 段
-                </span>
-              </button>
-              <div className="row-actions">
-                <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
-                  <Download size={18} />
-                </button>
-                <button className="icon-button danger" type="button" onClick={() => onDelete(session)} title="删除">
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            </li>
+        <div className="session-groups">
+          {groups.map((group) => (
+            <section className="session-course-group" key={group.courseFolderName}>
+              <h2>{group.courseName}</h2>
+              {group.courseTerm ? <p>{group.courseTerm}</p> : null}
+              <ul className="session-list">
+                {group.sessions.map((session) => (
+                  <li className="session-row" key={session.id}>
+                    <button type="button" onClick={() => onSelect(session)}>
+                      <strong>{session.title}</strong>
+                      <span>
+                        {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {session.segmentCount} 段
+                      </span>
+                    </button>
+                    <div className="row-actions">
+                      <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
+                        <Download size={18} />
+                      </button>
+                      <button className="icon-button danger" type="button" onClick={() => onDelete(session)} title="删除">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </section>
   );
@@ -506,7 +641,9 @@ function DocumentView({
         <div>
           <h1>{session.title}</h1>
           <p>
-            {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)}
+            {session.courseName}
+            {session.courseTerm ? ` · ${session.courseTerm}` : ""} · {formatDateTime(session.startedAt)} ·{" "}
+            {formatDuration(session.durationMs)}
           </p>
         </div>
         <button className="primary-action" type="button" onClick={() => onExport(session)}>
@@ -534,9 +671,9 @@ function DocumentView({
   );
 }
 
-function emptyMessage(status: ConnectionStatus, hasApiKey: boolean) {
-  if (!hasApiKey) {
-    return "先输入 API key";
+function emptyMessage(status: ConnectionStatus, hasCourse: boolean) {
+  if (!hasCourse) {
+    return "请选择课程或日常";
   }
   if (status === "connecting") {
     return "正在连接...";
@@ -548,4 +685,34 @@ function emptyMessage(status: ConnectionStatus, hasApiKey: boolean) {
     return "已暂停";
   }
   return "准备开始";
+}
+
+function groupSessionsByCourse(sessions: ClassSessionSummary[]) {
+  const groups = new Map<
+    string,
+    {
+      courseFolderName: string;
+      courseName: string;
+      courseTerm: string;
+      sessions: ClassSessionSummary[];
+    }
+  >();
+
+  for (const session of sessions) {
+    const key = session.courseFolderName;
+    const group = groups.get(key);
+    if (group) {
+      group.sessions.push(session);
+      continue;
+    }
+
+    groups.set(key, {
+      courseFolderName: session.courseFolderName,
+      courseName: session.courseName,
+      courseTerm: session.courseTerm,
+      sessions: [session]
+    });
+  }
+
+  return Array.from(groups.values());
 }

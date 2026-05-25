@@ -1,20 +1,24 @@
-name: Deploy Jiahuan static app
+name: Deploy Jiahuan app
 
 on:
   push:
     branches: ["main"]
     paths:
       - "src/**"
+      - "server/**"
+      - "shared/**"
       - "public/**"
       - "index.html"
       - "package.json"
       - "package-lock.json"
       - "tsconfig*.json"
+      - "vite.config.mts"
+      - "vitest.config.mts"
       - ".github/workflows/deploy-static.yml"
   workflow_dispatch:
 
 concurrency:
-  group: deploy-jiahuan-static
+  group: deploy-jiahuan-app
   cancel-in-progress: true
 
 permissions:
@@ -64,6 +68,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Prepare release
+        run: |
+          mkdir -p release
+          cp -r dist dist-server package.json package-lock.json release/
+
       - name: Configure SSH
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -88,29 +97,33 @@ jobs:
             StrictHostKeyChecking yes
           EOF
 
-      - name: Upload static files
+      - name: Upload app release
         env:
-          DEPLOY_PATH: ${{ secrets.JIAHUAN_DEPLOY_PATH || '/opt/jiahuan/dist' }}
-          REMOTE_TMP: /tmp/jiahuan-dist-${{ github.sha }}
+          APP_PATH: ${{ secrets.JIAHUAN_APP_PATH || '/opt/jiahuan/app' }}
+          DATA_PATH: ${{ secrets.JIAHUAN_DATA_PATH || '/opt/jiahuan/data' }}
+          REMOTE_TMP: /tmp/jiahuan-app-${{ github.sha }}
         run: |
-          test -n "$DEPLOY_PATH"
-          case "$REMOTE_TMP" in /tmp/jiahuan-dist-*) ;; *) exit 1 ;; esac
+          test -n "$APP_PATH"
+          test -n "$DATA_PATH"
+          case "$REMOTE_TMP" in /tmp/jiahuan-app-*) ;; *) exit 1 ;; esac
           ssh deploy-server "rm -rf '$REMOTE_TMP' && mkdir -p '$REMOTE_TMP'"
-          rsync -az --delete dist/ deploy-server:"$REMOTE_TMP"/
-          ssh deploy-server "DEPLOY_PATH='$DEPLOY_PATH' REMOTE_TMP='$REMOTE_TMP' bash -s" <<'REMOTE'
+          rsync -az --delete release/ deploy-server:"$REMOTE_TMP"/
+          ssh deploy-server "APP_PATH='$APP_PATH' DATA_PATH='$DATA_PATH' REMOTE_TMP='$REMOTE_TMP' bash -s" <<'REMOTE'
           set -euo pipefail
-          case "$REMOTE_TMP" in /tmp/jiahuan-dist-*) ;; *) exit 1 ;; esac
-          sudo mkdir -p "$DEPLOY_PATH"
-          sudo rsync -a --delete "$REMOTE_TMP"/ "$DEPLOY_PATH"/
-          sudo find "$DEPLOY_PATH" -type d -exec chmod 755 {} +
-          sudo find "$DEPLOY_PATH" -type f -exec chmod 644 {} +
+          case "$REMOTE_TMP" in /tmp/jiahuan-app-*) ;; *) exit 1 ;; esac
+          sudo mkdir -p "$APP_PATH" "$DATA_PATH"
+          sudo rsync -a --delete "$REMOTE_TMP"/ "$APP_PATH"/
+          sudo docker run --rm -v "$APP_PATH":/app -w /app node:22-bookworm-slim npm ci --omit=dev
+          sudo find "$APP_PATH" -type d -exec chmod 755 {} +
+          sudo find "$APP_PATH" -type f -exec chmod 644 {} +
+          sudo find "$DATA_PATH" -type d -exec chmod 755 {} +
           rm -rf "$REMOTE_TMP"
           REMOTE
 
-      - name: Refresh static container
+      - name: Refresh app container
         env:
           COMPOSE_PATH: ${{ secrets.COMPOSE_PATH }}
-          COMPOSE_SERVICE: ${{ secrets.JIAHUAN_COMPOSE_SERVICE || 'jiahuan_web' }}
+          COMPOSE_SERVICE: ${{ secrets.JIAHUAN_COMPOSE_SERVICE || 'jiahuan_app' }}
         run: |
           test -n "$COMPOSE_PATH"
           test -n "$COMPOSE_SERVICE"
@@ -127,10 +140,10 @@ jobs:
         run: |
           test -n "$PUBLIC_URL"
           for attempt in $(seq 1 24); do
-            if curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL" >/dev/null; then
+            if curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL/api/health" >/dev/null; then
               exit 0
             fi
             echo "Public URL check failed; retrying in 5 seconds ($attempt/24)."
             sleep 5
           done
-          curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL" >/dev/null
+          curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL/api/health" >/dev/null

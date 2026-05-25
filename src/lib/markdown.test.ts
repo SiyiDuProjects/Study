@@ -3,10 +3,15 @@ import type { ClassSession } from "../types";
 import { buildMarkdownTranscript } from "./markdown";
 
 describe("markdown export", () => {
-  it("exports Chinese main transcript with Korean source details", () => {
+  it("exports course metadata, Chinese main transcript, and Korean source details", () => {
     const session: ClassSession = {
       id: "class_1",
-      title: "韩语课堂",
+      title: "아카데믹한국어듣기말하기",
+      courseId: "202610HY20215",
+      courseCode: "202610HY20215",
+      courseName: "아카데믹한국어듣기말하기",
+      courseTerm: "2026년 1학기",
+      courseFolderName: "202610HY20215_아카데믹한국어듣기말하기",
       startedAt: "2026-05-24T18:00:00.000Z",
       endedAt: "2026-05-24T18:30:00.000Z",
       durationMs: 30 * 60 * 1000,
@@ -32,7 +37,9 @@ describe("markdown export", () => {
 
     const markdown = buildMarkdownTranscript(session);
 
-    expect(markdown).toContain("# 韩语课堂");
+    expect(markdown).toContain("# 아카데믹한국어듣기말하기");
+    expect(markdown).toContain("- 课程：아카데믹한국어듣기말하기");
+    expect(markdown).toContain("- 文件夹：202610HY20215\\_아카데믹한국어듣기말하기");
     expect(markdown).toContain("今天我们讨论语法。");
     expect(markdown).toContain("<summary>韩文原文</summary>");
     expect(markdown).toContain("오늘은 문법을 이야기합니다.");

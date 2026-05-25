@@ -192,29 +192,8 @@ button {
   display: none;
 }
 
-.key-field {
-  min-width: min(420px, 42vw);
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  color: #64748b;
-  background: #ffffff;
-}
-
-.key-field input {
-  width: 100%;
-  border: 0;
-  outline: 0;
-  color: #0f172a;
-  background: transparent;
-}
-
-.checkbox-field,
-.range-field {
+.range-field,
+.select-field {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -226,6 +205,77 @@ button {
 .range-field input {
   width: 120px;
   accent-color: #0f766e;
+}
+
+.select-field select {
+  min-height: 38px;
+  padding: 0 34px 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.select-field select:disabled {
+  opacity: 0.58;
+}
+
+.course-picker {
+  width: min(920px, 100%);
+  display: grid;
+  gap: 12px;
+}
+
+.course-picker-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #334155;
+  font-weight: 720;
+}
+
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.course-button {
+  min-height: 74px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #0f172a;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.course-button:hover {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+
+.course-button.selected {
+  border-color: #0f766e;
+  background: #ccfbf1;
+  box-shadow: inset 0 0 0 1px #0f766e;
+}
+
+.course-button strong {
+  overflow-wrap: anywhere;
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.course-button span {
+  color: #475569;
+  font-size: 0.84rem;
+  line-height: 1.25;
 }
 
 .error-banner {
@@ -352,6 +402,29 @@ button {
   gap: 10px;
   margin: 0;
   padding: 0;
+}
+
+.session-groups {
+  display: grid;
+  gap: 22px;
+}
+
+.session-course-group {
+  display: grid;
+  gap: 10px;
+}
+
+.session-course-group h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.12rem;
+  line-height: 1.3;
+}
+
+.session-course-group > p {
+  margin: -4px 0 2px;
+  color: #64748b;
+  font-size: 0.92rem;
 }
 
 .session-row {
@@ -500,8 +573,12 @@ button {
     flex-wrap: wrap;
   }
 
-  .key-field {
-    min-width: 100%;
+  .course-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-button {
+    min-height: 68px;
   }
 
   .subtitle-stage {

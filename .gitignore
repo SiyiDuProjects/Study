@@ -1,5 +1,7 @@
 node_modules
 dist
+dist-server
+data
 .DS_Store
 *.local
 *.log

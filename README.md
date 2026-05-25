@@ -1,126 +1,80 @@
 # 中韩课堂字幕器
 
-一个面向手机和 iPad 的本机优先 PWA，用于韩语课堂实时中文字幕和课后完整中韩逐字稿保存。
+React + Vite + TypeScript PWA，用于韩语课堂实时中文字幕、韩文转录保存，以及按课程归档本地 Markdown 导出。
 
 ## 功能
 
-- 实时麦克风输入，使用 `gpt-realtime-translate` 做韩语到中文翻译。
-- 同一会话启用 `gpt-realtime-whisper`，保存韩文源语言转录。
-- 字幕器主屏以大号中文为核心，上一两句弱化显示，韩文默认隐藏。
-- 课后记录保存在浏览器 IndexedDB，可导出 Markdown。
-- 不保存课堂音频，不做云同步、摘要、复习卡或复杂笔记编辑。
+- 实时麦克风输入，默认使用 `gpt-realtime-translate` 做韩语到中文翻译，并保存韩文源语言转录。
+- API key 只放在服务器，浏览器通过 `/api/realtime/client-secret` 获取短期 Realtime client secret。
+- 录音前必须选择课程，也可以选择 `日常 / 不选课程`。
+- 课后记录保存到服务器 SQLite，同一个受保护网站下的不同设备都能看到同一批记录。
+- 不保存、不上传到本项目服务器持久化原始课堂音频；只保存文本 transcript 和课堂元数据。
 
 ## 本地运行
 
-```bash
+```powershell
 npm.cmd install
+$env:OPENAI_API_KEY="sk-..."
 npm.cmd run dev
 ```
 
-打开本机地址后，在设置里输入 OpenAI API key，允许麦克风权限，然后点击“开始”。
-
-## 重要安全说明
-
-当前实现按个人私用原型处理，浏览器会使用 Realtime WebSocket 的 `openai-insecure-api-key.*` 子协议连接 OpenAI。不要公开部署这个版本，也不要把 API key 提交到仓库。
-
-更适合长期使用的版本应该增加一个轻量后端：标准 API key 只放在服务端，前端只拿短期 client secret。
+打开 Vite 地址后，允许麦克风权限，选择课程或日常，然后点击开始。
 
 ## 脚本
 
-```bash
-npm.cmd run dev       # 开发服务器
-npm.cmd run build     # 类型检查 + 构建
-npm.cmd run test      # 单元测试
+```powershell
+npm.cmd run dev          # 同时启动 Express API 和 Vite
+npm.cmd run test         # Vitest
+npm.cmd run build        # TypeScript + Vite 生产构建
+npm.cmd run server:start # 运行已构建的 Express 服务
 ```
+
+## 服务端环境变量
+
+```text
+OPENAI_API_KEY=服务器端 OpenAI API key
+PORT=3001
+JIAHUAN_DB_PATH=/data/jiahuan.sqlite
+JIAHUAN_STATIC_DIR=/app/dist
+```
+
+生产环境通过 Cloudflare Access 保护站点入口；应用内不实现账号系统。
 
 ## VPS 部署
 
-这个项目是纯前端 Vite PWA，不需要 Vercel。`npm.cmd run build` 会生成 `dist/`，把它作为静态文件放到 VPS 上即可。
-
-已知 VPS 信息沿用 `Interview` 和 `connection` 项目：
-
-- Host: `49.51.38.235`
-- SSH user: `ubuntu`
-- SSH key: `C:\Users\Administrator\Desktop\Projects\Siyi.pem`
-- VPS Compose 路径：`/home/ubuntu/muxing`
-- 建议静态文件路径：`/opt/jiahuan/dist`
-- 建议本机端口：`8091`，避开已有 `8000`、`8080`、`8787`、`20241`、`40000`
-- 建议域名：`jiahuan.gaid.studio` 或 `subtitle.gaid.studio`
-
-推荐部署方式是在 VPS 现有 `/home/ubuntu/muxing/docker-compose.yml` 里加一个只监听 localhost 的静态服务，例如：
+推荐在现有 VPS `/home/ubuntu/muxing/docker-compose.yml` 中使用一个 Node 容器同时服务静态前端和 `/api`：
 
 ```yaml
-jiahuan_web:
-  image: nginx:alpine
-  container_name: jiahuan_web
+jiahuan_app:
+  image: node:22-bookworm-slim
+  container_name: jiahuan_app
   restart: always
+  working_dir: /app
+  command: ["node", "dist-server/server/index.js"]
   ports:
     - "127.0.0.1:8091:80"
+  environment:
+    NODE_ENV: production
+    PORT: "80"
+    JIAHUAN_DB_PATH: /data/jiahuan.sqlite
+    JIAHUAN_STATIC_DIR: /app/dist
+  env_file:
+    - /home/ubuntu/muxing/jiahuan.env
   volumes:
-    - /opt/jiahuan/dist:/usr/share/nginx/html:ro
+    - /opt/jiahuan/app:/app:ro
+    - /opt/jiahuan/data:/data
 ```
 
-然后在 Cloudflare Tunnel 里添加 public hostname：
+`/home/ubuntu/muxing/jiahuan.env` 只放在 VPS：
 
 ```text
-Hostname: jiahuan.gaid.studio
-Service: http://localhost:8091
+OPENAI_API_KEY=sk-...
 ```
 
-手动部署：
-
-```powershell
-npm.cmd run test
-npm.cmd run build
-scp -i C:\Users\Administrator\Desktop\Projects\Siyi.pem -r dist\* ubuntu@49.51.38.235:/tmp/jiahuan-dist/
-```
-
-VPS 上执行：
-
-```bash
-sudo mkdir -p /opt/jiahuan/dist
-sudo rsync -a --delete /tmp/jiahuan-dist/ /opt/jiahuan/dist/
-cd /home/ubuntu/muxing
-sudo docker compose up -d jiahuan_web
-```
-
-注意：当前版本仍然是在浏览器里输入 OpenAI API key，只适合私人原型。公开长期使用前，应加后端签发短期 Realtime client secret，或者至少用 Cloudflare Access 保护这个子域名。
-
-## CI/CD 部署
-
-本仓库已添加 GitHub Actions workflow：`.github/workflows/deploy-static.yml`。GitHub repo 是 `https://github.com/SiyiDuProjects/Jiahuan`。
-
-workflow 会执行：
+Cloudflare Tunnel public hostname 继续指向：
 
 ```text
-npm ci
-npm test
-npm run build
-rsync dist/ 到 VPS
-修正静态文件权限
-docker compose up -d jiahuan_web
-curl 公网 URL
+http://localhost:8091
 ```
 
-需要在 GitHub organization/repository secrets 里配置：
-
-```text
-SSH_HOST=49.51.38.235
-SSH_PORT=22
-SSH_USER=ubuntu
-SSH_KEY=<Siyi.pem 的完整私钥内容>
-COMPOSE_PATH=/home/ubuntu/muxing
-JIAHUAN_DEPLOY_PATH=/opt/jiahuan/dist
-JIAHUAN_COMPOSE_SERVICE=jiahuan_web
-JIAHUAN_PUBLIC_URL=https://jiahuan.gaid.studio
-```
-
-如果最终用 `subtitle.gaid.studio`，把 `JIAHUAN_PUBLIC_URL` 改成那个域名。详细步骤见 `DEPLOY_CICD.md`。
-
-## GitHub 连接
-
-当前 remote 指向：
-
-```bash
-https://github.com/SiyiDuProjects/Jiahuan.git
-```
+GitHub remote: `https://github.com/SiyiDuProjects/Jiahuan.git`.

@@ -5,14 +5,17 @@ export function buildMarkdownTranscript(session: ClassSession): string {
   const lines: string[] = [
     `# ${escapeMarkdown(session.title)}`,
     "",
+    `- 课程：${escapeMarkdown(session.courseName)}`,
+    session.courseTerm ? `- 学期：${escapeMarkdown(session.courseTerm)}` : "",
+    `- 文件夹：${escapeMarkdown(session.courseFolderName)}`,
     `- 日期：${new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(session.startedAt))}`,
     `- 时长：${formatDuration(session.durationMs)}`,
     `- 模型：${session.models.translation} + ${session.models.transcription}`,
-    `- 语言：韩语 -> 中文`,
+    "- 语言：韩语 -> 中文",
     "",
     "## 逐字稿",
     ""
-  ];
+  ].filter(Boolean);
 
   if (session.segments.length === 0) {
     lines.push("_本节课没有保存到字幕文本。_");
@@ -32,7 +35,7 @@ export function downloadMarkdown(session: ClassSession): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `${safeFileName(session.title)}.md`;
+  anchor.download = `${safeFileName(session.courseFolderName)}-${safeFileName(session.title)}.md`;
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
@@ -52,9 +55,11 @@ function escapeMarkdown(value: string): string {
 }
 
 function safeFileName(value: string): string {
-  return value
-    .trim()
-    .replace(/[\\/:*?"<>|]/g, "-")
-    .replace(/\s+/g, "-")
-    .slice(0, 80) || "class-transcript";
+  return (
+    value
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, "-")
+      .replace(/\s+/g, "-")
+      .slice(0, 80) || "class-transcript"
+  );
 }

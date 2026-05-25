@@ -13,7 +13,7 @@ export class RealtimeTranslationClient {
   private isStreaming = false;
 
   constructor(
-    private readonly apiKey: string,
+    private readonly getClientSecret: () => Promise<string>,
     private readonly callbacks: RealtimeClientCallbacks
   ) {}
 
@@ -27,14 +27,15 @@ export class RealtimeTranslationClient {
       }
     });
 
-    this.ws = new WebSocket(TRANSLATION_URL, ["realtime", `openai-insecure-api-key.${this.apiKey}`]);
+    const clientSecret = await this.getClientSecret();
+    this.ws = new WebSocket(TRANSLATION_URL, ["realtime", `openai-insecure-api-key.${clientSecret}`]);
     this.ws.onopen = () => {
       this.configureSession();
       this.startAudioPump();
       this.callbacks.onOpen();
     };
     this.ws.onmessage = (message) => this.handleMessage(message.data);
-    this.ws.onerror = () => this.callbacks.onError("Realtime 连接失败，请检查 API key、网络或模型权限。");
+    this.ws.onerror = () => this.callbacks.onError("Realtime 连接失败，请检查服务器配置、网络或模型权限。");
     this.ws.onclose = () => {
       this.stopLocalAudio();
       this.callbacks.onClose();
