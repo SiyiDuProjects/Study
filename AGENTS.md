@@ -13,6 +13,11 @@ This repo is a React + Vite + TypeScript PWA for Korean class live subtitles and
 
 Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execution policy.
 
+## Change Hygiene
+
+- After completing meaningful code, configuration, deployment, or documentation changes, create a git commit unless the user explicitly asks not to.
+- When a change affects setup, commands, deployment, architecture, environment variables, or project operating notes, update `README.md` and/or `AGENTS.md` in the same change so docs stay current.
+
 ## Architecture
 
 - `src/App.tsx`: app composition, live subtitle workflow, records and document views.
