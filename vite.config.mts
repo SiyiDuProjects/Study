@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
     noDiscovery: true,
-    include: []
+    include: ["lucide-react", "react", "react-dom", "react-dom/client"]
   },
   server: {
     fs: {

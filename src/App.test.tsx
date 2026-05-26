@@ -4,6 +4,8 @@ import { COURSES } from "../shared/courses";
 import App from "./App";
 import type { ClassSession, ClassSessionSummary, RealtimeClientCallbacks } from "./types";
 
+const clipboardWrite = vi.fn();
+
 const mocks = vi.hoisted(() => ({
   createRealtimeClientSecret: vi.fn(),
   deleteRemoteSession: vi.fn(),
@@ -95,6 +97,10 @@ vi.mock("./lib/realtimeTranscriptionTranslation", () => ({
 describe("App classroom workflow", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    Object.defineProperty(window.navigator, "clipboard", {
+      value: { writeText: clipboardWrite },
+      configurable: true
+    });
     mocks.fetchAppConfig.mockResolvedValue({
       realtimeTranslationModel: "rt-test",
       realtimeTranscriptionModel: "tr-test",
@@ -119,6 +125,24 @@ describe("App classroom workflow", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it("shows a clear start workflow before a course is selected", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "先选择本节课" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "先选择课程" }));
+
+    expect(await screen.findByText("请选择本节课对应课程或日常，然后再开始录音。")).toBeTruthy();
+  });
+
+  it("starts recording from the main workflow after selecting a course", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
+    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+
+    expect(await screen.findByText("录音中")).toBeTruthy();
   });
 
   it("selects a course and surfaces a start failure", async () => {
@@ -209,10 +233,40 @@ describe("App classroom workflow", () => {
     expect(confirmSpy).toHaveBeenCalledWith(`删除记录「${summary.title}」？`);
     await waitFor(() => expect(mocks.deleteRemoteSession).toHaveBeenCalledWith(summary.id));
   });
+
+  it("copies a single class record as AI context", async () => {
+    const summary = createSummary();
+    mocks.listRemoteSessions.mockResolvedValue([summary]);
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("资料库"));
+    await screen.findByText(summary.title);
+    fireEvent.click(screen.getByTitle("复制本节课给 AI"));
+
+    await waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(1));
+    expect(clipboardWrite.mock.calls[0][0]).toContain("中文：今天讨论语法。");
+    expect(clipboardWrite.mock.calls[0][0]).toContain("韩文：오늘은 문법을 이야기합니다.");
+    expect(await screen.findByText(/已复制给 AI/)).toBeTruthy();
+  });
+
+  it("copies all saved course records from oldest to newest", async () => {
+    const older = createSession({ id: "class_old", title: "第一课", startedAt: "2026-05-01T10:00:00.000Z" });
+    const newer = createSession({ id: "class_new", title: "第二课", startedAt: "2026-05-08T10:00:00.000Z" });
+    mocks.listRemoteSessions.mockResolvedValue([createSummary(newer), createSummary(older)]);
+    mocks.getRemoteSession.mockImplementation(async (id: string) => (id === "class_old" ? older : newer));
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("资料库"));
+    fireEvent.click(await screen.findByTitle("复制整门课给 AI"));
+
+    await waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(1));
+    const copiedText = clipboardWrite.mock.calls[0][0] as string;
+    expect(copiedText.indexOf("## 第一课")).toBeLessThan(copiedText.indexOf("## 第二课"));
+    expect(copiedText).toContain("- 课次数：2");
+  });
 });
 
-function createSummary(): ClassSessionSummary {
-  const session = createSession();
+function createSummary(session: ClassSession = createSession()): ClassSessionSummary {
   return {
     ...session,
     segmentCount: session.segments.length

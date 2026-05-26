@@ -990,13 +990,6 @@ function ClassStartView({
           </li>
         </ol>
 
-        <CoursePicker
-          courses={courses}
-          selectedCourseId={selectedCourseId}
-          highlight={needsCourseAttention && !hasCourse}
-          onSelectCourse={onSelectCourse}
-        />
-
         <div className="start-panel">
           <div className="prep-summary">
             <span>当前课程</span>
@@ -1019,6 +1012,13 @@ function ClassStartView({
             请选择本节课对应课程或日常，然后再开始录音。
           </p>
         ) : null}
+
+        <CoursePicker
+          courses={courses}
+          selectedCourseId={selectedCourseId}
+          highlight={needsCourseAttention && !hasCourse}
+          onSelectCourse={onSelectCourse}
+        />
       </div>
     </section>
   );

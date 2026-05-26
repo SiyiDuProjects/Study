@@ -2,7 +2,7 @@
 
 ## Project
 
-This repo is a React + Vite + TypeScript PWA plus a Node/Express API for Korean class live subtitles, shared transcript storage, and local Markdown export.
+This repo is a React + Vite + TypeScript PWA plus a Node/Express API for Korean class live subtitles, shared transcript storage, and Markdown/AI-context export.
 
 ## Commands
 
@@ -28,7 +28,7 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - `src/lib/realtimeWebRtc.ts`: shared OpenAI Realtime WebRTC transport.
 - `src/lib/transcriptReducer.ts`: source/translation delta merging and segment commit logic.
 - `src/lib/storage.ts`: local settings and IndexedDB pending-session sync queue.
-- `src/lib/markdown.ts`: Markdown export.
+- `src/lib/markdown.ts`: Markdown export and AI-context transcript builders.
 - `server/app.ts`: Express API for courses, config, OpenAI client secrets, translation, and sessions.
 - `server/openai.ts`: server-side OpenAI client secret and Responses API integration.
 - `server/db.ts`: SQLite session repository.

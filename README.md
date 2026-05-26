@@ -1,6 +1,6 @@
 # 中韩课堂字幕器
 
-React + Vite + TypeScript PWA，用于韩语课堂实时中文字幕、韩文转录保存，以及按课程归档本地 Markdown 导出。
+React + Vite + TypeScript PWA，用于韩语课堂实时中文字幕、韩文转录保存、按课程归档，以及复制/导出课堂上下文。
 
 ## 功能
 
@@ -9,6 +9,7 @@ React + Vite + TypeScript PWA，用于韩语课堂实时中文字幕、韩文转
 - API key 只放在服务器，浏览器通过 `/api/realtime/client-secret` 获取短期 Realtime client secret。
 - 录音前必须选择课程，也可以选择 `日常 / 不选课程`。
 - 课后记录保存到服务器 SQLite，同一个受保护网站下的不同设备都能看到同一批记录。
+- 资料库按课程整理历史课次，可一键复制单节课或整门课当前已保存的中韩转录给 AI。
 - 保存服务器失败时，记录会先进入本机 IndexedDB 待同步队列，服务器恢复后自动重试。
 - 不保存、不上传到本项目服务器持久化原始课堂音频；只保存文本 transcript 和课堂元数据。
 
@@ -20,7 +21,7 @@ $env:OPENAI_API_KEY="sk-..."
 npm.cmd run dev
 ```
 
-打开 Vite 地址后，允许麦克风权限，选择课程或日常，然后点击开始。
+打开 Vite 地址后，在首页选择课程或日常，点击“开始录音”，再允许麦克风权限。
 
 ## 脚本
 
