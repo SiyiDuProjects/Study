@@ -1102,6 +1102,8 @@ function RecordsView({
   onCopyCourse: (group: SessionCourseGroup) => void;
 }) {
   const groups = groupSessionsByCourse(sessions);
+  const [selectedCourseFolder, setSelectedCourseFolder] = useState("");
+  const selectedGroup = groups.find((group) => group.courseFolderName === selectedCourseFolder) ?? groups[0] ?? null;
 
   return (
     <section className="records-view library-view">
@@ -1114,64 +1116,83 @@ function RecordsView({
       </div>
       {sessions.length === 0 ? (
         <p className="muted">结束一节课后，完整中韩逐字稿会保存到服务器。</p>
-      ) : (
-        <div className="session-groups">
-          {groups.map((group) => (
-            <section className="session-course-group library-course-group" key={group.courseFolderName}>
-              <div className="library-course-header">
-                <div>
-                  <h2>{group.courseName}</h2>
-                  <p>
-                    {group.courseTerm ? `${group.courseTerm} · ` : ""}
-                    {group.sessions.length} 次课 · {formatDuration(group.totalDurationMs)} · {group.totalSegments} 段 · 最近{" "}
-                    {formatDateTime(group.latestStartedAt)}
-                  </p>
-                </div>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => onCopyCourse(group)}
-                  title="复制整门课给 AI"
-                  disabled={copyingTarget === `course:${group.courseFolderName}`}
-                >
-                  <Copy size={17} />
-                  {copyingTarget === `course:${group.courseFolderName}` ? "复制中" : "复制整门课"}
-                </button>
+      ) : selectedGroup ? (
+        <div className="library-layout">
+          <aside className="course-index" aria-label="课程目录">
+            <h2>课程目录</h2>
+            <div className="course-index-list">
+              {groups.map((group) => {
+                const isSelected = group.courseFolderName === selectedGroup.courseFolderName;
+                return (
+                  <button
+                    className={`course-index-button ${isSelected ? "selected" : ""}`}
+                    type="button"
+                    key={group.courseFolderName}
+                    aria-pressed={isSelected}
+                    onClick={() => setSelectedCourseFolder(group.courseFolderName)}
+                  >
+                    <strong>{group.courseName}</strong>
+                    <span>{group.sessions.length} 次课 · 最近 {formatDateTime(group.latestStartedAt)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          <section className="session-course-group library-course-group" aria-label={`${selectedGroup.courseName} 课次`}>
+            <div className="library-course-header">
+              <div>
+                <h2>{selectedGroup.courseName}</h2>
+                <p>
+                  {selectedGroup.courseTerm ? `${selectedGroup.courseTerm} · ` : ""}
+                  {selectedGroup.sessions.length} 次课 · {formatDuration(selectedGroup.totalDurationMs)} ·{" "}
+                  {selectedGroup.totalSegments} 段 · 最近 {formatDateTime(selectedGroup.latestStartedAt)}
+                </p>
               </div>
-              <ul className="session-list">
-                {group.sessions.map((session) => (
-                  <li className="session-row" key={session.id}>
-                    <button type="button" onClick={() => onSelect(session)}>
-                      <strong>{session.title}</strong>
-                      <span>
-                        {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {session.segmentCount} 段
-                      </span>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => onCopyCourse(selectedGroup)}
+                title="复制整门课给 AI"
+                disabled={copyingTarget === `course:${selectedGroup.courseFolderName}`}
+              >
+                <Copy size={17} />
+                {copyingTarget === `course:${selectedGroup.courseFolderName}` ? "复制中" : "复制整门课"}
+              </button>
+            </div>
+            <ul className="session-list">
+              {selectedGroup.sessions.map((session) => (
+                <li className="session-row" key={session.id}>
+                  <button type="button" onClick={() => onSelect(session)}>
+                    <strong>{session.title}</strong>
+                    <span>
+                      {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {session.segmentCount} 段
+                    </span>
+                  </button>
+                  <div className="row-actions">
+                    <button
+                      className="row-action-button"
+                      type="button"
+                      onClick={() => onCopySession(session)}
+                      title="复制本节课给 AI"
+                      disabled={copyingTarget === `session:${session.id}`}
+                    >
+                      <Copy size={17} />
+                      <span>{copyingTarget === `session:${session.id}` ? "复制中" : "复制"}</span>
                     </button>
-                    <div className="row-actions">
-                      <button
-                        className="row-action-button"
-                        type="button"
-                        onClick={() => onCopySession(session)}
-                        title="复制本节课给 AI"
-                        disabled={copyingTarget === `session:${session.id}`}
-                      >
-                        <Copy size={17} />
-                        <span>{copyingTarget === `session:${session.id}` ? "复制中" : "复制"}</span>
-                      </button>
-                      <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
-                        <Download size={18} />
-                      </button>
-                      <button className="icon-button danger" type="button" onClick={() => onDelete(session)} title="删除">
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+                    <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
+                      <Download size={18} />
+                    </button>
+                    <button className="icon-button danger" type="button" onClick={() => onDelete(session)} title="删除">
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

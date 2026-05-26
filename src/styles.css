@@ -607,7 +607,12 @@ button {
   text-wrap: balance;
 }
 
-.records-view,
+.records-view {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 32px 18px 48px;
+}
+
 .document-view {
   width: min(980px, 100%);
   margin: 0 auto;
@@ -650,6 +655,66 @@ button {
 .session-groups {
   display: grid;
   gap: 22px;
+}
+
+.library-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.course-index {
+  display: grid;
+  gap: 10px;
+}
+
+.course-index h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.course-index-list {
+  display: grid;
+  gap: 8px;
+}
+
+.course-index-button {
+  min-height: 64px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #0f172a;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.course-index-button:hover {
+  border-color: #0f766e;
+  background: #f0fdfa;
+}
+
+.course-index-button.selected {
+  border-color: #0f766e;
+  background: #ccfbf1;
+  box-shadow: inset 0 0 0 1px #0f766e;
+}
+
+.course-index-button strong {
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.course-index-button span {
+  color: #475569;
+  font-size: 0.82rem;
+  line-height: 1.3;
 }
 
 .session-course-group {
@@ -933,6 +998,7 @@ button {
 
   .document-actions,
   .library-course-header,
+  .library-layout,
   .session-row {
     grid-template-columns: 1fr;
   }

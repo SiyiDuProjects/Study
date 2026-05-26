@@ -249,6 +249,32 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText(/已复制给 AI/)).toBeTruthy();
   });
 
+  it("shows one selected course at a time in the library", async () => {
+    const firstCourse = createSession({ id: "class_first", title: "第一门课记录" });
+    const secondCourse = createSession({
+      id: "class_second",
+      title: "第二门课记录",
+      courseId: "202610HY20235",
+      courseCode: "202610HY20235",
+      courseName: "한국어듣기말하기",
+      courseTerm: "2026년 1학기",
+      courseFolderName: "202610HY20235_한국어듣기말하기"
+    });
+    mocks.listRemoteSessions.mockResolvedValue([createSummary(firstCourse), createSummary(secondCourse)]);
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("资料库"));
+
+    expect(await screen.findByText("课程目录")).toBeTruthy();
+    expect(await screen.findByText("第一门课记录")).toBeTruthy();
+    expect(screen.queryByText("第二门课记录")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /한국어듣기말하기/ }));
+
+    expect(await screen.findByText("第二门课记录")).toBeTruthy();
+    expect(screen.queryByText("第一门课记录")).toBeNull();
+  });
+
   it("copies all saved course records from oldest to newest", async () => {
     const older = createSession({ id: "class_old", title: "第一课", startedAt: "2026-05-01T10:00:00.000Z" });
     const newer = createSession({ id: "class_new", title: "第二课", startedAt: "2026-05-08T10:00:00.000Z" });
