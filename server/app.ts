@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { COURSES } from "../shared/courses.js";
 import { createSessionRepository, type SqliteDatabase } from "./db.js";
+import { loadOpenAIModelConfig, type OpenAIModelConfig } from "./modelConfig.js";
 import { createRealtimeClientSecret, safetyIdentifierFromEmail, translateKoreanToChinese } from "./openai.js";
 import {
   classSessionSchema,
@@ -17,6 +18,7 @@ export interface ServerAppOptions {
   staticDir?: string | null;
   createClientSecret?: typeof createRealtimeClientSecret;
   translateText?: typeof translateKoreanToChinese;
+  modelConfig?: OpenAIModelConfig;
 }
 
 export function createServerApp({
@@ -24,7 +26,8 @@ export function createServerApp({
   openAiApiKey = process.env.OPENAI_API_KEY,
   staticDir,
   createClientSecret = createRealtimeClientSecret,
-  translateText = translateKoreanToChinese
+  translateText = translateKoreanToChinese,
+  modelConfig = loadOpenAIModelConfig()
 }: ServerAppOptions) {
   const app = express();
   const sessions = createSessionRepository(db);
@@ -38,6 +41,10 @@ export function createServerApp({
 
   app.get("/api/courses", (_req, res) => {
     res.json({ courses: COURSES });
+  });
+
+  app.get("/api/config", (_req, res) => {
+    res.json({ config: modelConfig });
   });
 
   app.post("/api/realtime/client-secret", async (req, res, next) => {
@@ -56,7 +63,8 @@ export function createServerApp({
       const clientSecret = await createClientSecret({
         apiKey: openAiApiKey,
         mode: parsed.data.mode,
-        safetyIdentifier: safetyIdentifierFromEmail(getRequesterEmail(req))
+        safetyIdentifier: safetyIdentifierFromEmail(getRequesterEmail(req)),
+        modelConfig
       });
       res.json(clientSecret);
     } catch (error) {
@@ -77,9 +85,15 @@ export function createServerApp({
         return;
       }
 
+      const model = parsed.data.model ?? modelConfig.defaultTextTranslationModel;
+      if (!modelConfig.textTranslationModels.includes(model)) {
+        res.status(400).json({ error: "Unsupported translation model." });
+        return;
+      }
+
       const translatedText = await translateText({
         apiKey: openAiApiKey,
-        model: parsed.data.model,
+        model,
         text: parsed.data.text,
         context: parsed.data.context,
         safetyIdentifier: safetyIdentifierFromEmail(getRequesterEmail(req))

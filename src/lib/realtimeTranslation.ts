@@ -1,14 +1,18 @@
 import type { RealtimeClientCallbacks } from "../types";
+import { startMicrophoneLevelMonitor, type MicrophoneLevelMonitor } from "./microphoneLevel";
 import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
 const TRANSLATION_CALL_URL = "https://api.openai.com/v1/realtime/translations/calls";
+const STOP_FLUSH_GRACE_MS = 1200;
 
 export class RealtimeTranslationClient {
   private transport: RealtimeWebRtcTransport | null = null;
   private stream: MediaStream | null = null;
+  private microphoneLevelMonitor: MicrophoneLevelMonitor | null = null;
   private isStreaming = false;
   private hasConnectionError = false;
   private hasClosed = false;
+  private stopPromise: Promise<void> | null = null;
 
   constructor(
     private readonly getClientSecret: () => Promise<string>,
@@ -18,11 +22,12 @@ export class RealtimeTranslationClient {
   async start(): Promise<void> {
     this.hasConnectionError = false;
     this.hasClosed = false;
+    this.stopPromise = null;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
         echoCancellation: false,
-        noiseSuppression: true,
+        noiseSuppression: false,
         autoGainControl: true
       }
     });
@@ -36,7 +41,8 @@ export class RealtimeTranslationClient {
         onOpen: (transport) => this.handleTransportOpen(transport),
         onMessage: (data) => this.handleMessage(data),
         onError: (message) => this.handleTransportError(message),
-        onClose: () => this.handleTransportClose()
+        onClose: () => this.handleTransportClose(),
+        onDiagnostic: (event) => this.callbacks.onDiagnostic?.(event)
       });
     } catch (error) {
       this.hasConnectionError = true;
@@ -57,16 +63,28 @@ export class RealtimeTranslationClient {
     this.setAudioEnabled(true);
   }
 
-  stop(): void {
+  stop(): Promise<void> {
+    if (!this.stopPromise) {
+      this.stopPromise = this.flushAndClose();
+    }
+
+    return this.stopPromise;
+  }
+
+  private async flushAndClose(): Promise<void> {
     this.isStreaming = false;
     this.setAudioEnabled(false);
+    await delay(STOP_FLUSH_GRACE_MS);
     this.sendRealtimeEvent({ type: "session.close" });
-    window.setTimeout(() => this.closeTransport(), 500);
+    this.closeTransport();
   }
 
   private handleTransportOpen(transport: RealtimeWebRtcTransport): void {
     this.transport = transport;
     this.isStreaming = true;
+    if (this.stream) {
+      this.microphoneLevelMonitor = startMicrophoneLevelMonitor(this.stream, this.callbacks.onDiagnostic);
+    }
     this.configureSession();
     this.callbacks.onOpen();
   }
@@ -78,7 +96,7 @@ export class RealtimeTranslationClient {
         audio: {
           input: {
             transcription: {
-              model: "gpt-realtime-whisper"
+              language: "ko"
             },
             noise_reduction: {
               type: "far_field"
@@ -102,6 +120,13 @@ export class RealtimeTranslationClient {
       event = JSON.parse(raw);
     } catch {
       return;
+    }
+    if (event.type) {
+      this.callbacks.onDiagnostic?.({
+        kind: "event",
+        eventType: event.type,
+        at: Date.now()
+      });
     }
 
     if (event.type === "session.output_transcript.delta" && event.delta) {
@@ -162,7 +187,13 @@ export class RealtimeTranslationClient {
   }
 
   private stopLocalAudio(): void {
+    this.microphoneLevelMonitor?.stop();
+    this.microphoneLevelMonitor = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

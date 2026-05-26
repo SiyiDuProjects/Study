@@ -7,6 +7,7 @@ on:
       - "src/**"
       - "server/**"
       - "shared/**"
+      - "scripts/**"
       - "public/**"
       - "index.html"
       - "package.json"
@@ -134,16 +135,19 @@ jobs:
           sudo docker ps --filter "name=$COMPOSE_SERVICE"
           REMOTE
 
-      - name: Public URL check
+      - name: VPS local health check
         env:
-          PUBLIC_URL: ${{ secrets.JIAHUAN_PUBLIC_URL }}
+          LOCAL_HEALTH_URL: ${{ secrets.JIAHUAN_LOCAL_HEALTH_URL || 'http://127.0.0.1:8091/api/health' }}
         run: |
-          test -n "$PUBLIC_URL"
+          test -n "$LOCAL_HEALTH_URL"
+          ssh deploy-server "LOCAL_HEALTH_URL='$LOCAL_HEALTH_URL' bash -s" <<'REMOTE'
+          set -euo pipefail
           for attempt in $(seq 1 24); do
-            if curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL/api/health" >/dev/null; then
+            if curl --fail --silent --show-error --max-time 10 "$LOCAL_HEALTH_URL" >/dev/null; then
               exit 0
             fi
-            echo "Public URL check failed; retrying in 5 seconds ($attempt/24)."
+            echo "Local health check failed; retrying in 5 seconds ($attempt/24)."
             sleep 5
           done
-          curl --fail --silent --show-error --max-time 10 "$PUBLIC_URL/api/health" >/dev/null
+          curl --fail --silent --show-error --max-time 10 "$LOCAL_HEALTH_URL" >/dev/null
+          REMOTE

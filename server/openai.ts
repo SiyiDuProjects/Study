@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { TextTranslationModel, TranslationMode } from "../src/types.js";
+import { loadOpenAIModelConfig, type OpenAIModelConfig } from "./modelConfig.js";
 
 const OPENAI_REALTIME_CLIENT_SECRET_URL = "https://api.openai.com/v1/realtime/client_secrets";
 const OPENAI_TRANSLATION_CLIENT_SECRET_URL = "https://api.openai.com/v1/realtime/translations/client_secrets";
@@ -28,11 +29,13 @@ export interface RealtimeClientSecret {
 export async function createRealtimeClientSecret({
   apiKey,
   mode,
-  safetyIdentifier
+  safetyIdentifier,
+  modelConfig = loadOpenAIModelConfig()
 }: {
   apiKey: string;
   mode: TranslationMode;
   safetyIdentifier: string;
+  modelConfig?: OpenAIModelConfig;
 }): Promise<RealtimeClientSecret> {
   const response = await fetch(realtimeClientSecretUrlForMode(mode), {
     method: "POST",
@@ -46,7 +49,7 @@ export async function createRealtimeClientSecret({
         anchor: "created_at",
         seconds: 600
       },
-      session: realtimeSessionForMode(mode)
+      session: realtimeSessionForMode(mode, modelConfig)
     })
   });
 
@@ -113,14 +116,14 @@ export function safetyIdentifierFromEmail(email: string | null): string {
   return createHash("sha256").update(email?.toLowerCase().trim() || "jiahuan-internal").digest("hex");
 }
 
-function realtimeSessionForMode(mode: TranslationMode) {
+function realtimeSessionForMode(mode: TranslationMode, modelConfig: OpenAIModelConfig) {
   if (mode === "transcribe-then-translate") {
     return {
       type: "transcription",
       audio: {
         input: {
           transcription: {
-            model: "gpt-realtime-whisper",
+            model: modelConfig.realtimeTranscriptionModel,
             language: "ko",
             delay: "low"
           },
@@ -131,11 +134,11 @@ function realtimeSessionForMode(mode: TranslationMode) {
   }
 
   return {
-    model: "gpt-realtime-translate",
+    model: modelConfig.realtimeTranslationModel,
     audio: {
       input: {
         transcription: {
-          model: "gpt-realtime-whisper"
+          model: modelConfig.realtimeTranscriptionModel
         },
         noise_reduction: {
           type: "far_field"
@@ -149,7 +152,7 @@ function realtimeSessionForMode(mode: TranslationMode) {
 }
 
 function realtimeClientSecretUrlForMode(mode: TranslationMode): string {
-  return mode === "realtime-translate" ? OPENAI_TRANSLATION_CLIENT_SECRET_URL : OPENAI_REALTIME_CLIENT_SECRET_URL;
+  return mode === "transcribe-then-translate" ? OPENAI_REALTIME_CLIENT_SECRET_URL : OPENAI_TRANSLATION_CLIENT_SECRET_URL;
 }
 
 function buildTranslationInput(text: string, context?: Array<{ sourceText: string; translatedText: string }>): string {

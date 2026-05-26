@@ -53,8 +53,8 @@ function createSampleSession(): ClassSession {
     sourceLanguage: "ko",
     targetLanguage: "zh",
     models: {
-      translation: "gpt-realtime-translate",
-      transcription: "gpt-realtime-whisper"
+      translation: "rt-test",
+      transcription: "tr-test"
     },
     segments: [
       {

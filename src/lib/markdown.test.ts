@@ -18,8 +18,8 @@ describe("markdown export", () => {
       sourceLanguage: "ko",
       targetLanguage: "zh",
       models: {
-        translation: "gpt-realtime-translate",
-        transcription: "gpt-realtime-whisper"
+        translation: "rt-test",
+        transcription: "tr-test"
       },
       segments: [
         {
@@ -43,6 +43,6 @@ describe("markdown export", () => {
     expect(markdown).toContain("今天我们讨论语法。");
     expect(markdown).toContain("<summary>韩文原文</summary>");
     expect(markdown).toContain("오늘은 문법을 이야기합니다.");
-    expect(markdown).toContain("gpt-realtime-translate + gpt-realtime-whisper");
+    expect(markdown).toContain("rt-test + tr-test");
   });
 });

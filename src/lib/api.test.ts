@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRealtimeClientSecret, listRemoteSessions, saveRemoteSession } from "./api";
+import { createRealtimeClientSecret, fetchAppConfig, listRemoteSessions, saveRemoteSession, translateKoreanText } from "./api";
 import type { ClassSession } from "../types";
 
 describe("api client", () => {
@@ -13,7 +13,45 @@ describe("api client", () => {
       vi.fn().mockResolvedValue(jsonResponse({ clientSecret: "ek_test", expiresAt: 123 }))
     );
 
-    await expect(createRealtimeClientSecret("realtime-translate")).resolves.toEqual({ clientSecret: "ek_test", expiresAt: 123 });
+    await expect(createRealtimeClientSecret("classic-websocket-translate")).resolves.toEqual({
+      clientSecret: "ek_test",
+      expiresAt: 123
+    });
+  });
+
+  it("loads app model config from the server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          config: {
+            realtimeTranslationModel: "rt-test",
+            realtimeTranscriptionModel: "tr-test",
+            defaultTextTranslationModel: "txt-test",
+            textTranslationModels: ["txt-test"]
+          }
+        })
+      )
+    );
+
+    await expect(fetchAppConfig()).resolves.toMatchObject({
+      defaultTextTranslationModel: "txt-test",
+      textTranslationModels: ["txt-test"]
+    });
+  });
+
+  it("omits the text model when the server default should be used", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ translatedText: "今天讨论语法。" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await translateKoreanText({ text: "오늘은 문법을 이야기합니다." });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/translate",
+      expect.objectContaining({
+        body: expect.not.stringContaining('"model"')
+      })
+    );
   });
 
   it("returns remote session summaries", async () => {
@@ -60,8 +98,8 @@ function createSampleSession(): ClassSession {
     sourceLanguage: "ko",
     targetLanguage: "zh",
     models: {
-      translation: "gpt-realtime-translate",
-      transcription: "gpt-realtime-whisper"
+      translation: "rt-test",
+      transcription: "tr-test"
     },
     segments: []
   };

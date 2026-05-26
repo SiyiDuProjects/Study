@@ -192,6 +192,29 @@ button {
   display: none;
 }
 
+.diagnostic-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  border-bottom: 1px solid #dbe4ef;
+  color: #334155;
+  background: #f8fafc;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.diagnostic-strip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .range-field,
 .select-field {
   display: inline-flex;
@@ -343,6 +366,14 @@ button {
   color: #7f1d1d;
   background: #fee2e2;
   border-bottom: 1px solid #fecaca;
+}
+
+.sync-banner {
+  margin: 0;
+  padding: 8px 18px;
+  color: #164e63;
+  background: #ecfeff;
+  border-bottom: 1px solid #a5f3fc;
 }
 
 .main-surface {
@@ -630,6 +661,11 @@ button {
   .settings-panel {
     align-items: stretch;
     flex-wrap: wrap;
+  }
+
+  .diagnostic-strip {
+    padding-right: 10px;
+    padding-left: 10px;
   }
 
   .course-grid {

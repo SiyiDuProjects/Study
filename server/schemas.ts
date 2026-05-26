@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { COURSES } from "../shared/courses.js";
-import { TEXT_TRANSLATION_MODELS, TRANSLATION_MODES } from "../src/types.js";
+import { TRANSLATION_MODES } from "../src/types.js";
 
 const courseIds = COURSES.map((course) => course.id);
 
@@ -33,8 +33,8 @@ export const classSessionSchema = z
     targetLanguage: z.literal("zh"),
     models: z
       .object({
-        translation: z.union([z.literal("gpt-realtime-translate"), z.enum(TEXT_TRANSLATION_MODELS)]),
-        transcription: z.literal("gpt-realtime-whisper"),
+        translation: z.string().trim().min(1).max(120),
+        transcription: z.string().trim().min(1).max(120),
         mode: z.enum(TRANSLATION_MODES).optional()
       })
       .strict(),
@@ -51,13 +51,13 @@ export const courseQuerySchema = z
 
 export const realtimeClientSecretRequestSchema = z
   .object({
-    mode: z.enum(TRANSLATION_MODES).default("realtime-translate")
+    mode: z.enum(TRANSLATION_MODES).default("classic-websocket-translate")
   })
   .strict();
 
 export const translateRequestSchema = z
   .object({
-    model: z.enum(TEXT_TRANSLATION_MODELS).default("gpt-5.4-mini"),
+    model: z.string().trim().min(1).max(120).optional(),
     text: z.string().trim().min(1).max(8000),
     context: z
       .array(

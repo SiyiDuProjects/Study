@@ -1,3 +1,5 @@
+import type { RealtimeClientDiagnostic } from "../types";
+
 export interface RealtimeWebRtcTransport {
   peerConnection: RTCPeerConnection;
   dataChannel: RTCDataChannel;
@@ -13,6 +15,7 @@ interface RealtimeWebRtcOptions {
   onMessage: (data: unknown) => void;
   onError: (message: string) => void;
   onClose: () => void;
+  onDiagnostic?: (event: RealtimeClientDiagnostic) => void;
 }
 
 export async function createRealtimeWebRtcTransport({
@@ -22,10 +25,19 @@ export async function createRealtimeWebRtcTransport({
   onOpen,
   onMessage,
   onError,
-  onClose
+  onClose,
+  onDiagnostic
 }: RealtimeWebRtcOptions): Promise<RealtimeWebRtcTransport> {
   const peerConnection = new RTCPeerConnection();
   const dataChannel = peerConnection.createDataChannel("oai-events");
+  const emitConnection = (connection: RealtimeClientDiagnostic["connection"], state: string) => {
+    onDiagnostic?.({
+      kind: "connection",
+      connection,
+      state,
+      at: Date.now()
+    });
+  };
 
   const sendEvent = (event: unknown) => {
     if (dataChannel.readyState !== "open") {
@@ -52,12 +64,24 @@ export async function createRealtimeWebRtcTransport({
     close
   };
 
-  dataChannel.onopen = () => onOpen(transport);
+  emitConnection("dataChannel", dataChannel.readyState);
+
+  dataChannel.onopen = () => {
+    emitConnection("dataChannel", dataChannel.readyState);
+    onOpen(transport);
+  };
   dataChannel.onmessage = (message) => onMessage(message.data);
-  dataChannel.onerror = () => onError("Realtime WebRTC data channel failed. Check the network connection.");
-  dataChannel.onclose = onClose;
+  dataChannel.onerror = () => {
+    emitConnection("dataChannel", "error");
+    onError("Realtime WebRTC data channel failed. Check the network connection.");
+  };
+  dataChannel.onclose = () => {
+    emitConnection("dataChannel", dataChannel.readyState);
+    onClose();
+  };
 
   peerConnection.onconnectionstatechange = () => {
+    emitConnection("peer", peerConnection.connectionState);
     if (peerConnection.connectionState === "failed") {
       onError("Realtime WebRTC connection failed. Check the network connection.");
       return;
@@ -66,6 +90,10 @@ export async function createRealtimeWebRtcTransport({
     if (peerConnection.connectionState === "closed") {
       onClose();
     }
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    emitConnection("ice", peerConnection.iceConnectionState);
   };
 
   for (const track of stream.getAudioTracks()) {

@@ -19,7 +19,7 @@ interface SessionRow {
   source_language: "ko";
   target_language: "zh";
   translation_model: TranslationModel;
-  transcription_model: "gpt-realtime-whisper";
+  transcription_model: string;
   created_by_email: string | null;
   saved_at: string;
   segment_count?: number;

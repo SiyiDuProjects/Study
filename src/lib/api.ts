@@ -1,8 +1,12 @@
 import type { CourseOption } from "../../shared/courses";
-import type { ClassSession, ClassSessionSummary, TextTranslationModel, TranslationMode } from "../types";
+import type { AppConfig, ClassSession, ClassSessionSummary, TextTranslationModel, TranslationMode } from "../types";
 
 interface CoursesResponse {
   courses: CourseOption[];
+}
+
+interface ConfigResponse {
+  config: AppConfig;
 }
 
 interface RealtimeClientSecretResponse {
@@ -27,6 +31,11 @@ export async function fetchCourses(): Promise<CourseOption[]> {
   return data.courses;
 }
 
+export async function fetchAppConfig(): Promise<AppConfig> {
+  const data = await requestJson<ConfigResponse>("/api/config");
+  return data.config;
+}
+
 export async function createRealtimeClientSecret(mode: TranslationMode): Promise<RealtimeClientSecretResponse> {
   return requestJson<RealtimeClientSecretResponse>("/api/realtime/client-secret", {
     method: "POST",
@@ -42,7 +51,7 @@ export async function translateKoreanText({
   text,
   context
 }: {
-  model: TextTranslationModel;
+  model?: TextTranslationModel;
   text: string;
   context?: Array<{ sourceText: string; translatedText: string }>;
 }): Promise<string> {
@@ -51,7 +60,7 @@ export async function translateKoreanText({
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ model, text, context })
+    body: JSON.stringify({ ...(model ? { model } : {}), text, context })
   });
   return data.translatedText;
 }

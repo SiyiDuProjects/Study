@@ -1,92 +1,158 @@
 // @vitest-environment node
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { EventEmitter } from "node:events";
+import { createRequest, createResponse } from "node-mocks-http";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createServerApp } from "./app.js";
 import { openDatabase, type SqliteDatabase } from "./db.js";
+import type { OpenAIModelConfig } from "./modelConfig.js";
 import type { ClassSession } from "../src/types.js";
 
 describe("server app", () => {
   let db: SqliteDatabase;
-  let server: Server;
-  let baseUrl: string;
+  let app: ReturnType<typeof createServerApp>;
+
+  const modelConfig: OpenAIModelConfig = {
+    realtimeTranslationModel: "rt-test",
+    realtimeTranscriptionModel: "tr-test",
+    defaultTextTranslationModel: "txt-test",
+    textTranslationModels: ["txt-test", "txt-fast"]
+  };
 
   beforeEach(async () => {
     db = openDatabase(":memory:");
-    server = createServer(
-      createServerApp({
-        db,
-        openAiApiKey: "test",
-        staticDir: null,
-        translateText: async ({ model, text }) => `${model}:${text}:中文`
-      })
-    );
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
+    app = createServerApp({
+      db,
+      openAiApiKey: "test",
+      staticDir: null,
+      modelConfig,
+      translateText: async ({ model, text }) => `${model}:${text}:中文`
+    });
   });
 
   afterEach(async () => {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
     db.close();
   });
 
   it("serves courses and rejects payloads with raw audio fields", async () => {
-    const coursesResponse = await fetch(`${baseUrl}/api/courses`);
-    const coursesBody = (await coursesResponse.json()) as { courses: unknown[] };
-    expect(coursesBody.courses.length).toBeGreaterThan(1);
+    const coursesResponse = await injectApp("GET", "/api/courses");
+    expect(coursesResponse.status).toBe(200);
+    expect(coursesResponse.body.courses.length).toBeGreaterThan(1);
 
-    const invalidResponse = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...createSampleSession(), rawAudio: "not allowed" })
+    const invalidResponse = await injectApp("POST", "/api/sessions", {
+      body: { ...createSampleSession(), rawAudio: "not allowed" }
     });
     expect(invalidResponse.status).toBe(400);
   });
 
+  it("serves model config from the server", async () => {
+    const response = await injectApp("GET", "/api/config");
+    expect(response.status).toBe(200);
+    expect(response.body.config).toMatchObject({
+      realtimeTranslationModel: "rt-test",
+      realtimeTranscriptionModel: "tr-test",
+      defaultTextTranslationModel: "txt-test",
+      textTranslationModels: ["txt-test", "txt-fast"]
+    });
+  });
+
+  it("defaults realtime client secrets to classic low-latency mode", async () => {
+    let requestedMode = "";
+    app = createServerApp({
+      db,
+      openAiApiKey: "test",
+      staticDir: null,
+      modelConfig,
+      createClientSecret: async ({ mode }) => {
+        requestedMode = mode;
+        return { clientSecret: "ek_test", expiresAt: 123 };
+      },
+      translateText: async ({ model, text }) => `${model}:${text}:中文`
+    });
+
+    const response = await injectApp("POST", "/api/realtime/client-secret", {
+      body: {}
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ clientSecret: "ek_test", expiresAt: 123 });
+    expect(requestedMode).toBe("classic-websocket-translate");
+  });
+
   it("saves sessions through the API and returns shared summaries", async () => {
     const session = createSampleSession();
-    const saveResponse = await fetch(`${baseUrl}/api/sessions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "cf-access-authenticated-user-email": "teacher@example.com"
-      },
-      body: JSON.stringify(session)
+    const saveResponse = await injectApp("POST", "/api/sessions", {
+      headers: { "cf-access-authenticated-user-email": "teacher@example.com" },
+      body: session
     });
     expect(saveResponse.status).toBe(201);
 
-    const listResponse = await fetch(`${baseUrl}/api/sessions`);
-    const listBody = (await listResponse.json()) as { sessions: Array<{ id: string; segmentCount: number }> };
-    expect(listBody.sessions).toHaveLength(1);
-    expect(listBody.sessions[0]).toMatchObject({ id: "class_api", segmentCount: 1 });
+    const listResponse = await injectApp("GET", "/api/sessions");
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.body.sessions).toHaveLength(1);
+    expect(listResponse.body.sessions[0]).toMatchObject({ id: "class_api", segmentCount: 1 });
 
-    const detailResponse = await fetch(`${baseUrl}/api/sessions/class_api`);
-    const detailBody = (await detailResponse.json()) as { session: ClassSession };
+    const detailResponse = await injectApp("GET", "/api/sessions/class_api");
+    expect(detailResponse.status).toBe(200);
+    const detailBody = detailResponse.body as { session: ClassSession };
     expect(detailBody.session.createdByEmail).toBe("teacher@example.com");
     expect(detailBody.session.segments[0].sourceText).toBe("오늘은 문법을 이야기합니다.");
 
-    const deleteResponse = await fetch(`${baseUrl}/api/sessions/class_api`, { method: "DELETE" });
+    const deleteResponse = await injectApp("DELETE", "/api/sessions/class_api");
     expect(deleteResponse.status).toBe(204);
   });
 
   it("translates Korean through the configured text model", async () => {
-    const response = await fetch(`${baseUrl}/api/translate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.4-mini",
+    const response = await injectApp("POST", "/api/translate", {
+      body: {
+        model: "txt-fast",
         text: "오늘은 문법을 이야기합니다."
-      })
+      }
     });
-
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      translatedText: "gpt-5.4-mini:오늘은 문법을 이야기합니다.:中文"
+
+    expect(response.body).toEqual({
+      translatedText: "txt-fast:오늘은 문법을 이야기합니다.:中文"
     });
   });
+
+  it("rejects text models that are not enabled on the server", async () => {
+    const response = await injectApp("POST", "/api/translate", {
+      body: {
+        model: "not-enabled",
+        text: "오늘은 문법을 이야기합니다."
+      }
+    });
+    expect(response.status).toBe(400);
+  });
+
+  async function injectApp(
+    method: "DELETE" | "GET" | "POST",
+    url: string,
+    options: { body?: unknown; headers?: Record<string, string> } = {}
+  ) {
+    const response = createResponse({ eventEmitter: EventEmitter });
+    const request = createRequest({
+      method,
+      url,
+      headers: {
+        ...(options.body ? { "content-type": "application/json" } : {}),
+        ...options.headers
+      },
+      body: options.body
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      response.on("end", resolve);
+      response.on("error", reject);
+      app.handle(request, response);
+    });
+
+    const rawBody = response._getData();
+    return {
+      status: response.statusCode,
+      body: rawBody ? JSON.parse(rawBody) : undefined
+    };
+  }
 });
 
 function createSampleSession(): ClassSession {
@@ -104,8 +170,8 @@ function createSampleSession(): ClassSession {
     sourceLanguage: "ko",
     targetLanguage: "zh",
     models: {
-      translation: "gpt-realtime-translate",
-      transcription: "gpt-realtime-whisper"
+      translation: "rt-test",
+      transcription: "tr-test"
     },
     segments: [
       {

@@ -3,10 +3,13 @@ import { translateKoreanText } from "./api";
 import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
 const TRANSCRIPTION_CALL_URL = "https://api.openai.com/v1/realtime/calls";
-const SPEECH_RMS_THRESHOLD = 0.006;
+const SPEECH_RMS_THRESHOLD = 0.003;
+const DIAGNOSTIC_LEVEL_INTERVAL_MS = 500;
 const MIN_COMMIT_MS = 800;
 const SILENCE_COMMIT_MS = 900;
 const MAX_COMMIT_MS = 3600;
+const STOP_FLUSH_TIMEOUT_MS = 6000;
+const STOP_FLUSH_QUIET_MS = 1000;
 
 interface TranscriptionCompletedEvent {
   type?: string;
@@ -28,10 +31,16 @@ export class RealtimeTranscriptionTranslationClient {
   private bufferStartedAt = 0;
   private lastSpeechAt = 0;
   private sessionStartedAt = 0;
+  private lastDiagnosticAt = 0;
   private stopped = false;
   private hasConnectionError = false;
   private hasClosed = false;
+  private stopPromise: Promise<void> | null = null;
   private translationQueue: Promise<void> = Promise.resolve();
+  private pendingTranslationCount = 0;
+  private lastInputCommitAt = 0;
+  private lastTranscriptionAt = 0;
+  private lastTranslationSettledAt = 0;
   private recentSegments: Array<{ sourceText: string; translatedText: string }> = [];
 
   constructor(
@@ -44,11 +53,12 @@ export class RealtimeTranscriptionTranslationClient {
     this.stopped = false;
     this.hasConnectionError = false;
     this.hasClosed = false;
+    this.stopPromise = null;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
         echoCancellation: false,
-        noiseSuppression: true,
+        noiseSuppression: false,
         autoGainControl: true
       }
     });
@@ -62,7 +72,8 @@ export class RealtimeTranscriptionTranslationClient {
         onOpen: (transport) => this.handleTransportOpen(transport),
         onMessage: (data) => this.handleMessage(data),
         onError: (message) => this.handleTransportError(message),
-        onClose: () => this.handleTransportClose()
+        onClose: () => this.handleTransportClose(),
+        onDiagnostic: (event) => this.callbacks.onDiagnostic?.(event)
       });
     } catch (error) {
       this.hasConnectionError = true;
@@ -84,13 +95,22 @@ export class RealtimeTranscriptionTranslationClient {
     this.setAudioEnabled(true);
   }
 
-  stop(): void {
-    this.stopped = true;
+  stop(): Promise<void> {
+    if (!this.stopPromise) {
+      this.stopPromise = this.flushAndClose();
+    }
+
+    return this.stopPromise;
+  }
+
+  private async flushAndClose(): Promise<void> {
     this.isStreaming = false;
-    this.commitInputBuffer();
+    const committed = this.commitInputBuffer();
     this.setAudioEnabled(false);
+    await this.waitForPendingWork(committed);
+    this.stopped = true;
     this.sendRealtimeEvent({ type: "session.close" });
-    window.setTimeout(() => this.closeTransport(), 500);
+    this.closeTransport();
   }
 
   private handleTransportOpen(transport: RealtimeWebRtcTransport): void {
@@ -108,7 +128,6 @@ export class RealtimeTranscriptionTranslationClient {
         audio: {
           input: {
             transcription: {
-              model: "gpt-realtime-whisper",
               language: "ko",
               delay: "low"
             },
@@ -143,6 +162,14 @@ export class RealtimeTranscriptionTranslationClient {
       this.analyserNode.getFloatTimeDomainData(this.audioSamples);
       const rms = calculateRms(this.audioSamples);
       const now = Date.now();
+      if (now - this.lastDiagnosticAt >= DIAGNOSTIC_LEVEL_INTERVAL_MS) {
+        this.lastDiagnosticAt = now;
+        this.callbacks.onDiagnostic?.({
+          kind: "microphone",
+          level: rms,
+          at: now
+        });
+      }
 
       if (rms >= SPEECH_RMS_THRESHOLD) {
         this.lastSpeechAt = now;
@@ -168,14 +195,16 @@ export class RealtimeTranscriptionTranslationClient {
     }
   }
 
-  private commitInputBuffer(): void {
+  private commitInputBuffer(): boolean {
     if (!this.hasAudioToCommit || !this.sendRealtimeEvent({ type: "input_audio_buffer.commit" })) {
-      return;
+      return false;
     }
 
     this.hasAudioToCommit = false;
     this.bufferStartedAt = 0;
     this.lastSpeechAt = 0;
+    this.lastInputCommitAt = Date.now();
+    return true;
   }
 
   private handleMessage(raw: unknown): void {
@@ -189,8 +218,16 @@ export class RealtimeTranscriptionTranslationClient {
     } catch {
       return;
     }
+    if (event.type) {
+      this.callbacks.onDiagnostic?.({
+        kind: "event",
+        eventType: event.type,
+        at: Date.now()
+      });
+    }
 
     if (event.type === "conversation.item.input_audio_transcription.completed" && event.transcript?.trim()) {
+      this.lastTranscriptionAt = Date.now();
       this.enqueueTranslation(event.transcript, event.elapsed_ms);
       return;
     }
@@ -208,6 +245,7 @@ export class RealtimeTranscriptionTranslationClient {
     }
 
     const segmentStartMs = elapsedMs ?? Math.max(0, performance.now() - this.sessionStartedAt);
+    this.pendingTranslationCount += 1;
     this.translationQueue = this.translationQueue
       .then(async () => {
         const translatedText = await translateKoreanText({
@@ -230,7 +268,35 @@ export class RealtimeTranscriptionTranslationClient {
       })
       .catch((error: unknown) => {
         this.callbacks.onError(error instanceof Error ? error.message : "文本翻译失败。");
+      })
+      .finally(() => {
+        this.pendingTranslationCount = Math.max(0, this.pendingTranslationCount - 1);
+        this.lastTranslationSettledAt = Date.now();
       });
+  }
+
+  private async waitForPendingWork(committedInput: boolean): Promise<void> {
+    const startedAt = Date.now();
+    const firstQuietReference = committedInput ? this.lastInputCommitAt : Date.now();
+    while (Date.now() - startedAt < STOP_FLUSH_TIMEOUT_MS) {
+      const quietReference = Math.max(
+        firstQuietReference,
+        this.lastInputCommitAt,
+        this.lastTranscriptionAt,
+        this.lastTranslationSettledAt
+      );
+      if (this.pendingTranslationCount === 0 && Date.now() - quietReference >= STOP_FLUSH_QUIET_MS) {
+        return;
+      }
+
+      await delay(100);
+    }
+
+    this.callbacks.onDiagnostic?.({
+      kind: "warning",
+      message: "结束前仍有转录或翻译未确认，已按超时保存。",
+      at: Date.now()
+    });
   }
 
   private handleTransportError(message: string): void {
@@ -305,6 +371,10 @@ function calculateRms(input: ArrayLike<number>): number {
     sum += sample * sample;
   }
   return Math.sqrt(sum / input.length);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 declare global {

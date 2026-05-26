@@ -18,17 +18,21 @@ import {
 } from "lucide-react";
 import { COURSES, DAILY_COURSE_ID, type CourseOption } from "../shared/courses";
 import type {
+  AppConfig,
   AppSettings,
   ClassSession,
   ClassSessionSummary,
   ConnectionStatus,
+  RealtimeClientDiagnostic,
   RealtimeTranscriptDelta,
   RealtimeTranscriptSegment,
+  TextTranslationModel,
   TranscriptState
 } from "./types";
 import {
   createRealtimeClientSecret,
   deleteRemoteSession,
+  fetchAppConfig,
   fetchCourses,
   getRemoteSession,
   listRemoteSessions,
@@ -36,6 +40,7 @@ import {
 } from "./lib/api";
 import { createId } from "./lib/id";
 import { downloadMarkdown } from "./lib/markdown";
+import { ClassicRealtimeTranslationClient } from "./lib/classicRealtimeTranslation";
 import { RealtimeTranscriptionTranslationClient } from "./lib/realtimeTranscriptionTranslation";
 import { RealtimeTranslationClient } from "./lib/realtimeTranslation";
 import {
@@ -46,16 +51,46 @@ import {
   getAllSegments,
   getDisplaySegments
 } from "./lib/transcriptReducer";
-import { defaultSettings, loadSettings, saveSettings } from "./lib/storage";
+import {
+  defaultSettings,
+  listPendingSessions,
+  loadSettings,
+  queuePendingSession,
+  removePendingSession,
+  saveSettings,
+  updatePendingSessionFailure
+} from "./lib/storage";
 import { formatDateTime, formatDuration, formatTimestamp } from "./lib/time";
 
 type ViewMode = "live" | "records" | "document";
-type LiveSubtitleClient = Pick<RealtimeTranslationClient, "start" | "pause" | "resume" | "stop">;
+type LiveSubtitleClient = Pick<RealtimeTranslationClient, "start" | "pause" | "resume"> & {
+  stop: () => void | Promise<void>;
+};
 
 const COMMIT_DELAY_MS = 1800;
+const PENDING_SYNC_RETRY_MS = 30_000;
+const EMPTY_APP_CONFIG: AppConfig = {
+  realtimeTranslationModel: "",
+  realtimeTranscriptionModel: "",
+  defaultTextTranslationModel: "",
+  textTranslationModels: []
+};
+
+interface DiagnosticState {
+  microphoneLevel: number | null;
+  dataChannelState: string;
+  iceConnectionState: string;
+  peerConnectionState: string;
+  webSocketState: string;
+  lastEventType: string;
+  lastEventAt: number | null;
+  lastTextAt: number | null;
+  lastWarning: string;
+}
 
 export default function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [appConfig, setAppConfig] = useState<AppConfig>(EMPTY_APP_CONFIG);
   const [courses, setCourses] = useState<CourseOption[]>(COURSES);
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [status, setStatus] = useState<ConnectionStatus>("idle");
@@ -66,11 +101,15 @@ export default function App() {
   const [startedAt, setStartedAt] = useState<Date | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [diagnostic, setDiagnostic] = useState<DiagnosticState>(createDiagnosticState);
 
   const clientRef = useRef<LiveSubtitleClient | null>(null);
   const transcriptRef = useRef<TranscriptState>(transcriptState);
   const commitTimerRef = useRef<number | null>(null);
+  const pendingSyncTimerRef = useRef<number | null>(null);
+  const isSyncingPendingRef = useRef(false);
   const recordingCourseRef = useRef<CourseOption | null>(null);
 
   const visibleSegments = useMemo(() => getDisplaySegments(transcriptState, 3), [transcriptState]);
@@ -81,17 +120,31 @@ export default function App() {
   );
   const canStart = (status === "idle" || status === "error") && Boolean(selectedCourse);
   const isLive = status === "recording" || status === "paused" || status === "connecting" || status === "closing";
+  const textTranslationModels = appConfig.textTranslationModels.length
+    ? appConfig.textTranslationModels
+    : settings.textTranslationModel
+      ? [settings.textTranslationModel]
+      : [];
 
   useEffect(() => {
     let active = true;
 
-    loadSettings()
-      .then((loaded) => {
+    Promise.all([loadSettings(), fetchAppConfig()])
+      .then(async ([loadedSettings, remoteConfig]) => {
         if (active) {
-          setSettings(loaded);
+          setAppConfig(remoteConfig);
+          const normalizedSettings = normalizeSettingsForConfig(loadedSettings, remoteConfig);
+          setSettings(normalizedSettings);
+          if (normalizedSettings.textTranslationModel !== loadedSettings.textTranslationModel) {
+            await saveSettings(normalizedSettings);
+          }
         }
       })
-      .catch(() => setErrorMessage("读取本机设置失败。"));
+      .catch(() => {
+        if (active) {
+          setErrorMessage("读取本机设置或服务器配置失败。");
+        }
+      });
 
     fetchCourses()
       .then((remoteCourses) => {
@@ -110,9 +163,19 @@ export default function App() {
         setErrorMessage("读取服务器记录失败。");
       }
     });
+    syncPendingSessions().catch(() => undefined);
+
+    const syncOnOnline = () => {
+      syncPendingSessions().catch(() => undefined);
+    };
+    window.addEventListener("online", syncOnOnline);
 
     return () => {
       active = false;
+      window.removeEventListener("online", syncOnOnline);
+      if (pendingSyncTimerRef.current) {
+        window.clearTimeout(pendingSyncTimerRef.current);
+      }
     };
   }, []);
 
@@ -134,7 +197,7 @@ export default function App() {
 
   useEffect(() => {
     return () => {
-      clientRef.current?.stop();
+      void clientRef.current?.stop();
       if (commitTimerRef.current) {
         window.clearTimeout(commitTimerRef.current);
       }
@@ -143,6 +206,54 @@ export default function App() {
 
   async function refreshSessions() {
     setSessions(await listRemoteSessions());
+  }
+
+  async function syncPendingSessions() {
+    if (isSyncingPendingRef.current) {
+      return;
+    }
+
+    isSyncingPendingRef.current = true;
+    try {
+      const pendingRecords = await listPendingSessions();
+      setPendingSyncCount(pendingRecords.length);
+      let syncedCount = 0;
+
+      for (const record of pendingRecords) {
+        try {
+          const savedSession = await saveRemoteSession(record.session);
+          await removePendingSession(record.id);
+          setSelectedSession((current) => (current?.id === record.id ? savedSession : current));
+          syncedCount += 1;
+        } catch (error) {
+          await updatePendingSessionFailure(record.id, error instanceof Error ? error.message : "同步记录失败。");
+          break;
+        }
+      }
+
+      const remainingRecords = await listPendingSessions();
+      setPendingSyncCount(remainingRecords.length);
+      if (syncedCount > 0) {
+        await refreshSessions().catch(() => {
+          setErrorMessage("待同步记录已上传，但刷新服务器记录列表失败。");
+        });
+      }
+      if (remainingRecords.length > 0) {
+        schedulePendingSync();
+      }
+    } finally {
+      isSyncingPendingRef.current = false;
+    }
+  }
+
+  function schedulePendingSync() {
+    if (pendingSyncTimerRef.current) {
+      window.clearTimeout(pendingSyncTimerRef.current);
+    }
+
+    pendingSyncTimerRef.current = window.setTimeout(() => {
+      syncPendingSessions().catch(() => undefined);
+    }, PENDING_SYNC_RETRY_MS);
   }
 
   async function persistSettings(nextSettings: AppSettings) {
@@ -163,6 +274,7 @@ export default function App() {
     transcriptRef.current = initialState;
     setStartedAt(startTime);
     setElapsedMs(0);
+    setDiagnostic(createDiagnosticState());
     setErrorMessage("");
     setViewMode("live");
     setStatus("connecting");
@@ -175,6 +287,7 @@ export default function App() {
       onOpen: () => setStatus("recording"),
       onDelta: handleRealtimeDelta,
       onSegment: handleRealtimeSegment,
+      onDiagnostic: handleRealtimeDiagnostic,
       onError: (message: string) => {
         setErrorMessage(message);
         setStatus("error");
@@ -184,9 +297,20 @@ export default function App() {
       }
     };
     const client =
-      settings.translationMode === "realtime-translate"
+      settings.translationMode === "classic-websocket-translate"
+        ? new ClassicRealtimeTranslationClient(
+            getClientSecret,
+            appConfig.realtimeTranslationModel || "gpt-realtime-translate",
+            appConfig.realtimeTranscriptionModel || "gpt-realtime-whisper",
+            callbacks
+          )
+        : settings.translationMode === "realtime-translate"
         ? new RealtimeTranslationClient(getClientSecret, callbacks)
-        : new RealtimeTranscriptionTranslationClient(getClientSecret, settings.textTranslationModel, callbacks);
+        : new RealtimeTranscriptionTranslationClient(
+            getClientSecret,
+            settings.textTranslationModel || appConfig.defaultTextTranslationModel,
+            callbacks
+          );
 
     clientRef.current = client;
     try {
@@ -198,6 +322,7 @@ export default function App() {
   }
 
   function handleRealtimeDelta(delta: RealtimeTranscriptDelta) {
+    markTextReceived();
     setTranscriptState((current) => {
       const next = applyTranscriptDelta(current, delta);
       transcriptRef.current = next;
@@ -207,11 +332,59 @@ export default function App() {
   }
 
   function handleRealtimeSegment(segment: RealtimeTranscriptSegment) {
+    markTextReceived();
     setTranscriptState((current) => {
       const next = appendTranscriptSegment(current, segment);
       transcriptRef.current = next;
       return next;
     });
+  }
+
+  function handleRealtimeDiagnostic(event: RealtimeClientDiagnostic) {
+    setDiagnostic((current) => {
+      if (event.kind === "microphone") {
+        return {
+          ...current,
+          microphoneLevel: event.level ?? current.microphoneLevel
+        };
+      }
+
+      if (event.kind === "connection" && event.connection) {
+        return {
+          ...current,
+          dataChannelState:
+            event.connection === "dataChannel" ? event.state ?? current.dataChannelState : current.dataChannelState,
+          iceConnectionState: event.connection === "ice" ? event.state ?? current.iceConnectionState : current.iceConnectionState,
+          peerConnectionState:
+            event.connection === "peer" ? event.state ?? current.peerConnectionState : current.peerConnectionState,
+          webSocketState: event.connection === "webSocket" ? event.state ?? current.webSocketState : current.webSocketState
+        };
+      }
+
+      if (event.kind === "event") {
+        return {
+          ...current,
+          lastEventType: event.eventType ?? current.lastEventType,
+          lastEventAt: event.at
+        };
+      }
+
+      if (event.kind === "warning") {
+        return {
+          ...current,
+          lastWarning: event.message ?? current.lastWarning
+        };
+      }
+
+      return current;
+    });
+  }
+
+  function markTextReceived() {
+    setDiagnostic((current) => ({
+      ...current,
+      lastTextAt: Date.now()
+    }));
   }
 
   function scheduleCommit() {
@@ -239,8 +412,13 @@ export default function App() {
 
   async function endClass() {
     setStatus("closing");
-    clientRef.current?.stop();
+    const client = clientRef.current;
     clientRef.current = null;
+    try {
+      await client?.stop();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? `结束课堂时收尾失败：${error.message}` : "结束课堂时收尾失败。");
+    }
     if (commitTimerRef.current) {
       window.clearTimeout(commitTimerRef.current);
     }
@@ -267,8 +445,10 @@ export default function App() {
       targetLanguage: "zh",
       models: {
         translation:
-          settings.translationMode === "realtime-translate" ? "gpt-realtime-translate" : settings.textTranslationModel,
-        transcription: "gpt-realtime-whisper",
+          isRealtimeTranslationMode(settings.translationMode)
+            ? appConfig.realtimeTranslationModel || "server-configured-realtime-translation"
+            : settings.textTranslationModel || appConfig.defaultTextTranslationModel || "server-configured-text-translation",
+        transcription: appConfig.realtimeTranscriptionModel || "server-configured-realtime-transcription",
         mode: settings.translationMode
       },
       segments: getAllSegments(finalTranscript).map((segment) => ({ ...segment, isFinal: true }))
@@ -276,12 +456,24 @@ export default function App() {
 
     try {
       const savedSession = await saveRemoteSession(session);
-      await refreshSessions();
+      await removePendingSession(session.id);
       setSelectedSession(savedSession);
       setErrorMessage("");
+      setPendingSyncCount((await listPendingSessions()).length);
+      refreshSessions().catch(() => {
+        setErrorMessage("记录已保存，但刷新服务器记录列表失败。");
+      });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "保存到服务器失败。";
+      try {
+        await queuePendingSession(session, message);
+        setPendingSyncCount((current) => Math.max(1, current));
+        schedulePendingSync();
+      } catch {
+        setErrorMessage(`记录已生成，但保存服务器和本机待同步队列都失败：${message}`);
+      }
       setSelectedSession(session);
-      setErrorMessage(error instanceof Error ? `记录已生成，但保存到服务器失败：${error.message}` : "记录已生成，但保存到服务器失败。");
+      setErrorMessage((current) => current || `记录已生成，并已加入本机待同步队列：${message}`);
     } finally {
       recordingCourseRef.current = null;
       setViewMode("document");
@@ -312,6 +504,10 @@ export default function App() {
   }
 
   async function removeSession(session: ClassSessionSummary) {
+    if (!window.confirm(`删除记录「${session.title}」？`)) {
+      return;
+    }
+
     await deleteRemoteSession(session.id);
     if (selectedSession?.id === session.id) {
       setSelectedSession(null);
@@ -325,6 +521,14 @@ export default function App() {
 
   async function toggleKoreanInline() {
     await persistSettings({ ...settings, showKoreanInline: !settings.showKoreanInline });
+  }
+
+  async function updateTranslationMode(value: AppSettings["translationMode"]) {
+    await persistSettings({ ...settings, translationMode: value });
+  }
+
+  async function updateTextTranslationModel(value: TextTranslationModel) {
+    await persistSettings({ ...settings, textTranslationModel: value });
   }
 
   return (
@@ -371,6 +575,35 @@ export default function App() {
 
       {settingsOpen ? (
         <section className="settings-panel" aria-label="设置">
+          <label className="select-field">
+            模式
+            <select
+              value={settings.translationMode}
+              disabled={isLive}
+              onChange={(event) => updateTranslationMode(event.target.value as AppSettings["translationMode"])}
+            >
+              <option value="classic-websocket-translate">经典低延迟</option>
+              <option value="realtime-translate">官方 WebRTC</option>
+              <option value="transcribe-then-translate">先转录再翻译</option>
+            </select>
+          </label>
+          {settings.translationMode === "transcribe-then-translate" ? (
+            <label className="select-field">
+              模型
+              <select
+                value={settings.textTranslationModel}
+                disabled={isLive}
+                onChange={(event) => updateTextTranslationModel(event.target.value as TextTranslationModel)}
+              >
+                {textTranslationModels.length === 0 ? <option value="">服务器默认</option> : null}
+                {textTranslationModels.map((model) => (
+                  <option value={model} key={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="range-field">
             字号
             <input
@@ -403,7 +636,10 @@ export default function App() {
         </section>
       ) : null}
 
+      {isLive ? <DiagnosticStrip diagnostic={diagnostic} mode={settings.translationMode} now={Date.now()} /> : null}
+
       {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
+      {pendingSyncCount > 0 ? <p className="sync-banner">{pendingSyncCount} 条记录待同步，会自动重试。</p> : null}
 
       <main className="main-surface">
         {viewMode === "live" ? (
@@ -444,6 +680,112 @@ export default function App() {
       default:
         return latestSegment ? "已就绪" : "待开始";
     }
+  }
+}
+
+function DiagnosticStrip({
+  diagnostic,
+  mode,
+  now
+}: {
+  diagnostic: DiagnosticState;
+  mode: AppSettings["translationMode"];
+  now: number;
+}) {
+  return (
+    <section className="diagnostic-strip" aria-label="连接诊断">
+      <span>{modeLabel(mode)}</span>
+      <span>{microphoneLabel(diagnostic.microphoneLevel)}</span>
+      {mode === "classic-websocket-translate" ? (
+        <span>WebSocket {diagnostic.webSocketState}</span>
+      ) : (
+        <>
+          <span>Data {diagnostic.dataChannelState}</span>
+          <span>WebRTC {connectionLabel(diagnostic.peerConnectionState, diagnostic.iceConnectionState)}</span>
+        </>
+      )}
+      <span>{eventLabel(diagnostic.lastEventType, diagnostic.lastEventAt, now)}</span>
+      <span>{textLabel(diagnostic.lastTextAt, now)}</span>
+      {diagnostic.lastWarning ? <span>{diagnostic.lastWarning}</span> : null}
+    </section>
+  );
+}
+
+function createDiagnosticState(): DiagnosticState {
+  return {
+    microphoneLevel: null,
+    dataChannelState: "new",
+    iceConnectionState: "new",
+    peerConnectionState: "new",
+    webSocketState: "new",
+    lastEventType: "",
+    lastEventAt: null,
+    lastTextAt: null,
+    lastWarning: ""
+  };
+}
+
+function microphoneLabel(level: number | null): string {
+  if (level === null) {
+    return "麦克风 --";
+  }
+
+  const percent = Math.min(100, Math.round(level * 1000));
+  if (level >= 0.008) {
+    return `麦克风有声 ${percent}%`;
+  }
+  if (level >= 0.002) {
+    return `麦克风偏低 ${percent}%`;
+  }
+  return `麦克风无声 ${percent}%`;
+}
+
+function connectionLabel(peerState: string, iceState: string): string {
+  if (peerState === "connected" || iceState === "connected" || iceState === "completed") {
+    return "已连";
+  }
+  if (peerState === "failed" || iceState === "failed" || iceState === "disconnected") {
+    return `${peerState}/${iceState}`;
+  }
+  return `${peerState}/${iceState}`;
+}
+
+function eventLabel(eventType: string, eventAt: number | null, now: number): string {
+  if (!eventAt) {
+    return "事件 --";
+  }
+
+  return `事件 ${shortEventType(eventType)} ${formatAgo(eventAt, now)}`;
+}
+
+function textLabel(textAt: number | null, now: number): string {
+  if (!textAt) {
+    return "字幕 --";
+  }
+
+  return `字幕 ${formatAgo(textAt, now)}`;
+}
+
+function formatAgo(timestamp: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (seconds < 1) {
+    return "刚刚";
+  }
+  return `${seconds}s`;
+}
+
+function shortEventType(eventType: string): string {
+  return eventType.replace(/^conversation\.item\./, "").replace(/^session\./, "");
+}
+
+function modeLabel(mode: AppSettings["translationMode"]): string {
+  switch (mode) {
+    case "classic-websocket-translate":
+      return "经典低延迟";
+    case "realtime-translate":
+      return "官方 WebRTC";
+    default:
+      return "先转录再翻译";
   }
 }
 
@@ -734,4 +1076,23 @@ function groupSessionsByCourse(sessions: ClassSessionSummary[]) {
   }
 
   return Array.from(groups.values());
+}
+
+function isRealtimeTranslationMode(mode: AppSettings["translationMode"]): boolean {
+  return mode === "classic-websocket-translate" || mode === "realtime-translate";
+}
+
+function normalizeSettingsForConfig(settings: AppSettings, config: AppConfig): AppSettings {
+  if (config.textTranslationModels.length === 0) {
+    return settings;
+  }
+
+  if (settings.textTranslationModel && config.textTranslationModels.includes(settings.textTranslationModel)) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    textTranslationModel: config.defaultTextTranslationModel
+  };
 }
