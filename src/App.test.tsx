@@ -249,6 +249,17 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText(/已复制给 AI/)).toBeTruthy();
   });
 
+  it("shows all courses in the library even when a course has no sessions", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("资料库"));
+
+    expect(await screen.findByText("课程目录")).toBeTruthy();
+    expect((await screen.findAllByText("日常 / 不选课程")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("这门课还没有内容")).toBeTruthy();
+    expect((screen.getByTitle("复制整门课给 AI") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("shows one selected course at a time in the library", async () => {
     const firstCourse = createSession({ id: "class_first", title: "第一门课记录" });
     const secondCourse = createSession({
@@ -269,7 +280,7 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText("第一门课记录")).toBeTruthy();
     expect(screen.queryByText("第二门课记录")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /한국어듣기말하기/ }));
+    fireEvent.click(screen.getByTitle("查看课程：한국어듣기말하기"));
 
     expect(await screen.findByText("第二门课记录")).toBeTruthy();
     expect(screen.queryByText("第一门课记录")).toBeNull();

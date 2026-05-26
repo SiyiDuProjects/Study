@@ -92,7 +92,7 @@ interface SessionCourseGroup {
   courseFolderName: string;
   courseName: string;
   courseTerm: string;
-  latestStartedAt: string;
+  latestStartedAt: string | null;
   totalDurationMs: number;
   totalSegments: number;
   sessions: ClassSessionSummary[];
@@ -734,6 +734,7 @@ export default function App() {
         ) : null}
         {viewMode === "records" ? (
           <RecordsView
+            courses={courses}
             sessions={sessions}
             copyingTarget={copyingTarget}
             onSelect={openSession}
@@ -1085,6 +1086,7 @@ function CoursePicker({
 }
 
 function RecordsView({
+  courses,
   sessions,
   copyingTarget,
   onSelect,
@@ -1093,6 +1095,7 @@ function RecordsView({
   onCopySession,
   onCopyCourse
 }: {
+  courses: CourseOption[];
   sessions: ClassSessionSummary[];
   copyingTarget: string | null;
   onSelect: (session: ClassSessionSummary) => void;
@@ -1101,7 +1104,7 @@ function RecordsView({
   onCopySession: (session: ClassSessionSummary) => void;
   onCopyCourse: (group: SessionCourseGroup) => void;
 }) {
-  const groups = groupSessionsByCourse(sessions);
+  const groups = groupSessionsByCourse(courses, sessions);
   const [selectedCourseFolder, setSelectedCourseFolder] = useState("");
   const selectedGroup = groups.find((group) => group.courseFolderName === selectedCourseFolder) ?? groups[0] ?? null;
 
@@ -1114,9 +1117,7 @@ function RecordsView({
           <p>按课程整理课后中韩转录，可直接复制给 AI 作为上下文。</p>
         </div>
       </div>
-      {sessions.length === 0 ? (
-        <p className="muted">结束一节课后，完整中韩逐字稿会保存到服务器。</p>
-      ) : selectedGroup ? (
+      {selectedGroup ? (
         <div className="library-layout">
           <aside className="course-index" aria-label="课程目录">
             <h2>课程目录</h2>
@@ -1129,10 +1130,11 @@ function RecordsView({
                     type="button"
                     key={group.courseFolderName}
                     aria-pressed={isSelected}
+                    title={`查看课程：${group.courseName}`}
                     onClick={() => setSelectedCourseFolder(group.courseFolderName)}
                   >
                     <strong>{group.courseName}</strong>
-                    <span>{group.sessions.length} 次课 · 最近 {formatDateTime(group.latestStartedAt)}</span>
+                    <span>{libraryCourseMeta(group)}</span>
                   </button>
                 );
               })}
@@ -1145,8 +1147,9 @@ function RecordsView({
                 <h2>{selectedGroup.courseName}</h2>
                 <p>
                   {selectedGroup.courseTerm ? `${selectedGroup.courseTerm} · ` : ""}
-                  {selectedGroup.sessions.length} 次课 · {formatDuration(selectedGroup.totalDurationMs)} ·{" "}
-                  {selectedGroup.totalSegments} 段 · 最近 {formatDateTime(selectedGroup.latestStartedAt)}
+                  {selectedGroup.sessions.length > 0
+                    ? `${selectedGroup.sessions.length} 次课 · ${formatDuration(selectedGroup.totalDurationMs)} · ${selectedGroup.totalSegments} 段 · 最近 ${formatDateTime(selectedGroup.latestStartedAt ?? "")}`
+                    : "还没有保存的课次"}
                 </p>
               </div>
               <button
@@ -1154,42 +1157,49 @@ function RecordsView({
                 type="button"
                 onClick={() => onCopyCourse(selectedGroup)}
                 title="复制整门课给 AI"
-                disabled={copyingTarget === `course:${selectedGroup.courseFolderName}`}
+                disabled={selectedGroup.sessions.length === 0 || copyingTarget === `course:${selectedGroup.courseFolderName}`}
               >
                 <Copy size={17} />
                 {copyingTarget === `course:${selectedGroup.courseFolderName}` ? "复制中" : "复制整门课"}
               </button>
             </div>
-            <ul className="session-list">
-              {selectedGroup.sessions.map((session) => (
-                <li className="session-row" key={session.id}>
-                  <button type="button" onClick={() => onSelect(session)}>
-                    <strong>{session.title}</strong>
-                    <span>
-                      {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {session.segmentCount} 段
-                    </span>
-                  </button>
-                  <div className="row-actions">
-                    <button
-                      className="row-action-button"
-                      type="button"
-                      onClick={() => onCopySession(session)}
-                      title="复制本节课给 AI"
-                      disabled={copyingTarget === `session:${session.id}`}
-                    >
-                      <Copy size={17} />
-                      <span>{copyingTarget === `session:${session.id}` ? "复制中" : "复制"}</span>
+            {selectedGroup.sessions.length === 0 ? (
+              <div className="library-empty-course">
+                <h3>这门课还没有内容</h3>
+                <p>结束一节这门课后，中韩转录会自动出现在这里。</p>
+              </div>
+            ) : (
+              <ul className="session-list">
+                {selectedGroup.sessions.map((session) => (
+                  <li className="session-row" key={session.id}>
+                    <button type="button" onClick={() => onSelect(session)}>
+                      <strong>{session.title}</strong>
+                      <span>
+                        {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {session.segmentCount} 段
+                      </span>
                     </button>
-                    <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
-                      <Download size={18} />
-                    </button>
-                    <button className="icon-button danger" type="button" onClick={() => onDelete(session)} title="删除">
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    <div className="row-actions">
+                      <button
+                        className="row-action-button"
+                        type="button"
+                        onClick={() => onCopySession(session)}
+                        title="复制本节课给 AI"
+                        disabled={copyingTarget === `session:${session.id}`}
+                      >
+                        <Copy size={17} />
+                        <span>{copyingTarget === `session:${session.id}` ? "复制中" : "复制"}</span>
+                      </button>
+                      <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
+                        <Download size={18} />
+                      </button>
+                      <button className="icon-button danger" type="button" onClick={() => onDelete(session)} title="删除">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
       ) : null}
@@ -1286,8 +1296,28 @@ function courseMeta(course: CourseOption) {
   return course.id === DAILY_COURSE_ID ? "日常" : `${course.code} · ${course.term}`;
 }
 
-function groupSessionsByCourse(sessions: ClassSessionSummary[]): SessionCourseGroup[] {
+function libraryCourseMeta(group: SessionCourseGroup): string {
+  if (group.sessions.length === 0 || !group.latestStartedAt) {
+    return "还没有课次";
+  }
+
+  return `${group.sessions.length} 次课 · 最近 ${formatDateTime(group.latestStartedAt)}`;
+}
+
+function groupSessionsByCourse(courses: CourseOption[], sessions: ClassSessionSummary[]): SessionCourseGroup[] {
   const groups = new Map<string, SessionCourseGroup>();
+
+  for (const course of courses) {
+    groups.set(course.folderName, {
+      courseFolderName: course.folderName,
+      courseName: course.name,
+      courseTerm: course.term,
+      latestStartedAt: null,
+      totalDurationMs: 0,
+      totalSegments: 0,
+      sessions: []
+    });
+  }
 
   for (const session of sessions) {
     const key = session.courseFolderName;
@@ -1295,7 +1325,9 @@ function groupSessionsByCourse(sessions: ClassSessionSummary[]): SessionCourseGr
     if (group) {
       group.sessions.push(session);
       group.latestStartedAt =
-        compareSessionStartDesc(session, { startedAt: group.latestStartedAt }) < 0 ? session.startedAt : group.latestStartedAt;
+        !group.latestStartedAt || compareSessionStartDesc(session, { startedAt: group.latestStartedAt }) < 0
+          ? session.startedAt
+          : group.latestStartedAt;
       group.totalDurationMs += session.durationMs;
       group.totalSegments += session.segmentCount;
       continue;
