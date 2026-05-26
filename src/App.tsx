@@ -728,7 +728,6 @@ export default function App() {
             canChooseCourse={!isLive}
             selectedCourse={selectedCourse}
             needsCourseAttention={courseSelectionRequested}
-            translationMode={settings.translationMode}
             onSelectCourse={selectCourse}
             onStart={handleStartIntent}
           />
@@ -890,7 +889,6 @@ function LiveSubtitleView({
   canChooseCourse,
   selectedCourse,
   needsCourseAttention,
-  translationMode,
   onSelectCourse,
   onStart
 }: {
@@ -902,7 +900,6 @@ function LiveSubtitleView({
   canChooseCourse: boolean;
   selectedCourse: CourseOption | null;
   needsCourseAttention: boolean;
-  translationMode: AppSettings["translationMode"];
   onSelectCourse: (courseId: string) => void;
   onStart: () => void;
 }) {
@@ -923,7 +920,6 @@ function LiveSubtitleView({
         selectedCourse={selectedCourse}
         selectedCourseId={selectedCourseId}
         needsCourseAttention={needsCourseAttention}
-        translationMode={translationMode}
         onSelectCourse={onSelectCourse}
         onStart={onStart}
       />
@@ -952,7 +948,6 @@ function ClassStartView({
   selectedCourse,
   selectedCourseId,
   needsCourseAttention,
-  translationMode,
   onSelectCourse,
   onStart
 }: {
@@ -960,7 +955,6 @@ function ClassStartView({
   selectedCourse: CourseOption | null;
   selectedCourseId: string;
   needsCourseAttention: boolean;
-  translationMode: AppSettings["translationMode"];
   onSelectCourse: (courseId: string) => void;
   onStart: () => void;
 }) {
@@ -971,35 +965,15 @@ function ClassStartView({
       <div className="start-workflow">
         <div className="prep-header">
           <p className="eyebrow">上课准备</p>
-          <h1>{hasCourse ? "可以开始录音" : "先选择本节课"}</h1>
-          <p>{hasCourse ? "课程已确认，点击开始后允许麦克风权限。" : "选择课程后，这节课会自动归档到对应资料库。"}</p>
+          <h1>{hasCourse ? "准备开始录音" : "选择本节课"}</h1>
+          <p>{hasCourse ? `已选择「${selectedCourse?.name}」，现在可以开始录音。` : "只需要先选课程；没有对应课程就选日常 / 不选课程。"}</p>
         </div>
-
-        <ol className="prep-steps" aria-label="录音流程">
-          <li className={hasCourse ? "done" : "active"}>
-            <span>1</span>
-            <strong>选择课程</strong>
-          </li>
-          <li className={hasCourse ? "active" : ""}>
-            <span>2</span>
-            <strong>确认麦克风</strong>
-          </li>
-          <li>
-            <span>3</span>
-            <strong>开始录音</strong>
-          </li>
-        </ol>
 
         <div className="start-panel">
           <div className="prep-summary">
             <span>当前课程</span>
             <strong>{selectedCourse ? selectedCourse.name : "未选择"}</strong>
             <small>{selectedCourse ? courseMeta(selectedCourse) : "请选择课程，或选择日常 / 不选课程"}</small>
-          </div>
-          <div className="prep-summary">
-            <span>翻译模式</span>
-            <strong>{modeLabel(translationMode)}</strong>
-            <small>开始后浏览器会请求麦克风权限</small>
           </div>
           <button className={`start-recording-button ${hasCourse ? "" : "needs-course"}`} type="button" onClick={onStart}>
             <Mic size={23} />

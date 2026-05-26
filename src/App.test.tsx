@@ -130,7 +130,7 @@ describe("App classroom workflow", () => {
   it("shows a clear start workflow before a course is selected", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "先选择本节课" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "选择本节课" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "先选择课程" }));
 
     expect(await screen.findByText("请选择本节课对应课程或日常，然后再开始录音。")).toBeTruthy();

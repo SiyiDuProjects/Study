@@ -455,58 +455,9 @@ button {
   line-height: 1.5;
 }
 
-.prep-steps {
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-}
-
-.prep-steps li {
-  min-height: 56px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  color: #475569;
-  background: #ffffff;
-}
-
-.prep-steps span {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: #475569;
-  background: #e2e8f0;
-  font-weight: 780;
-}
-
-.prep-steps strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.prep-steps li.active {
-  border-color: #0f766e;
-  color: #0f172a;
-  background: #f0fdfa;
-}
-
-.prep-steps li.done span,
-.prep-steps li.active span {
-  color: #ffffff;
-  background: #0f766e;
-}
-
 .start-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 12px;
   padding: 14px;
@@ -918,13 +869,8 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .prep-steps,
   .start-panel {
     grid-template-columns: 1fr;
-  }
-
-  .prep-steps li {
-    min-height: 48px;
   }
 
   .start-recording-button {
