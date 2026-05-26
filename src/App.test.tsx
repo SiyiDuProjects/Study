@@ -126,7 +126,7 @@ describe("App classroom workflow", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByRole("button", { name: /开始/ }));
+    fireEvent.click(screen.getByTitle("开始录音"));
 
     expect(await screen.findByText(/麦克风被拒绝/)).toBeTruthy();
   });
@@ -156,7 +156,7 @@ describe("App classroom workflow", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByRole("button", { name: /开始/ }));
+    fireEvent.click(screen.getByTitle("开始录音"));
     await screen.findByText("录音中");
     fireEvent.click(screen.getByTitle("结束"));
 
@@ -188,7 +188,7 @@ describe("App classroom workflow", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByRole("button", { name: /开始/ }));
+    fireEvent.click(screen.getByTitle("开始录音"));
     await screen.findByText("录音中");
     fireEvent.click(screen.getByTitle("结束"));
 
@@ -202,7 +202,7 @@ describe("App classroom workflow", () => {
     mocks.listRemoteSessions.mockResolvedValue([summary]);
     render(<App />);
 
-    fireEvent.click(await screen.findByTitle("记录"));
+    fireEvent.click(await screen.findByTitle("资料库"));
     await screen.findByText(summary.title);
     fireEvent.click(screen.getByTitle("删除"));
 

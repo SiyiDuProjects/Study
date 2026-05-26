@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpen,
   ChevronDown,
   ChevronUp,
+  Copy,
   Download,
   Eye,
   EyeOff,
@@ -39,7 +39,7 @@ import {
   saveRemoteSession
 } from "./lib/api";
 import { createId } from "./lib/id";
-import { downloadMarkdown } from "./lib/markdown";
+import { buildAiCourseContext, buildAiSessionContext, downloadMarkdown } from "./lib/markdown";
 import { ClassicRealtimeTranslationClient } from "./lib/classicRealtimeTranslation";
 import { RealtimeTranscriptionTranslationClient } from "./lib/realtimeTranscriptionTranslation";
 import { RealtimeTranslationClient } from "./lib/realtimeTranslation";
@@ -88,6 +88,16 @@ interface DiagnosticState {
   lastWarning: string;
 }
 
+interface SessionCourseGroup {
+  courseFolderName: string;
+  courseName: string;
+  courseTerm: string;
+  latestStartedAt: string;
+  totalDurationMs: number;
+  totalSegments: number;
+  sessions: ClassSessionSummary[];
+}
+
 export default function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [appConfig, setAppConfig] = useState<AppConfig>(EMPTY_APP_CONFIG);
@@ -101,9 +111,12 @@ export default function App() {
   const [startedAt, setStartedAt] = useState<Date | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diagnostic, setDiagnostic] = useState<DiagnosticState>(createDiagnosticState);
+  const [courseSelectionRequested, setCourseSelectionRequested] = useState(false);
+  const [copyingTarget, setCopyingTarget] = useState<string | null>(null);
 
   const clientRef = useRef<LiveSubtitleClient | null>(null);
   const transcriptRef = useRef<TranscriptState>(transcriptState);
@@ -261,9 +274,31 @@ export default function App() {
     await saveSettings(nextSettings);
   }
 
+  function selectCourse(courseId: string) {
+    setSelectedCourseId(courseId);
+    setCourseSelectionRequested(false);
+    setCopyMessage("");
+  }
+
+  function requestCourseBeforeStart() {
+    setViewMode("live");
+    setCourseSelectionRequested(true);
+    setCopyMessage("");
+    setErrorMessage("");
+  }
+
+  function handleStartIntent() {
+    if (!selectedCourse) {
+      requestCourseBeforeStart();
+      return;
+    }
+
+    void startClass();
+  }
+
   async function startClass() {
     if (!selectedCourse) {
-      setErrorMessage("请先选择课程，或选择日常 / 不选课程。");
+      requestCourseBeforeStart();
       return;
     }
 
@@ -276,6 +311,8 @@ export default function App() {
     setElapsedMs(0);
     setDiagnostic(createDiagnosticState());
     setErrorMessage("");
+    setCopyMessage("");
+    setCourseSelectionRequested(false);
     setViewMode("live");
     setStatus("connecting");
 
@@ -503,6 +540,39 @@ export default function App() {
     }
   }
 
+  async function copySessionForAi(session: ClassSessionSummary | ClassSession) {
+    const target = `session:${session.id}`;
+    setCopyingTarget(target);
+    try {
+      const fullSession = "segments" in session ? session : await getRemoteSession(session.id);
+      await writeClipboard(buildAiSessionContext(fullSession));
+      setCopyMessage(`已复制给 AI：${fullSession.title}`);
+      setErrorMessage("");
+    } catch (error) {
+      setCopyMessage("");
+      setErrorMessage(error instanceof Error ? error.message : "复制记录失败。");
+    } finally {
+      setCopyingTarget((current) => (current === target ? null : current));
+    }
+  }
+
+  async function copyCourseForAi(group: SessionCourseGroup) {
+    const target = `course:${group.courseFolderName}`;
+    setCopyingTarget(target);
+    try {
+      const orderedSessions = [...group.sessions].sort(compareSessionStartAsc);
+      const fullSessions = await Promise.all(orderedSessions.map((session) => getRemoteSession(session.id)));
+      await writeClipboard(buildAiCourseContext(fullSessions));
+      setCopyMessage(`已复制给 AI：${group.courseName} 共 ${fullSessions.length} 次课`);
+      setErrorMessage("");
+    } catch (error) {
+      setCopyMessage("");
+      setErrorMessage(error instanceof Error ? error.message : "复制课程记录失败。");
+    } finally {
+      setCopyingTarget((current) => (current === target ? null : current));
+    }
+  }
+
   async function removeSession(session: ClassSessionSummary) {
     if (!window.confirm(`删除记录「${session.title}」？`)) {
       return;
@@ -549,7 +619,7 @@ export default function App() {
           <button className="icon-button" type="button" onClick={() => setSettingsOpen((open) => !open)} title="设置">
             <Settings size={20} />
           </button>
-          <button className="icon-button secondary-nav" type="button" onClick={() => setViewMode("records")} title="记录">
+          <button className="icon-button secondary-nav" type="button" onClick={() => setViewMode("records")} title="资料库">
             <Library size={20} />
           </button>
           {status === "paused" ? (
@@ -558,9 +628,14 @@ export default function App() {
               <span className="control-label">继续</span>
             </button>
           ) : canStart || status === "idle" || status === "error" ? (
-            <button className="primary-action" type="button" onClick={startClass} title="开始" disabled={!canStart}>
+            <button
+              className={`primary-action ${selectedCourse ? "" : "needs-course"}`}
+              type="button"
+              onClick={handleStartIntent}
+              title={selectedCourse ? "开始录音" : "先选择课程"}
+            >
               <Mic size={19} />
-              <span className="control-label">开始</span>
+              <span className="control-label">{selectedCourse ? "开始" : "选课"}</span>
             </button>
           ) : (
             <button className="icon-button control" type="button" onClick={pauseClass} title="暂停" disabled={status !== "recording"}>
@@ -628,7 +703,7 @@ export default function App() {
             }}
           >
             <Library size={17} />
-            记录
+            资料库
           </button>
           <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} title="关闭设置">
             <X size={18} />
@@ -639,6 +714,7 @@ export default function App() {
       {isLive ? <DiagnosticStrip diagnostic={diagnostic} mode={settings.translationMode} now={Date.now()} /> : null}
 
       {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
+      {copyMessage ? <p className="copy-banner">{copyMessage}</p> : null}
       {pendingSyncCount > 0 ? <p className="sync-banner">{pendingSyncCount} 条记录待同步，会自动重试。</p> : null}
 
       <main className="main-surface">
@@ -650,15 +726,31 @@ export default function App() {
             courses={courses}
             selectedCourseId={selectedCourseId}
             canChooseCourse={!isLive}
-            onSelectCourse={setSelectedCourseId}
+            selectedCourse={selectedCourse}
+            needsCourseAttention={courseSelectionRequested}
+            translationMode={settings.translationMode}
+            onSelectCourse={selectCourse}
+            onStart={handleStartIntent}
           />
         ) : null}
-        {viewMode === "records" ? <RecordsView sessions={sessions} onSelect={openSession} onDelete={removeSession} onExport={exportSession} /> : null}
+        {viewMode === "records" ? (
+          <RecordsView
+            sessions={sessions}
+            copyingTarget={copyingTarget}
+            onSelect={openSession}
+            onDelete={removeSession}
+            onExport={exportSession}
+            onCopySession={copySessionForAi}
+            onCopyCourse={copyCourseForAi}
+          />
+        ) : null}
         {viewMode === "document" ? (
           <DocumentView
             session={selectedSession}
             onBack={() => setViewMode("records")}
             onExport={(session) => downloadMarkdown(session)}
+            onCopy={copySessionForAi}
+            isCopying={selectedSession ? copyingTarget === `session:${selectedSession.id}` : false}
           />
         ) : null}
       </main>
@@ -796,7 +888,11 @@ function LiveSubtitleView({
   courses,
   selectedCourseId,
   canChooseCourse,
-  onSelectCourse
+  selectedCourse,
+  needsCourseAttention,
+  translationMode,
+  onSelectCourse,
+  onStart
 }: {
   status: ConnectionStatus;
   segments: ReturnType<typeof getDisplaySegments>;
@@ -804,18 +900,33 @@ function LiveSubtitleView({
   courses: CourseOption[];
   selectedCourseId: string;
   canChooseCourse: boolean;
+  selectedCourse: CourseOption | null;
+  needsCourseAttention: boolean;
+  translationMode: AppSettings["translationMode"];
   onSelectCourse: (courseId: string) => void;
+  onStart: () => void;
 }) {
   const hasText = segments.some((segment) => segment.translatedText.trim());
 
   if (!hasText) {
+    if (!canChooseCourse) {
+      return (
+        <section className="subtitle-stage empty-stage">
+          <p className="empty-subtitle">{emptyMessage(status, Boolean(selectedCourseId))}</p>
+        </section>
+      );
+    }
+
     return (
-      <section className="subtitle-stage empty-stage">
-        {canChooseCourse ? (
-          <CoursePicker courses={courses} selectedCourseId={selectedCourseId} onSelectCourse={onSelectCourse} />
-        ) : null}
-        <p className="empty-subtitle">{emptyMessage(status, Boolean(selectedCourseId))}</p>
-      </section>
+      <ClassStartView
+        courses={courses}
+        selectedCourse={selectedCourse}
+        selectedCourseId={selectedCourseId}
+        needsCourseAttention={needsCourseAttention}
+        translationMode={translationMode}
+        onSelectCourse={onSelectCourse}
+        onStart={onStart}
+      />
     );
   }
 
@@ -836,13 +947,92 @@ function LiveSubtitleView({
   );
 }
 
+function ClassStartView({
+  courses,
+  selectedCourse,
+  selectedCourseId,
+  needsCourseAttention,
+  translationMode,
+  onSelectCourse,
+  onStart
+}: {
+  courses: CourseOption[];
+  selectedCourse: CourseOption | null;
+  selectedCourseId: string;
+  needsCourseAttention: boolean;
+  translationMode: AppSettings["translationMode"];
+  onSelectCourse: (courseId: string) => void;
+  onStart: () => void;
+}) {
+  const hasCourse = Boolean(selectedCourse);
+
+  return (
+    <section className="subtitle-stage ready-stage" aria-label="上课准备">
+      <div className="start-workflow">
+        <div className="prep-header">
+          <p className="eyebrow">上课准备</p>
+          <h1>{hasCourse ? "可以开始录音" : "先选择本节课"}</h1>
+          <p>{hasCourse ? "课程已确认，点击开始后允许麦克风权限。" : "选择课程后，这节课会自动归档到对应资料库。"}</p>
+        </div>
+
+        <ol className="prep-steps" aria-label="录音流程">
+          <li className={hasCourse ? "done" : "active"}>
+            <span>1</span>
+            <strong>选择课程</strong>
+          </li>
+          <li className={hasCourse ? "active" : ""}>
+            <span>2</span>
+            <strong>确认麦克风</strong>
+          </li>
+          <li>
+            <span>3</span>
+            <strong>开始录音</strong>
+          </li>
+        </ol>
+
+        <CoursePicker
+          courses={courses}
+          selectedCourseId={selectedCourseId}
+          highlight={needsCourseAttention && !hasCourse}
+          onSelectCourse={onSelectCourse}
+        />
+
+        <div className="start-panel">
+          <div className="prep-summary">
+            <span>当前课程</span>
+            <strong>{selectedCourse ? selectedCourse.name : "未选择"}</strong>
+            <small>{selectedCourse ? courseMeta(selectedCourse) : "请选择课程，或选择日常 / 不选课程"}</small>
+          </div>
+          <div className="prep-summary">
+            <span>翻译模式</span>
+            <strong>{modeLabel(translationMode)}</strong>
+            <small>开始后浏览器会请求麦克风权限</small>
+          </div>
+          <button className={`start-recording-button ${hasCourse ? "" : "needs-course"}`} type="button" onClick={onStart}>
+            <Mic size={23} />
+            <span>{hasCourse ? "开始录音" : "先选择课程"}</span>
+          </button>
+        </div>
+
+        {needsCourseAttention && !hasCourse ? (
+          <p className="start-hint" role="status">
+            请选择本节课对应课程或日常，然后再开始录音。
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function CoursePicker({
   courses,
   selectedCourseId,
+  highlight = false,
   onSelectCourse
 }: {
   courses: CourseOption[];
   selectedCourseId: string;
+  highlight?: boolean;
   onSelectCourse: (courseId: string) => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(!selectedCourseId);
@@ -854,6 +1044,12 @@ function CoursePicker({
       setIsExpanded(true);
     }
   }, [selectedCourseId]);
+
+  useEffect(() => {
+    if (highlight) {
+      setIsExpanded(true);
+    }
+  }, [highlight]);
 
   function handleSelectCourse(courseId: string) {
     onSelectCourse(courseId);
@@ -883,7 +1079,7 @@ function CoursePicker({
   }
 
   return (
-    <div className="course-picker" aria-label="选择课程">
+    <div className={`course-picker ${highlight ? "attention" : ""}`} aria-label="选择课程">
       <button
         className="course-picker-title"
         type="button"
@@ -916,31 +1112,58 @@ function CoursePicker({
 
 function RecordsView({
   sessions,
+  copyingTarget,
   onSelect,
   onDelete,
-  onExport
+  onExport,
+  onCopySession,
+  onCopyCourse
 }: {
   sessions: ClassSessionSummary[];
+  copyingTarget: string | null;
   onSelect: (session: ClassSessionSummary) => void;
   onDelete: (session: ClassSessionSummary) => void;
   onExport: (session: ClassSessionSummary) => void;
+  onCopySession: (session: ClassSessionSummary) => void;
+  onCopyCourse: (group: SessionCourseGroup) => void;
 }) {
   const groups = groupSessionsByCourse(sessions);
 
   return (
-    <section className="records-view">
+    <section className="records-view library-view">
       <div className="section-heading">
-        <BookOpen size={22} />
-        <h1>记录</h1>
+        <Library size={22} />
+        <div>
+          <h1>资料库</h1>
+          <p>按课程整理课后中韩转录，可直接复制给 AI 作为上下文。</p>
+        </div>
       </div>
       {sessions.length === 0 ? (
         <p className="muted">结束一节课后，完整中韩逐字稿会保存到服务器。</p>
       ) : (
         <div className="session-groups">
           {groups.map((group) => (
-            <section className="session-course-group" key={group.courseFolderName}>
-              <h2>{group.courseName}</h2>
-              {group.courseTerm ? <p>{group.courseTerm}</p> : null}
+            <section className="session-course-group library-course-group" key={group.courseFolderName}>
+              <div className="library-course-header">
+                <div>
+                  <h2>{group.courseName}</h2>
+                  <p>
+                    {group.courseTerm ? `${group.courseTerm} · ` : ""}
+                    {group.sessions.length} 次课 · {formatDuration(group.totalDurationMs)} · {group.totalSegments} 段 · 最近{" "}
+                    {formatDateTime(group.latestStartedAt)}
+                  </p>
+                </div>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => onCopyCourse(group)}
+                  title="复制整门课给 AI"
+                  disabled={copyingTarget === `course:${group.courseFolderName}`}
+                >
+                  <Copy size={17} />
+                  {copyingTarget === `course:${group.courseFolderName}` ? "复制中" : "复制整门课"}
+                </button>
+              </div>
               <ul className="session-list">
                 {group.sessions.map((session) => (
                   <li className="session-row" key={session.id}>
@@ -951,6 +1174,16 @@ function RecordsView({
                       </span>
                     </button>
                     <div className="row-actions">
+                      <button
+                        className="row-action-button"
+                        type="button"
+                        onClick={() => onCopySession(session)}
+                        title="复制本节课给 AI"
+                        disabled={copyingTarget === `session:${session.id}`}
+                      >
+                        <Copy size={17} />
+                        <span>{copyingTarget === `session:${session.id}` ? "复制中" : "复制"}</span>
+                      </button>
                       <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
                         <Download size={18} />
                       </button>
@@ -972,18 +1205,22 @@ function RecordsView({
 function DocumentView({
   session,
   onBack,
-  onExport
+  onExport,
+  onCopy,
+  isCopying
 }: {
   session: ClassSession | null;
   onBack: () => void;
   onExport: (session: ClassSession) => void;
+  onCopy: (session: ClassSession) => void;
+  isCopying: boolean;
 }) {
   if (!session) {
     return (
       <section className="records-view">
         <p className="muted">没有选中的课堂记录。</p>
         <button className="ghost-button" type="button" onClick={onBack}>
-          返回记录
+          返回资料库
         </button>
       </section>
     );
@@ -1003,10 +1240,16 @@ function DocumentView({
             {formatDuration(session.durationMs)}
           </p>
         </div>
-        <button className="primary-action" type="button" onClick={() => onExport(session)}>
-          <Download size={18} />
-          <span className="control-label">Markdown</span>
-        </button>
+        <div className="document-actions">
+          <button className="primary-action" type="button" onClick={() => onCopy(session)} disabled={isCopying}>
+            <Copy size={18} />
+            <span className="control-label">{isCopying ? "复制中" : "复制给 AI"}</span>
+          </button>
+          <button className="ghost-button" type="button" onClick={() => onExport(session)}>
+            <Download size={18} />
+            <span className="control-label">Markdown</span>
+          </button>
+        </div>
       </div>
       <div className="document-body">
         {session.segments.length === 0 ? (
@@ -1048,22 +1291,18 @@ function courseMeta(course: CourseOption) {
   return course.id === DAILY_COURSE_ID ? "日常" : `${course.code} · ${course.term}`;
 }
 
-function groupSessionsByCourse(sessions: ClassSessionSummary[]) {
-  const groups = new Map<
-    string,
-    {
-      courseFolderName: string;
-      courseName: string;
-      courseTerm: string;
-      sessions: ClassSessionSummary[];
-    }
-  >();
+function groupSessionsByCourse(sessions: ClassSessionSummary[]): SessionCourseGroup[] {
+  const groups = new Map<string, SessionCourseGroup>();
 
   for (const session of sessions) {
     const key = session.courseFolderName;
     const group = groups.get(key);
     if (group) {
       group.sessions.push(session);
+      group.latestStartedAt =
+        compareSessionStartDesc(session, { startedAt: group.latestStartedAt }) < 0 ? session.startedAt : group.latestStartedAt;
+      group.totalDurationMs += session.durationMs;
+      group.totalSegments += session.segmentCount;
       continue;
     }
 
@@ -1071,11 +1310,33 @@ function groupSessionsByCourse(sessions: ClassSessionSummary[]) {
       courseFolderName: session.courseFolderName,
       courseName: session.courseName,
       courseTerm: session.courseTerm,
+      latestStartedAt: session.startedAt,
+      totalDurationMs: session.durationMs,
+      totalSegments: session.segmentCount,
       sessions: [session]
     });
   }
 
-  return Array.from(groups.values());
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    sessions: [...group.sessions].sort(compareSessionStartDesc)
+  }));
+}
+
+function compareSessionStartAsc(left: Pick<ClassSessionSummary, "startedAt">, right: Pick<ClassSessionSummary, "startedAt">) {
+  return Date.parse(left.startedAt) - Date.parse(right.startedAt);
+}
+
+function compareSessionStartDesc(left: Pick<ClassSessionSummary, "startedAt">, right: Pick<ClassSessionSummary, "startedAt">) {
+  return Date.parse(right.startedAt) - Date.parse(left.startedAt);
+}
+
+async function writeClipboard(text: string): Promise<void> {
+  if (!navigator.clipboard?.writeText) {
+    throw new Error("当前浏览器不支持剪贴板复制。");
+  }
+
+  await navigator.clipboard.writeText(text);
 }
 
 function isRealtimeTranslationMode(mode: AppSettings["translationMode"]): boolean {
