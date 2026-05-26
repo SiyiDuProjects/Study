@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { TextTranslationModel, TranslationMode } from "../src/types.js";
 
 const OPENAI_REALTIME_CLIENT_SECRET_URL = "https://api.openai.com/v1/realtime/client_secrets";
+const OPENAI_TRANSLATION_CLIENT_SECRET_URL = "https://api.openai.com/v1/realtime/translations/client_secrets";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 interface OpenAIClientSecretResponse {
@@ -33,7 +34,7 @@ export async function createRealtimeClientSecret({
   mode: TranslationMode;
   safetyIdentifier: string;
 }): Promise<RealtimeClientSecret> {
-  const response = await fetch(OPENAI_REALTIME_CLIENT_SECRET_URL, {
+  const response = await fetch(realtimeClientSecretUrlForMode(mode), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -118,22 +119,18 @@ function realtimeSessionForMode(mode: TranslationMode) {
       type: "transcription",
       audio: {
         input: {
-          format: {
-            type: "audio/pcm",
-            rate: 24000
-          },
           transcription: {
             model: "gpt-realtime-whisper",
             language: "ko",
             delay: "low"
-          }
+          },
+          turn_detection: null
         }
       }
     };
   }
 
   return {
-    type: "realtime",
     model: "gpt-realtime-translate",
     audio: {
       input: {
@@ -149,6 +146,10 @@ function realtimeSessionForMode(mode: TranslationMode) {
       }
     }
   };
+}
+
+function realtimeClientSecretUrlForMode(mode: TranslationMode): string {
+  return mode === "realtime-translate" ? OPENAI_TRANSLATION_CLIENT_SECRET_URL : OPENAI_REALTIME_CLIENT_SECRET_URL;
 }
 
 function buildTranslationInput(text: string, context?: Array<{ sourceText: string; translatedText: string }>): string {

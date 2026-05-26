@@ -1,8 +1,8 @@
 import type { RealtimeClientCallbacks, TextTranslationModel } from "../types";
-import { floatToPcm16, pcm16ToBase64, resampleTo24k, SAMPLES_PER_FRAME } from "./audio";
 import { translateKoreanText } from "./api";
+import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
-const TRANSCRIPTION_URL = "wss://api.openai.com/v1/realtime?model=gpt-realtime-whisper";
+const TRANSCRIPTION_CALL_URL = "https://api.openai.com/v1/realtime/calls";
 const SPEECH_RMS_THRESHOLD = 0.006;
 const MIN_COMMIT_MS = 800;
 const SILENCE_COMMIT_MS = 900;
@@ -16,18 +16,21 @@ interface TranscriptionCompletedEvent {
 }
 
 export class RealtimeTranscriptionTranslationClient {
-  private ws: WebSocket | null = null;
+  private transport: RealtimeWebRtcTransport | null = null;
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
-  private pendingSamples: number[] = [];
+  private analyserNode: AnalyserNode | null = null;
+  private audioMonitorInterval: number | null = null;
+  private audioSamples: Float32Array<ArrayBuffer> | null = null;
   private isStreaming = false;
   private hasAudioToCommit = false;
   private bufferStartedAt = 0;
   private lastSpeechAt = 0;
   private sessionStartedAt = 0;
   private stopped = false;
+  private hasConnectionError = false;
+  private hasClosed = false;
   private translationQueue: Promise<void> = Promise.resolve();
   private recentSegments: Array<{ sourceText: string; translatedText: string }> = [];
 
@@ -38,6 +41,9 @@ export class RealtimeTranscriptionTranslationClient {
   ) {}
 
   async start(): Promise<void> {
+    this.stopped = false;
+    this.hasConnectionError = false;
+    this.hasClosed = false;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -47,95 +53,96 @@ export class RealtimeTranscriptionTranslationClient {
       }
     });
 
-    const clientSecret = await this.getClientSecret();
-    this.ws = new WebSocket(TRANSCRIPTION_URL, ["realtime", `openai-insecure-api-key.${clientSecret}`]);
-    this.ws.onopen = () => {
-      this.configureSession();
-      this.startAudioPump();
-      this.callbacks.onOpen();
-    };
-    this.ws.onmessage = (message) => this.handleMessage(message.data);
-    this.ws.onerror = () => this.callbacks.onError("Realtime 转录连接失败，请检查服务器配置、网络或模型权限。");
-    this.ws.onclose = () => {
+    try {
+      const clientSecret = await this.getClientSecret();
+      this.transport = await createRealtimeWebRtcTransport({
+        callUrl: TRANSCRIPTION_CALL_URL,
+        clientSecret,
+        stream: this.stream,
+        onOpen: (transport) => this.handleTransportOpen(transport),
+        onMessage: (data) => this.handleMessage(data),
+        onError: (message) => this.handleTransportError(message),
+        onClose: () => this.handleTransportClose()
+      });
+    } catch (error) {
+      this.hasConnectionError = true;
+      this.hasClosed = true;
+      this.transport = null;
       this.stopLocalAudio();
-      this.callbacks.onClose();
-    };
+      throw error;
+    }
   }
 
   pause(): void {
     this.commitInputBuffer();
     this.isStreaming = false;
+    this.setAudioEnabled(false);
   }
 
   resume(): void {
     this.isStreaming = true;
+    this.setAudioEnabled(true);
   }
 
   stop(): void {
     this.stopped = true;
     this.isStreaming = false;
     this.commitInputBuffer();
+    this.setAudioEnabled(false);
+    this.sendRealtimeEvent({ type: "session.close" });
+    window.setTimeout(() => this.closeTransport(), 500);
+  }
 
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: "session.close" }));
-      window.setTimeout(() => this.ws?.close(), 500);
-    } else {
-      this.ws?.close();
-    }
-
-    this.stopLocalAudio();
+  private handleTransportOpen(transport: RealtimeWebRtcTransport): void {
+    this.transport = transport;
+    this.configureSession();
+    this.startSpeechMonitor();
+    this.callbacks.onOpen();
   }
 
   private configureSession(): void {
-    this.ws?.send(
-      JSON.stringify({
-        type: "session.update",
-        session: {
-          type: "transcription",
-          audio: {
-            input: {
-              format: {
-                type: "audio/pcm",
-                rate: 24000
-              },
-              transcription: {
-                model: "gpt-realtime-whisper",
-                language: "ko",
-                delay: "low"
-              },
-              turn_detection: null
-            }
+    this.sendRealtimeEvent({
+      type: "session.update",
+      session: {
+        type: "transcription",
+        audio: {
+          input: {
+            transcription: {
+              model: "gpt-realtime-whisper",
+              language: "ko",
+              delay: "low"
+            },
+            turn_detection: null
           }
         }
-      })
-    );
+      }
+    });
   }
 
-  private startAudioPump(): void {
+  private startSpeechMonitor(): void {
     if (!this.stream) {
       return;
     }
 
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     this.audioContext = new AudioContextCtor();
+    this.audioContext.resume().catch(() => undefined);
     this.sessionStartedAt = performance.now();
     this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
-    this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.analyserNode = this.audioContext.createAnalyser();
+    this.analyserNode.fftSize = 2048;
+    this.audioSamples = new Float32Array(this.analyserNode.fftSize);
+    this.sourceNode.connect(this.analyserNode);
     this.isStreaming = true;
 
-    this.processorNode.onaudioprocess = (event) => {
-      if (!this.isStreaming || this.ws?.readyState !== WebSocket.OPEN || !this.audioContext) {
+    this.audioMonitorInterval = window.setInterval(() => {
+      if (!this.isStreaming || !this.analyserNode || !this.audioSamples) {
         return;
       }
 
-      const input = event.inputBuffer.getChannelData(0);
-      const resampled = resampleTo24k(input, this.audioContext.sampleRate);
-      const rms = calculateRms(resampled);
+      this.analyserNode.getFloatTimeDomainData(this.audioSamples);
+      const rms = calculateRms(this.audioSamples);
       const now = Date.now();
-      const shouldSendFrame = rms >= SPEECH_RMS_THRESHOLD || this.hasAudioToCommit;
-      if (!shouldSendFrame) {
-        return;
-      }
 
       if (rms >= SPEECH_RMS_THRESHOLD) {
         this.lastSpeechAt = now;
@@ -145,26 +152,8 @@ export class RealtimeTranscriptionTranslationClient {
         }
       }
 
-      const pcm = floatToPcm16(resampled);
-      for (const sample of pcm) {
-        this.pendingSamples.push(sample);
-      }
-
-      while (this.pendingSamples.length >= SAMPLES_PER_FRAME) {
-        const frame = Int16Array.from(this.pendingSamples.splice(0, SAMPLES_PER_FRAME));
-        this.ws?.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: pcm16ToBase64(frame)
-          })
-        );
-      }
-
       this.maybeCommitInputBuffer(now);
-    };
-
-    this.sourceNode.connect(this.processorNode);
-    this.processorNode.connect(this.audioContext.destination);
+    }, 120);
   }
 
   private maybeCommitInputBuffer(now: number): void {
@@ -180,15 +169,13 @@ export class RealtimeTranscriptionTranslationClient {
   }
 
   private commitInputBuffer(): void {
-    if (!this.hasAudioToCommit || this.ws?.readyState !== WebSocket.OPEN) {
+    if (!this.hasAudioToCommit || !this.sendRealtimeEvent({ type: "input_audio_buffer.commit" })) {
       return;
     }
 
-    this.ws.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
     this.hasAudioToCommit = false;
     this.bufferStartedAt = 0;
     this.lastSpeechAt = 0;
-    this.pendingSamples = [];
   }
 
   private handleMessage(raw: unknown): void {
@@ -209,6 +196,7 @@ export class RealtimeTranscriptionTranslationClient {
     }
 
     if (event.type === "error") {
+      this.hasConnectionError = true;
       this.callbacks.onError(event.error?.message ?? "Realtime 转录返回错误。");
     }
   }
@@ -245,28 +233,82 @@ export class RealtimeTranscriptionTranslationClient {
       });
   }
 
+  private handleTransportError(message: string): void {
+    if (this.hasConnectionError || this.hasClosed) {
+      return;
+    }
+
+    this.hasConnectionError = true;
+    this.callbacks.onError(message);
+    this.closeTransport();
+  }
+
+  private handleTransportClose(): void {
+    if (this.hasClosed) {
+      return;
+    }
+
+    this.hasClosed = true;
+    this.isStreaming = false;
+    this.transport = null;
+    this.stopLocalAudio();
+
+    if (!this.hasConnectionError) {
+      this.callbacks.onClose();
+    }
+  }
+
+  private sendRealtimeEvent(event: unknown): boolean {
+    return this.transport?.sendEvent(event) ?? false;
+  }
+
+  private closeTransport(): void {
+    this.transport?.close();
+    this.transport = null;
+    this.handleTransportClose();
+  }
+
+  private setAudioEnabled(enabled: boolean): void {
+    this.stream?.getAudioTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
+  }
+
   private stopLocalAudio(): void {
-    this.processorNode?.disconnect();
+    if (this.audioMonitorInterval) {
+      window.clearInterval(this.audioMonitorInterval);
+      this.audioMonitorInterval = null;
+    }
+
+    this.analyserNode?.disconnect();
     this.sourceNode?.disconnect();
     this.stream?.getTracks().forEach((track) => track.stop());
     this.audioContext?.close().catch(() => undefined);
 
-    this.processorNode = null;
+    this.analyserNode = null;
     this.sourceNode = null;
     this.stream = null;
     this.audioContext = null;
-    this.pendingSamples = [];
+    this.audioSamples = null;
+    this.hasAudioToCommit = false;
   }
 }
 
-function calculateRms(input: Float32Array): number {
+function calculateRms(input: ArrayLike<number>): number {
   if (input.length === 0) {
     return 0;
   }
 
   let sum = 0;
-  for (const sample of input) {
+  for (let index = 0; index < input.length; index += 1) {
+    const sample = input[index];
     sum += sample * sample;
   }
   return Math.sqrt(sum / input.length);
+}
+
+declare global {
+  interface Window {
+    webkitAudioContext?: typeof AudioContext;
+  }
 }

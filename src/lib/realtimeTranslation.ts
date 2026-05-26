@@ -1,16 +1,14 @@
 import type { RealtimeClientCallbacks } from "../types";
-import { floatToPcm16, pcm16ToBase64, resampleTo24k, SAMPLES_PER_FRAME } from "./audio";
+import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
-const TRANSLATION_URL = "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate";
+const TRANSLATION_CALL_URL = "https://api.openai.com/v1/realtime/translations/calls";
 
 export class RealtimeTranslationClient {
-  private ws: WebSocket | null = null;
+  private transport: RealtimeWebRtcTransport | null = null;
   private stream: MediaStream | null = null;
-  private audioContext: AudioContext | null = null;
-  private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
-  private pendingSamples: number[] = [];
   private isStreaming = false;
+  private hasConnectionError = false;
+  private hasClosed = false;
 
   constructor(
     private readonly getClientSecret: () => Promise<string>,
@@ -18,6 +16,8 @@ export class RealtimeTranslationClient {
   ) {}
 
   async start(): Promise<void> {
+    this.hasConnectionError = false;
+    this.hasClosed = false;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -27,101 +27,69 @@ export class RealtimeTranslationClient {
       }
     });
 
-    const clientSecret = await this.getClientSecret();
-    this.ws = new WebSocket(TRANSLATION_URL, ["realtime", `openai-insecure-api-key.${clientSecret}`]);
-    this.ws.onopen = () => {
-      this.configureSession();
-      this.startAudioPump();
-      this.callbacks.onOpen();
-    };
-    this.ws.onmessage = (message) => this.handleMessage(message.data);
-    this.ws.onerror = () => this.callbacks.onError("Realtime 连接失败，请检查服务器配置、网络或模型权限。");
-    this.ws.onclose = () => {
+    try {
+      const clientSecret = await this.getClientSecret();
+      this.transport = await createRealtimeWebRtcTransport({
+        callUrl: TRANSLATION_CALL_URL,
+        clientSecret,
+        stream: this.stream,
+        onOpen: (transport) => this.handleTransportOpen(transport),
+        onMessage: (data) => this.handleMessage(data),
+        onError: (message) => this.handleTransportError(message),
+        onClose: () => this.handleTransportClose()
+      });
+    } catch (error) {
+      this.hasConnectionError = true;
+      this.hasClosed = true;
+      this.transport = null;
       this.stopLocalAudio();
-      this.callbacks.onClose();
-    };
+      throw error;
+    }
   }
 
   pause(): void {
     this.isStreaming = false;
+    this.setAudioEnabled(false);
   }
 
   resume(): void {
     this.isStreaming = true;
+    this.setAudioEnabled(true);
   }
 
   stop(): void {
     this.isStreaming = false;
+    this.setAudioEnabled(false);
+    this.sendRealtimeEvent({ type: "session.close" });
+    window.setTimeout(() => this.closeTransport(), 500);
+  }
 
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: "session.close" }));
-      window.setTimeout(() => this.ws?.close(), 500);
-    } else {
-      this.ws?.close();
-    }
-
-    this.stopLocalAudio();
+  private handleTransportOpen(transport: RealtimeWebRtcTransport): void {
+    this.transport = transport;
+    this.isStreaming = true;
+    this.configureSession();
+    this.callbacks.onOpen();
   }
 
   private configureSession(): void {
-    this.ws?.send(
-      JSON.stringify({
-        type: "session.update",
-        session: {
-          audio: {
-            input: {
-              transcription: {
-                model: "gpt-realtime-whisper"
-              },
-              noise_reduction: {
-                type: "far_field"
-              }
+    this.sendRealtimeEvent({
+      type: "session.update",
+      session: {
+        audio: {
+          input: {
+            transcription: {
+              model: "gpt-realtime-whisper"
             },
-            output: {
-              language: "zh"
+            noise_reduction: {
+              type: "far_field"
             }
+          },
+          output: {
+            language: "zh"
           }
         }
-      })
-    );
-  }
-
-  private startAudioPump(): void {
-    if (!this.stream) {
-      return;
-    }
-
-    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    this.audioContext = new AudioContextCtor();
-    this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
-    this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
-    this.isStreaming = true;
-
-    this.processorNode.onaudioprocess = (event) => {
-      if (!this.isStreaming || this.ws?.readyState !== WebSocket.OPEN || !this.audioContext) {
-        return;
       }
-
-      const input = event.inputBuffer.getChannelData(0);
-      const resampled = resampleTo24k(input, this.audioContext.sampleRate);
-      const pcm = floatToPcm16(resampled);
-      for (const sample of pcm) {
-        this.pendingSamples.push(sample);
-      }
-
-      while (this.pendingSamples.length >= SAMPLES_PER_FRAME) {
-        const frame = Int16Array.from(this.pendingSamples.splice(0, SAMPLES_PER_FRAME));
-        this.ws.send(
-          JSON.stringify({
-            type: "session.input_audio_buffer.append",
-            audio: pcm16ToBase64(frame)
-          })
-        );
-      }
-    };
-
-    this.sourceNode.connect(this.processorNode);
-    this.processorNode.connect(this.audioContext.destination);
+    });
   }
 
   private handleMessage(raw: unknown): void {
@@ -147,26 +115,54 @@ export class RealtimeTranslationClient {
     }
 
     if (event.type === "error") {
+      this.hasConnectionError = true;
       this.callbacks.onError(event.error?.message ?? "Realtime 返回错误。");
     }
   }
 
-  private stopLocalAudio(): void {
-    this.processorNode?.disconnect();
-    this.sourceNode?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
-    this.audioContext?.close().catch(() => undefined);
+  private handleTransportError(message: string): void {
+    if (this.hasConnectionError || this.hasClosed) {
+      return;
+    }
 
-    this.processorNode = null;
-    this.sourceNode = null;
-    this.stream = null;
-    this.audioContext = null;
-    this.pendingSamples = [];
+    this.hasConnectionError = true;
+    this.callbacks.onError(message);
+    this.closeTransport();
   }
-}
 
-declare global {
-  interface Window {
-    webkitAudioContext?: typeof AudioContext;
+  private handleTransportClose(): void {
+    if (this.hasClosed) {
+      return;
+    }
+
+    this.hasClosed = true;
+    this.isStreaming = false;
+    this.transport = null;
+    this.stopLocalAudio();
+
+    if (!this.hasConnectionError) {
+      this.callbacks.onClose();
+    }
+  }
+
+  private sendRealtimeEvent(event: unknown): boolean {
+    return this.transport?.sendEvent(event) ?? false;
+  }
+
+  private closeTransport(): void {
+    this.transport?.close();
+    this.transport = null;
+    this.handleTransportClose();
+  }
+
+  private setAudioEnabled(enabled: boolean): void {
+    this.stream?.getAudioTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
+  }
+
+  private stopLocalAudio(): void {
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = null;
   }
 }
