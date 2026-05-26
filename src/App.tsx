@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   Download,
   Eye,
   EyeOff,
@@ -22,8 +24,6 @@ import type {
   ConnectionStatus,
   RealtimeTranscriptDelta,
   RealtimeTranscriptSegment,
-  TextTranslationModel,
-  TranslationMode,
   TranscriptState
 } from "./types";
 import {
@@ -323,14 +323,6 @@ export default function App() {
     await persistSettings({ ...settings, subtitleScale: value });
   }
 
-  async function updateTranslationMode(translationMode: TranslationMode) {
-    await persistSettings({ ...settings, translationMode });
-  }
-
-  async function updateTextTranslationModel(textTranslationModel: TextTranslationModel) {
-    await persistSettings({ ...settings, textTranslationModel });
-  }
-
   async function toggleKoreanInline() {
     await persistSettings({ ...settings, showKoreanInline: !settings.showKoreanInline });
   }
@@ -379,28 +371,6 @@ export default function App() {
 
       {settingsOpen ? (
         <section className="settings-panel" aria-label="设置">
-          <label className="select-field">
-            翻译
-            <select
-              value={settings.translationMode}
-              onChange={(event) => updateTranslationMode(event.target.value as TranslationMode)}
-              disabled={isLive}
-            >
-              <option value="transcribe-then-translate">转录 + GPT 翻译</option>
-              <option value="realtime-translate">Realtime Translate</option>
-            </select>
-          </label>
-          <label className="select-field">
-            模型
-            <select
-              value={settings.textTranslationModel}
-              onChange={(event) => updateTextTranslationModel(event.target.value as TextTranslationModel)}
-              disabled={isLive || settings.translationMode === "realtime-translate"}
-            >
-              <option value="gpt-5.4-mini">GPT-5.4 mini</option>
-              <option value="gpt-5.4-nano">GPT-5.4 nano</option>
-            </select>
-          </label>
           <label className="range-field">
             字号
             <input
@@ -533,23 +503,68 @@ function CoursePicker({
   selectedCourseId: string;
   onSelectCourse: (courseId: string) => void;
 }) {
+  const [isExpanded, setIsExpanded] = useState(!selectedCourseId);
+  const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? null;
+  const gridId = "course-picker-grid";
+
+  useEffect(() => {
+    if (!selectedCourseId) {
+      setIsExpanded(true);
+    }
+  }, [selectedCourseId]);
+
+  function handleSelectCourse(courseId: string) {
+    onSelectCourse(courseId);
+    setIsExpanded(false);
+  }
+
+  if (!isExpanded && selectedCourse) {
+    return (
+      <div className="course-picker course-picker-compact" aria-label="选择课程">
+        <button
+          className="course-picker-toggle"
+          type="button"
+          aria-expanded={false}
+          aria-controls={gridId}
+          onClick={() => setIsExpanded(true)}
+        >
+          <FolderOpen size={18} aria-hidden="true" />
+          <span className="course-picker-summary">
+            <strong>{selectedCourse.name}</strong>
+            <span>{courseMeta(selectedCourse)}</span>
+          </span>
+          <span className="course-picker-change">更换</span>
+          <ChevronDown size={18} aria-hidden="true" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="course-picker" aria-label="选择课程">
-      <div className="course-picker-title">
-        <FolderOpen size={18} />
+      <button
+        className="course-picker-title"
+        type="button"
+        aria-expanded={true}
+        aria-controls={gridId}
+        disabled={!selectedCourse}
+        onClick={() => setIsExpanded(false)}
+      >
+        <FolderOpen size={18} aria-hidden="true" />
         <span>选择课程</span>
-      </div>
-      <div className="course-grid">
+        {selectedCourse ? <ChevronUp size={16} aria-hidden="true" /> : null}
+      </button>
+      <div className="course-grid" id={gridId}>
         {courses.map((course) => (
           <button
             className={`course-button ${course.id === selectedCourseId ? "selected" : ""}`}
             type="button"
             key={course.id}
             aria-pressed={course.id === selectedCourseId}
-            onClick={() => onSelectCourse(course.id)}
+            onClick={() => handleSelectCourse(course.id)}
           >
             <strong>{course.name}</strong>
-            <span>{course.id === DAILY_COURSE_ID ? "日常" : `${course.code} · ${course.term}`}</span>
+            <span>{courseMeta(course)}</span>
           </button>
         ))}
       </div>
@@ -685,6 +700,10 @@ function emptyMessage(status: ConnectionStatus, hasCourse: boolean) {
     return "已暂停";
   }
   return "准备开始";
+}
+
+function courseMeta(course: CourseOption) {
+  return course.id === DAILY_COURSE_ID ? "日常" : `${course.code} · ${course.term}`;
 }
 
 function groupSessionsByCourse(sessions: ClassSessionSummary[]) {
