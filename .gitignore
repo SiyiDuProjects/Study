@@ -5,6 +5,12 @@ data
 .DS_Store
 *.local
 *.log
+*.aac
+*.caf
+*.m4a
+*.mp3
+*.pcm
+*.wav
 .env
 .env.*
 .api-key*

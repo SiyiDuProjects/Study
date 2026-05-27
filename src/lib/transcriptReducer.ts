@@ -73,8 +73,8 @@ export function appendTranscriptSegment(
     return state;
   }
 
-  const committedState = commitActiveSegment(state, nowIso);
-  const startedAtMs = segment.elapsedMs ?? inferNextStartMs(committedState);
+  const baseState = segment.replaceActive ? { ...state, activeSegment: null } : commitActiveSegment(state, nowIso);
+  const startedAtMs = segment.elapsedMs ?? inferNextStartMs(baseState);
   const nextSegment: TranscriptSegment = {
     id: createId("seg"),
     startedAtMs,
@@ -87,8 +87,8 @@ export function appendTranscriptSegment(
   };
 
   return {
-    ...committedState,
-    segments: [...committedState.segments, nextSegment],
+    ...baseState,
+    segments: [...baseState.segments, nextSegment],
     activeSegment: null
   };
 }

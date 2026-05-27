@@ -124,7 +124,7 @@ function realtimeSessionForMode(mode: TranslationMode, modelConfig: OpenAIModelC
         input: {
           transcription: {
             model: modelConfig.realtimeTranscriptionModel,
-            delay: "low"
+            language: "ko"
           },
           turn_detection: null
         }

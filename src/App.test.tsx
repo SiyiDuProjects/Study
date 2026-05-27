@@ -85,6 +85,7 @@ vi.mock("./lib/realtimeTranscriptionTranslation", () => ({
   RealtimeTranscriptionTranslationClient: class {
     constructor(
       _getClientSecret: () => Promise<string>,
+      _realtimeTranscriptionModel: string,
       _textModel: string,
       private readonly callbacks: RealtimeClientCallbacks,
       audioBoostEnabled = true
@@ -167,28 +168,28 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText(/麦克风被拒绝/)).toBeTruthy();
   });
 
-  it("defaults to classic low-latency mode", async () => {
+  it("defaults to realtime transcription plus translation mode", async () => {
     render(<App />);
 
     fireEvent.click(await screen.findByTitle("设置"));
 
-    expect(screen.getByDisplayValue("经典低延迟")).toBeTruthy();
+    expect(screen.getByDisplayValue("实时转录 + 翻译")).toBeTruthy();
   });
 
-  it("defaults far-field audio boost on and uses the saved value for a new recording", async () => {
+  it("defaults far-field audio boost off and uses the saved value for a new recording", async () => {
     render(<App />);
 
     fireEvent.click(await screen.findByTitle("设置"));
-    const audioBoostToggle = screen.getByRole("checkbox", { name: "远距离收音增强" }) as HTMLInputElement;
-    expect(audioBoostToggle.checked).toBe(true);
+    const audioBoostToggle = screen.getByRole("checkbox", { name: "远距离收音增强（低音量时再开）" }) as HTMLInputElement;
+    expect(audioBoostToggle.checked).toBe(false);
 
     fireEvent.click(audioBoostToggle);
-    expect(audioBoostToggle.checked).toBe(false);
+    expect(audioBoostToggle.checked).toBe(true);
     fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
     fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
 
     await screen.findByText("录音中");
-    expect(mocks.classicAudioBoost).toHaveBeenCalledWith(false);
+    expect(mocks.transcriptionAudioBoost).toHaveBeenCalledWith(true);
   });
 
   it("flushes, saves, and opens the generated class record on end", async () => {
@@ -215,9 +216,9 @@ describe("App classroom workflow", () => {
     await waitFor(() => expect(mocks.saveRemoteSession).toHaveBeenCalledTimes(1));
     const savedSession = mocks.saveRemoteSession.mock.calls[0][0] as ClassSession;
     expect(savedSession.models).toMatchObject({
-      translation: "rt-test",
+      translation: "txt-test",
       transcription: "tr-test",
-      mode: "classic-websocket-translate"
+      mode: "transcribe-then-translate"
     });
     expect(savedSession.segments[0]).toMatchObject({
       sourceText: "오늘은 문법을 이야기합니다.",

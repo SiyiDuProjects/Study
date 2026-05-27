@@ -76,6 +76,7 @@ export interface RealtimeTranscriptSegment {
   sourceText: string;
   translatedText: string;
   elapsedMs?: number;
+  replaceActive?: boolean;
 }
 
 export interface RealtimeClientDiagnostic {

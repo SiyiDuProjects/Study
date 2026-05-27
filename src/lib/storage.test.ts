@@ -33,10 +33,11 @@ describe("pending session storage", () => {
     await expect(listPendingSessions()).resolves.toEqual([]);
   });
 
-  it("defaults new and legacy settings to classic low-latency mode", async () => {
+  it("defaults new and legacy settings to realtime transcription plus translation mode", async () => {
     await expect(loadSettings()).resolves.toMatchObject({
-      translationMode: "classic-websocket-translate",
-      audioBoostEnabled: true
+      translationMode: "transcribe-then-translate",
+      showKoreanInline: true,
+      audioBoostEnabled: false
     });
 
     window.localStorage.setItem(
@@ -45,8 +46,8 @@ describe("pending session storage", () => {
     );
 
     await expect(loadSettings()).resolves.toMatchObject({
-      translationMode: "classic-websocket-translate",
-      audioBoostEnabled: true
+      translationMode: "transcribe-then-translate",
+      audioBoostEnabled: false
     });
   });
 
@@ -56,12 +57,12 @@ describe("pending session storage", () => {
       JSON.stringify({
         translationMode: "classic-websocket-translate",
         textTranslationModel: "txt-test",
-        audioBoostEnabled: false,
-        version: 4
+        audioBoostEnabled: true,
+        version: 6
       })
     );
 
-    await expect(loadSettings()).resolves.toMatchObject({ audioBoostEnabled: false });
+    await expect(loadSettings()).resolves.toMatchObject({ audioBoostEnabled: true });
   });
 });
 

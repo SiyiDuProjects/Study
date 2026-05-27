@@ -583,11 +583,14 @@ button {
 }
 
 .subtitle-line {
+  width: 100%;
   text-align: center;
 }
 
 .subtitle-line p {
+  width: min(92vw, 1500px);
   margin: 0;
+  margin-inline: auto;
   letter-spacing: 0;
   overflow-wrap: break-word;
   text-wrap: balance;
@@ -615,14 +618,19 @@ button {
   line-height: 1.2;
 }
 
-.subtitle-line small {
+.subtitle-line .translation-line {
   display: block;
-  width: min(82vw, 1400px);
-  margin: 16px auto 0;
+  width: min(92vw, 1500px);
+  margin: 14px auto 0;
   color: #475569;
   font-size: clamp(1rem, 1.45vw, 1.55rem);
-  line-height: 1.55;
+  line-height: 1.42;
+  min-height: calc(1.42em * 2);
   text-wrap: balance;
+}
+
+.subtitle-line .translation-line.pending {
+  visibility: hidden;
 }
 
 .records-view {

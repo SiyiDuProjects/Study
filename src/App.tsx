@@ -338,7 +338,7 @@ export default function App() {
         ? new ClassicRealtimeTranslationClient(
             getClientSecret,
             appConfig.realtimeTranslationModel || "gpt-realtime-translate",
-            appConfig.realtimeTranscriptionModel || "gpt-realtime-whisper",
+            appConfig.realtimeTranscriptionModel || "gpt-4o-transcribe",
             callbacks,
             settings.audioBoostEnabled
           )
@@ -346,6 +346,7 @@ export default function App() {
         ? new RealtimeTranslationClient(getClientSecret, callbacks, settings.audioBoostEnabled)
         : new RealtimeTranscriptionTranslationClient(
             getClientSecret,
+            appConfig.realtimeTranscriptionModel || "gpt-4o-transcribe",
             settings.textTranslationModel || appConfig.defaultTextTranslationModel,
             callbacks,
             settings.audioBoostEnabled
@@ -367,7 +368,9 @@ export default function App() {
       transcriptRef.current = next;
       return next;
     });
-    scheduleCommit();
+    if (settings.translationMode !== "transcribe-then-translate" || delta.channel === "translation") {
+      scheduleCommit();
+    }
   }
 
   function handleRealtimeSegment(segment: RealtimeTranscriptSegment) {
@@ -663,9 +666,9 @@ export default function App() {
               disabled={isLive}
               onChange={(event) => updateTranslationMode(event.target.value as AppSettings["translationMode"])}
             >
-              <option value="classic-websocket-translate">经典低延迟</option>
+              <option value="transcribe-then-translate">实时转录 + 翻译</option>
+              <option value="classic-websocket-translate">实时直译</option>
               <option value="realtime-translate">官方 WebRTC</option>
-              <option value="transcribe-then-translate">先转录再翻译</option>
             </select>
           </label>
           {settings.translationMode === "transcribe-then-translate" ? (
@@ -698,11 +701,11 @@ export default function App() {
           </label>
           <button className="ghost-button" type="button" onClick={toggleKoreanInline}>
             {settings.showKoreanInline ? <EyeOff size={17} /> : <Eye size={17} />}
-            {settings.showKoreanInline ? "隐藏韩文" : "显示韩文"}
+            {settings.showKoreanInline ? "只显示韩文主行" : "显示中文副行"}
           </button>
           <label className="toggle-field">
             <input type="checkbox" checked={settings.audioBoostEnabled} disabled={isLive} onChange={toggleAudioBoost} />
-            远距离收音增强
+            远距离收音增强（低音量时再开）
           </label>
           <button
             className="ghost-button settings-records-link"
@@ -739,7 +742,7 @@ export default function App() {
           <LiveSubtitleView
             status={status}
             segments={visibleSegments}
-            showKorean={settings.showKoreanInline}
+            showTranslation={settings.showKoreanInline}
             courses={courses}
             selectedCourseId={selectedCourseId}
             canChooseCourse={!isLive}
@@ -892,18 +895,18 @@ function shortEventType(eventType: string): string {
 function modeLabel(mode: AppSettings["translationMode"]): string {
   switch (mode) {
     case "classic-websocket-translate":
-      return "经典低延迟";
+      return "实时直译";
     case "realtime-translate":
       return "官方 WebRTC";
     default:
-      return "先转录再翻译";
+      return "实时转录 + 翻译";
   }
 }
 
 function LiveSubtitleView({
   status,
   segments,
-  showKorean,
+  showTranslation,
   courses,
   selectedCourseId,
   canChooseCourse,
@@ -914,7 +917,7 @@ function LiveSubtitleView({
 }: {
   status: ConnectionStatus;
   segments: ReturnType<typeof getDisplaySegments>;
-  showKorean: boolean;
+  showTranslation: boolean;
   courses: CourseOption[];
   selectedCourseId: string;
   canChooseCourse: boolean;
@@ -924,8 +927,9 @@ function LiveSubtitleView({
   onStart: () => void;
 }) {
   const hasText = segments.some((segment) => segment.translatedText.trim());
+  const hasSourceText = segments.some((segment) => segment.sourceText.trim());
 
-  if (!hasText) {
+  if (!hasText && !hasSourceText) {
     if (!canChooseCourse) {
       return (
         <section className="subtitle-stage empty-stage">
@@ -951,10 +955,16 @@ function LiveSubtitleView({
       <div className="subtitle-stack">
         {segments.map((segment, index) => {
           const isLatest = index === segments.length - 1;
+          const translatedText = segment.translatedText.trim();
+          const sourceText = segment.sourceText.trim();
           return (
             <article className={`subtitle-line ${isLatest ? "latest" : "previous"}`} key={segment.id}>
-              <p>{segment.translatedText.trim()}</p>
-              {showKorean && segment.sourceText.trim() ? <small>{segment.sourceText.trim()}</small> : null}
+              <p className="source-line">{sourceText || translatedText}</p>
+              {showTranslation || !translatedText ? (
+                <small className={translatedText ? "translation-line" : "translation-line pending"} aria-hidden={!translatedText}>
+                  {translatedText || " "}
+                </small>
+              ) : null}
             </article>
           );
         })}

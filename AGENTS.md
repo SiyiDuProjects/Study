@@ -21,7 +21,8 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 ## Architecture
 
 - `src/App.tsx`: app composition, live subtitle workflow, records and document views.
-- `src/lib/classicRealtimeTranslation.ts`: default low-latency OpenAI Realtime Translation WebSocket client.
+- `src/lib/realtimeTranscriptionTranslation.ts`: default classroom client; OpenAI Realtime transcription streams Korean first, then server-side text translation adds Chinese.
+- `src/lib/classicRealtimeTranslation.ts`: fallback low-latency OpenAI Realtime Translation WebSocket client.
 - `src/lib/audio.ts`: 24 kHz PCM16 microphone frame conversion for classic WebSocket mode.
 - `src/lib/realtimeTranslation.ts`: fallback OpenAI Realtime Translation WebRTC client.
 - `src/lib/realtimeTranscriptionTranslation.ts`: WebRTC transcription plus server-side text translation flow.
@@ -40,7 +41,7 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - Do not commit API keys or `.env` files.
 - Keep OpenAI API keys on the server. The browser receives only short-lived Realtime client secrets.
 - OpenAI model names are server configuration; do not hardcode new model names in browser UI or schemas.
-- Default classroom mode is `classic-websocket-translate`; keep `realtime-translate` and `transcribe-then-translate` available as fallbacks.
+- Default classroom mode is `transcribe-then-translate`; keep `classic-websocket-translate` and `realtime-translate` available as fallback comparison modes.
 
 ## Deployment Notes
 

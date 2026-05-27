@@ -4,16 +4,18 @@ import { createMicrophoneInput, type MicrophoneInput } from "./microphoneInput";
 import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
 const TRANSCRIPTION_CALL_URL = "https://api.openai.com/v1/realtime/calls";
-const SPEECH_RMS_THRESHOLD = 0.003;
+const SPEECH_RMS_THRESHOLD = 0.0008;
 const DIAGNOSTIC_LEVEL_INTERVAL_MS = 500;
 const MIN_COMMIT_MS = 800;
 const SILENCE_COMMIT_MS = 900;
-const MAX_COMMIT_MS = 3600;
+const MAX_SENTENCE_COMMIT_MS = 8000;
 const STOP_FLUSH_TIMEOUT_MS = 6000;
 const STOP_FLUSH_QUIET_MS = 1000;
+const SENTENCE_END_PATTERN = /([。！？!?]|[.](?!\d))\s*/u;
 
 interface TranscriptionCompletedEvent {
   type?: string;
+  delta?: string;
   transcript?: string;
   elapsed_ms?: number;
   error?: { message?: string };
@@ -44,9 +46,11 @@ export class RealtimeTranscriptionTranslationClient {
   private lastTranscriptionAt = 0;
   private lastTranslationSettledAt = 0;
   private recentSegments: Array<{ sourceText: string; translatedText: string }> = [];
+  private activeSourceDelta = "";
 
   constructor(
     private readonly getClientSecret: () => Promise<string>,
+    private readonly realtimeTranscriptionModel: string,
     private readonly textModel: TextTranslationModel,
     private readonly callbacks: RealtimeClientCallbacks,
     private readonly audioBoostEnabled = true
@@ -126,7 +130,8 @@ export class RealtimeTranscriptionTranslationClient {
         audio: {
           input: {
             transcription: {
-              delay: "low"
+              model: this.realtimeTranscriptionModel,
+              language: "ko"
             },
             turn_detection: null
           }
@@ -187,7 +192,7 @@ export class RealtimeTranscriptionTranslationClient {
 
     const bufferAge = now - this.bufferStartedAt;
     const silenceAge = now - this.lastSpeechAt;
-    if (bufferAge >= MAX_COMMIT_MS || (bufferAge >= MIN_COMMIT_MS && silenceAge >= SILENCE_COMMIT_MS)) {
+    if (bufferAge >= MAX_SENTENCE_COMMIT_MS || (bufferAge >= MIN_COMMIT_MS && silenceAge >= SILENCE_COMMIT_MS)) {
       this.commitInputBuffer();
     }
   }
@@ -223,9 +228,24 @@ export class RealtimeTranscriptionTranslationClient {
       });
     }
 
-    if (event.type === "conversation.item.input_audio_transcription.completed" && event.transcript?.trim()) {
+    if (event.type === "conversation.item.input_audio_transcription.delta" && event.delta) {
+      this.activeSourceDelta += event.delta;
+      this.callbacks.onDelta({
+        channel: "source",
+        delta: event.delta,
+        elapsedMs: event.elapsed_ms ?? Math.max(0, performance.now() - this.sessionStartedAt)
+      });
+      return;
+    }
+
+    if (event.type === "conversation.item.input_audio_transcription.completed") {
+      const streamedSourceText = this.activeSourceDelta;
+      this.activeSourceDelta = "";
+      if (!event.transcript?.trim()) {
+        return;
+      }
       this.lastTranscriptionAt = Date.now();
-      this.enqueueTranslation(event.transcript, event.elapsed_ms);
+      this.handleCompletedTranscription(event.transcript, streamedSourceText, event.elapsed_ms);
       return;
     }
 
@@ -235,7 +255,48 @@ export class RealtimeTranscriptionTranslationClient {
     }
   }
 
-  private enqueueTranslation(sourceText: string, elapsedMs?: number): void {
+  private handleCompletedTranscription(sourceText: string, streamedSourceText: string, elapsedMs?: number): void {
+    const normalizedSource = sourceText.trim();
+    if (!normalizedSource) {
+      return;
+    }
+
+    const sourceRemainder = getUnstreamedSourceRemainder(normalizedSource, streamedSourceText);
+    if (sourceRemainder) {
+      this.callbacks.onDelta({
+        channel: "source",
+        delta: sourceRemainder,
+        elapsedMs
+      });
+    }
+
+    const { completeSentences, remainder } = splitCompleteSentences(normalizedSource);
+    if (completeSentences.length > 0) {
+      completeSentences.forEach((sentence, index) => {
+        this.enqueueTranslation({
+          sourceText: sentence,
+          elapsedMs,
+          replaceActive: index === 0,
+          restoreSourceText: index === completeSentences.length - 1 ? remainder : ""
+        });
+      });
+      return;
+    }
+
+    this.enqueueTranslation({ sourceText: normalizedSource, elapsedMs, replaceActive: true });
+  }
+
+  private enqueueTranslation({
+    sourceText,
+    elapsedMs,
+    replaceActive,
+    restoreSourceText = ""
+  }: {
+    sourceText: string;
+    elapsedMs?: number;
+    replaceActive: boolean;
+    restoreSourceText?: string;
+  }): void {
     const normalizedSource = sourceText.trim();
     if (!normalizedSource) {
       return;
@@ -259,8 +320,16 @@ export class RealtimeTranscriptionTranslationClient {
         this.callbacks.onSegment?.({
           sourceText: normalizedSource,
           translatedText: normalizedTranslation,
+          replaceActive,
           elapsedMs: segmentStartMs
         });
+        if (restoreSourceText.trim()) {
+          this.callbacks.onDelta({
+            channel: "source",
+            delta: restoreSourceText.trimStart(),
+            elapsedMs: segmentStartMs
+          });
+        }
         this.recentSegments = [...this.recentSegments, { sourceText: normalizedSource, translatedText: normalizedTranslation }].slice(-4);
       })
       .catch((error: unknown) => {
@@ -366,6 +435,37 @@ export class RealtimeTranscriptionTranslationClient {
       });
     }
   }
+}
+
+function getUnstreamedSourceRemainder(fullText: string, streamedText: string): string {
+  const normalizedStreamedText = streamedText.trim();
+  if (!normalizedStreamedText) {
+    return fullText;
+  }
+
+  if (fullText.startsWith(normalizedStreamedText)) {
+    return fullText.slice(normalizedStreamedText.length).trimStart();
+  }
+
+  return "";
+}
+
+function splitCompleteSentences(text: string): { completeSentences: string[]; remainder: string } {
+  const completeSentences: string[] = [];
+  let rest = text.trim();
+
+  while (rest) {
+    const match = SENTENCE_END_PATTERN.exec(rest);
+    if (!match || match.index === undefined) {
+      break;
+    }
+
+    const end = match.index + match[0].length;
+    completeSentences.push(rest.slice(0, end).trim());
+    rest = rest.slice(end).trim();
+  }
+
+  return { completeSentences, remainder: rest };
 }
 
 function calculateRms(input: ArrayLike<number>): number {

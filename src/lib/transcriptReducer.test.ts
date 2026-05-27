@@ -61,4 +61,21 @@ describe("transcript reducer", () => {
     expect(state.segments[0].translatedText).toBe("今天讨论语法。");
     expect(state.segments[0].startedAtMs).toBe(1200);
   });
+
+  it("can replace an active streaming Korean line with the finalized bilingual segment", () => {
+    let state = createTranscriptState();
+
+    state = applyTranscriptDelta(state, { channel: "source", delta: "여기서" });
+    state = appendTranscriptSegment(state, {
+      sourceText: "여기서",
+      translatedText: "在这里",
+      elapsedMs: 900,
+      replaceActive: true
+    });
+
+    expect(state.activeSegment).toBeNull();
+    expect(state.segments).toHaveLength(1);
+    expect(state.segments[0].sourceText).toBe("여기서");
+    expect(state.segments[0].translatedText).toBe("在这里");
+  });
 });

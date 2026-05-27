@@ -81,6 +81,12 @@ describe("OpenAI client secrets", () => {
         body: expect.stringContaining('"model":"tr-test"')
       })
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.stringContaining('"language":"ko"')
+      })
+    );
   });
 });
 
