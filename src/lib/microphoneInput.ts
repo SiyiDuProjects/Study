@@ -1,4 +1,4 @@
-export const MICROPHONE_BOOST_GAIN = 6;
+export const MICROPHONE_BOOST_GAIN = 24;
 
 const MICROPHONE_CONSTRAINTS: MediaStreamConstraints = {
   audio: {
