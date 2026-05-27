@@ -1,5 +1,6 @@
 import type { RealtimeClientCallbacks } from "../types";
 import { floatToPcm16, pcm16ToBase64, resampleTo24k, SAMPLES_PER_FRAME } from "./audio";
+import { createMicrophoneInput, type MicrophoneInput } from "./microphoneInput";
 import { startMicrophoneLevelMonitor, type MicrophoneLevelMonitor } from "./microphoneLevel";
 
 const TRANSLATION_WEBSOCKET_URL = "wss://api.openai.com/v1/realtime/translations";
@@ -7,6 +8,7 @@ const STOP_CLOSE_GRACE_MS = 500;
 
 export class ClassicRealtimeTranslationClient {
   private socket: WebSocket | null = null;
+  private microphoneInput: MicrophoneInput | null = null;
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
@@ -22,21 +24,17 @@ export class ClassicRealtimeTranslationClient {
     private readonly getClientSecret: () => Promise<string>,
     private readonly realtimeTranslationModel: string,
     private readonly realtimeTranscriptionModel: string,
-    private readonly callbacks: RealtimeClientCallbacks
+    private readonly callbacks: RealtimeClientCallbacks,
+    private readonly audioBoostEnabled = true
   ) {}
 
   async start(): Promise<void> {
     this.hasConnectionError = false;
     this.hasClosed = false;
     this.stopPromise = null;
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: true
-      }
-    });
+    this.microphoneInput = await createMicrophoneInput(this.audioBoostEnabled);
+    this.stream = this.microphoneInput.stream;
+    this.emitAudioBoostFallbackWarning();
 
     try {
       const clientSecret = await this.getClientSecret();
@@ -229,11 +227,12 @@ export class ClassicRealtimeTranslationClient {
       this.processorNode.disconnect();
     }
     this.sourceNode?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
+    this.microphoneInput?.stop();
     this.audioContext?.close().catch(() => undefined);
 
     this.processorNode = null;
     this.sourceNode = null;
+    this.microphoneInput = null;
     this.stream = null;
     this.audioContext = null;
     this.pendingSamples = [];
@@ -246,6 +245,16 @@ export class ClassicRealtimeTranslationClient {
       state,
       at: Date.now()
     });
+  }
+
+  private emitAudioBoostFallbackWarning(): void {
+    if (this.audioBoostEnabled && this.microphoneInput && !this.microphoneInput.boostApplied) {
+      this.callbacks.onDiagnostic?.({
+        kind: "warning",
+        message: "远距离收音增强不可用，已使用原始麦克风。",
+        at: Date.now()
+      });
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import type { RealtimeClientCallbacks, TextTranslationModel } from "../types";
 import { translateKoreanText } from "./api";
+import { createMicrophoneInput, type MicrophoneInput } from "./microphoneInput";
 import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
 const TRANSCRIPTION_CALL_URL = "https://api.openai.com/v1/realtime/calls";
@@ -20,6 +21,7 @@ interface TranscriptionCompletedEvent {
 
 export class RealtimeTranscriptionTranslationClient {
   private transport: RealtimeWebRtcTransport | null = null;
+  private microphoneInput: MicrophoneInput | null = null;
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
@@ -46,7 +48,8 @@ export class RealtimeTranscriptionTranslationClient {
   constructor(
     private readonly getClientSecret: () => Promise<string>,
     private readonly textModel: TextTranslationModel,
-    private readonly callbacks: RealtimeClientCallbacks
+    private readonly callbacks: RealtimeClientCallbacks,
+    private readonly audioBoostEnabled = true
   ) {}
 
   async start(): Promise<void> {
@@ -54,14 +57,9 @@ export class RealtimeTranscriptionTranslationClient {
     this.hasConnectionError = false;
     this.hasClosed = false;
     this.stopPromise = null;
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: true
-      }
-    });
+    this.microphoneInput = await createMicrophoneInput(this.audioBoostEnabled);
+    this.stream = this.microphoneInput.stream;
+    this.emitAudioBoostFallbackWarning();
 
     try {
       const clientSecret = await this.getClientSecret();
@@ -347,15 +345,26 @@ export class RealtimeTranscriptionTranslationClient {
 
     this.analyserNode?.disconnect();
     this.sourceNode?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
+    this.microphoneInput?.stop();
     this.audioContext?.close().catch(() => undefined);
 
     this.analyserNode = null;
     this.sourceNode = null;
     this.stream = null;
+    this.microphoneInput = null;
     this.audioContext = null;
     this.audioSamples = null;
     this.hasAudioToCommit = false;
+  }
+
+  private emitAudioBoostFallbackWarning(): void {
+    if (this.audioBoostEnabled && this.microphoneInput && !this.microphoneInput.boostApplied) {
+      this.callbacks.onDiagnostic?.({
+        kind: "warning",
+        message: "远距离收音增强不可用，已使用原始麦克风。",
+        at: Date.now()
+      });
+    }
   }
 }
 

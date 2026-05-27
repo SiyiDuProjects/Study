@@ -339,14 +339,16 @@ export default function App() {
             getClientSecret,
             appConfig.realtimeTranslationModel || "gpt-realtime-translate",
             appConfig.realtimeTranscriptionModel || "gpt-realtime-whisper",
-            callbacks
+            callbacks,
+            settings.audioBoostEnabled
           )
         : settings.translationMode === "realtime-translate"
-        ? new RealtimeTranslationClient(getClientSecret, callbacks)
+        ? new RealtimeTranslationClient(getClientSecret, callbacks, settings.audioBoostEnabled)
         : new RealtimeTranscriptionTranslationClient(
             getClientSecret,
             settings.textTranslationModel || appConfig.defaultTextTranslationModel,
-            callbacks
+            callbacks,
+            settings.audioBoostEnabled
           );
 
     clientRef.current = client;
@@ -593,6 +595,10 @@ export default function App() {
     await persistSettings({ ...settings, showKoreanInline: !settings.showKoreanInline });
   }
 
+  async function toggleAudioBoost() {
+    await persistSettings({ ...settings, audioBoostEnabled: !settings.audioBoostEnabled });
+  }
+
   async function updateTranslationMode(value: AppSettings["translationMode"]) {
     await persistSettings({ ...settings, translationMode: value });
   }
@@ -694,6 +700,10 @@ export default function App() {
             {settings.showKoreanInline ? <EyeOff size={17} /> : <Eye size={17} />}
             {settings.showKoreanInline ? "隐藏韩文" : "显示韩文"}
           </button>
+          <label className="toggle-field">
+            <input type="checkbox" checked={settings.audioBoostEnabled} disabled={isLive} onChange={toggleAudioBoost} />
+            远距离收音增强
+          </label>
           <button
             className="ghost-button settings-records-link"
             type="button"
@@ -711,7 +721,14 @@ export default function App() {
         </section>
       ) : null}
 
-      {isLive ? <DiagnosticStrip diagnostic={diagnostic} mode={settings.translationMode} now={Date.now()} /> : null}
+      {isLive ? (
+        <DiagnosticStrip
+          diagnostic={diagnostic}
+          mode={settings.translationMode}
+          audioBoostEnabled={settings.audioBoostEnabled}
+          now={Date.now()}
+        />
+      ) : null}
 
       {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
       {copyMessage ? <p className="copy-banner">{copyMessage}</p> : null}
@@ -778,16 +795,18 @@ export default function App() {
 function DiagnosticStrip({
   diagnostic,
   mode,
+  audioBoostEnabled,
   now
 }: {
   diagnostic: DiagnosticState;
   mode: AppSettings["translationMode"];
+  audioBoostEnabled: boolean;
   now: number;
 }) {
   return (
     <section className="diagnostic-strip" aria-label="连接诊断">
       <span>{modeLabel(mode)}</span>
-      <span>{microphoneLabel(diagnostic.microphoneLevel)}</span>
+      <span>{microphoneLabel(diagnostic.microphoneLevel, audioBoostEnabled)}</span>
       {mode === "classic-websocket-translate" ? (
         <span>WebSocket {diagnostic.webSocketState}</span>
       ) : (
@@ -817,19 +836,19 @@ function createDiagnosticState(): DiagnosticState {
   };
 }
 
-function microphoneLabel(level: number | null): string {
+function microphoneLabel(level: number | null, audioBoostEnabled: boolean): string {
   if (level === null) {
     return "麦克风 --";
   }
 
   const percent = Math.min(100, Math.round(level * 1000));
   if (level >= 0.008) {
-    return `麦克风有声 ${percent}%`;
+    return audioBoostEnabled ? `增强收音 ${percent}%` : `麦克风有声 ${percent}%`;
   }
   if (level >= 0.002) {
-    return `麦克风偏低 ${percent}%`;
+    return audioBoostEnabled ? `增强中偏低 ${percent}%` : `麦克风偏低 ${percent}%`;
   }
-  return `麦克风无声 ${percent}%`;
+  return audioBoostEnabled ? `声音仍偏低，请靠近老师或关闭蓝牙 ${percent}%` : `麦克风无声 ${percent}%`;
 }
 
 function connectionLabel(peerState: string, iceState: string): string {

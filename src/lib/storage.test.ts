@@ -34,14 +34,34 @@ describe("pending session storage", () => {
   });
 
   it("defaults new and legacy settings to classic low-latency mode", async () => {
-    await expect(loadSettings()).resolves.toMatchObject({ translationMode: "classic-websocket-translate" });
+    await expect(loadSettings()).resolves.toMatchObject({
+      translationMode: "classic-websocket-translate",
+      audioBoostEnabled: true
+    });
 
     window.localStorage.setItem(
       "korean-class-subtitler-settings",
       JSON.stringify({ translationMode: "realtime-translate", textTranslationModel: "txt-test", version: 2 })
     );
 
-    await expect(loadSettings()).resolves.toMatchObject({ translationMode: "classic-websocket-translate" });
+    await expect(loadSettings()).resolves.toMatchObject({
+      translationMode: "classic-websocket-translate",
+      audioBoostEnabled: true
+    });
+  });
+
+  it("loads persisted far-field audio boost settings", async () => {
+    window.localStorage.setItem(
+      "korean-class-subtitler-settings",
+      JSON.stringify({
+        translationMode: "classic-websocket-translate",
+        textTranslationModel: "txt-test",
+        audioBoostEnabled: false,
+        version: 4
+      })
+    );
+
+    await expect(loadSettings()).resolves.toMatchObject({ audioBoostEnabled: false });
   });
 });
 

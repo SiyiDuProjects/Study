@@ -1,4 +1,5 @@
 import type { RealtimeClientCallbacks } from "../types";
+import { createMicrophoneInput, type MicrophoneInput } from "./microphoneInput";
 import { startMicrophoneLevelMonitor, type MicrophoneLevelMonitor } from "./microphoneLevel";
 import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
@@ -7,6 +8,7 @@ const STOP_FLUSH_GRACE_MS = 1200;
 
 export class RealtimeTranslationClient {
   private transport: RealtimeWebRtcTransport | null = null;
+  private microphoneInput: MicrophoneInput | null = null;
   private stream: MediaStream | null = null;
   private microphoneLevelMonitor: MicrophoneLevelMonitor | null = null;
   private isStreaming = false;
@@ -16,21 +18,17 @@ export class RealtimeTranslationClient {
 
   constructor(
     private readonly getClientSecret: () => Promise<string>,
-    private readonly callbacks: RealtimeClientCallbacks
+    private readonly callbacks: RealtimeClientCallbacks,
+    private readonly audioBoostEnabled = true
   ) {}
 
   async start(): Promise<void> {
     this.hasConnectionError = false;
     this.hasClosed = false;
     this.stopPromise = null;
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: true
-      }
-    });
+    this.microphoneInput = await createMicrophoneInput(this.audioBoostEnabled);
+    this.stream = this.microphoneInput.stream;
+    this.emitAudioBoostFallbackWarning();
 
     try {
       const clientSecret = await this.getClientSecret();
@@ -187,8 +185,19 @@ export class RealtimeTranslationClient {
   private stopLocalAudio(): void {
     this.microphoneLevelMonitor?.stop();
     this.microphoneLevelMonitor = null;
-    this.stream?.getTracks().forEach((track) => track.stop());
+    this.microphoneInput?.stop();
     this.stream = null;
+    this.microphoneInput = null;
+  }
+
+  private emitAudioBoostFallbackWarning(): void {
+    if (this.audioBoostEnabled && this.microphoneInput && !this.microphoneInput.boostApplied) {
+      this.callbacks.onDiagnostic?.({
+        kind: "warning",
+        message: "远距离收音增强不可用，已使用原始麦克风。",
+        at: Date.now()
+      });
+    }
   }
 }
 

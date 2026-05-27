@@ -63,6 +63,7 @@ export interface AppSettings {
   showKoreanInline: boolean;
   translationMode: TranslationMode;
   textTranslationModel: TextTranslationModel;
+  audioBoostEnabled: boolean;
 }
 
 export interface RealtimeTranscriptDelta {

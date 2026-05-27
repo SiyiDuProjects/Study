@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   getRemoteSession: vi.fn(),
   listRemoteSessions: vi.fn(),
   saveRemoteSession: vi.fn(),
+  classicAudioBoost: vi.fn(),
+  realtimeAudioBoost: vi.fn(),
+  transcriptionAudioBoost: vi.fn(),
   realtimeStart: vi.fn(),
   realtimeStop: vi.fn()
 }));
@@ -34,8 +37,11 @@ vi.mock("./lib/classicRealtimeTranslation", () => ({
       _getClientSecret: () => Promise<string>,
       _realtimeTranslationModel: string,
       _realtimeTranscriptionModel: string,
-      private readonly callbacks: RealtimeClientCallbacks
-    ) {}
+      private readonly callbacks: RealtimeClientCallbacks,
+      audioBoostEnabled = true
+    ) {
+      mocks.classicAudioBoost(audioBoostEnabled);
+    }
 
     start() {
       return mocks.realtimeStart(this.callbacks);
@@ -55,8 +61,11 @@ vi.mock("./lib/realtimeTranslation", () => ({
   RealtimeTranslationClient: class {
     constructor(
       _getClientSecret: () => Promise<string>,
-      private readonly callbacks: RealtimeClientCallbacks
-    ) {}
+      private readonly callbacks: RealtimeClientCallbacks,
+      audioBoostEnabled = true
+    ) {
+      mocks.realtimeAudioBoost(audioBoostEnabled);
+    }
 
     start() {
       return mocks.realtimeStart(this.callbacks);
@@ -77,8 +86,11 @@ vi.mock("./lib/realtimeTranscriptionTranslation", () => ({
     constructor(
       _getClientSecret: () => Promise<string>,
       _textModel: string,
-      private readonly callbacks: RealtimeClientCallbacks
-    ) {}
+      private readonly callbacks: RealtimeClientCallbacks,
+      audioBoostEnabled = true
+    ) {
+      mocks.transcriptionAudioBoost(audioBoostEnabled);
+    }
 
     start() {
       return mocks.realtimeStart(this.callbacks);
@@ -161,6 +173,22 @@ describe("App classroom workflow", () => {
     fireEvent.click(await screen.findByTitle("设置"));
 
     expect(screen.getByDisplayValue("经典低延迟")).toBeTruthy();
+  });
+
+  it("defaults far-field audio boost on and uses the saved value for a new recording", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("设置"));
+    const audioBoostToggle = screen.getByRole("checkbox", { name: "远距离收音增强" }) as HTMLInputElement;
+    expect(audioBoostToggle.checked).toBe(true);
+
+    fireEvent.click(audioBoostToggle);
+    expect(audioBoostToggle.checked).toBe(false);
+    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
+    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+
+    await screen.findByText("录音中");
+    expect(mocks.classicAudioBoost).toHaveBeenCalledWith(false);
   });
 
   it("flushes, saves, and opens the generated class record on end", async () => {

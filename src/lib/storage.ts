@@ -5,13 +5,14 @@ const FALLBACK_PENDING_SESSIONS_KEY = "korean-class-subtitler-pending-sessions";
 const DB_NAME = "korean-class-subtitler";
 const DB_VERSION = 1;
 const PENDING_SESSIONS_STORE = "pendingSessions";
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 export const defaultSettings: AppSettings = {
   subtitleScale: 1,
   showKoreanInline: false,
   translationMode: "classic-websocket-translate",
-  textTranslationModel: ""
+  textTranslationModel: "",
+  audioBoostEnabled: true
 };
 
 export interface PendingSessionRecord {
@@ -44,7 +45,10 @@ export async function loadSettings(): Promise<AppSettings> {
           value.translationMode === "transcribe-then-translate")
           ? value.translationMode
           : defaultSettings.translationMode,
-      textTranslationModel: typeof value.textTranslationModel === "string" ? value.textTranslationModel : defaultSettings.textTranslationModel
+      textTranslationModel:
+        typeof value.textTranslationModel === "string" ? value.textTranslationModel : defaultSettings.textTranslationModel,
+      audioBoostEnabled:
+        typeof value.audioBoostEnabled === "boolean" ? value.audioBoostEnabled : defaultSettings.audioBoostEnabled
     };
   } catch {
     return defaultSettings;
