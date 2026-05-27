@@ -9,7 +9,11 @@ let latestContext: FakeAudioContext | null;
 let originalMediaDevices: Navigator["mediaDevices"] | undefined;
 let originalAudioContext: typeof AudioContext | undefined;
 let sourceNode: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
-let gainNode: { gain: { value: number }; connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
+let boostNode: {
+  onaudioprocess: ((event: AudioProcessingEvent) => void) | null;
+  connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+};
 let limiterNode: {
   threshold: { value: number };
   knee: { value: number };
@@ -33,9 +37,9 @@ class FakeAudioContext {
     return sourceNode as unknown as MediaStreamAudioSourceNode;
   }
 
-  createGain() {
-    gainNode = { gain: { value: 0 }, connect: vi.fn(), disconnect: vi.fn() };
-    return gainNode as unknown as GainNode;
+  createScriptProcessor() {
+    boostNode = { onaudioprocess: null, connect: vi.fn(), disconnect: vi.fn() };
+    return boostNode as unknown as ScriptProcessorNode;
   }
 
   createDynamicsCompressor() {
@@ -99,22 +103,35 @@ describe("createMicrophoneInput", () => {
     expect(rawStop).toHaveBeenCalledTimes(1);
   });
 
-  it("routes microphone audio through gain and limiter when boost is enabled", async () => {
+  it("routes microphone audio through adaptive boost and limiter when boost is enabled", async () => {
     const input = await createMicrophoneInput(true);
 
     expect(input.stream).toBe(boostedStream);
     expect(input.boostApplied).toBe(true);
-    expect(gainNode.gain.value).toBe(MICROPHONE_BOOST_GAIN);
     expect(limiterNode.threshold.value).toBe(-10);
     expect(limiterNode.ratio.value).toBe(12);
-    expect(sourceNode.connect).toHaveBeenCalledWith(gainNode);
-    expect(gainNode.connect).toHaveBeenCalledWith(limiterNode);
+    expect(sourceNode.connect).toHaveBeenCalledWith(boostNode);
+    expect(boostNode.connect).toHaveBeenCalledWith(limiterNode);
     expect(latestContext?.resume).toHaveBeenCalled();
 
     input.stop();
     expect(boostedStop).toHaveBeenCalledTimes(1);
     expect(rawStop).toHaveBeenCalledTimes(1);
     expect(latestContext?.close).toHaveBeenCalled();
+  });
+
+  it("raises quiet microphone samples before sending them to the boosted stream", async () => {
+    await createMicrophoneInput(true);
+
+    const rawSamples = new Float32Array([0.001, -0.001, 0.001, -0.001]);
+    const boostedSamples = new Float32Array(rawSamples.length);
+
+    boostNode.onaudioprocess?.(
+      createAudioProcessingEvent(rawSamples, boostedSamples) as unknown as AudioProcessingEvent
+    );
+
+    expect(boostedSamples[0]).toBeGreaterThan(rawSamples[0] * MICROPHONE_BOOST_GAIN);
+    expect(boostedSamples[1]).toBeLessThan(rawSamples[1] * MICROPHONE_BOOST_GAIN);
   });
 });
 
@@ -123,4 +140,15 @@ function createStream(stop: ReturnType<typeof vi.fn>): MediaStream {
     getTracks: vi.fn(() => [{ stop }]),
     getAudioTracks: vi.fn(() => [{ stop, enabled: true }])
   } as unknown as MediaStream;
+}
+
+function createAudioProcessingEvent(input: Float32Array, output: Float32Array) {
+  return {
+    inputBuffer: {
+      getChannelData: vi.fn(() => input)
+    },
+    outputBuffer: {
+      getChannelData: vi.fn(() => output)
+    }
+  };
 }
