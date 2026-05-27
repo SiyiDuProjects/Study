@@ -128,7 +128,6 @@ export class RealtimeTranscriptionTranslationClient {
         audio: {
           input: {
             transcription: {
-              language: "ko",
               delay: "low"
             },
             turn_detection: null

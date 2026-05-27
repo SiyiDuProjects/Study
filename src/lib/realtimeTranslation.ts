@@ -95,9 +95,7 @@ export class RealtimeTranslationClient {
       session: {
         audio: {
           input: {
-            transcription: {
-              language: "ko"
-            },
+            transcription: {},
             noise_reduction: {
               type: "far_field"
             }

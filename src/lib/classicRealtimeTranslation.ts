@@ -94,8 +94,7 @@ export class ClassicRealtimeTranslationClient {
         audio: {
           input: {
             transcription: {
-              model: this.realtimeTranscriptionModel,
-              language: "ko"
+              model: this.realtimeTranscriptionModel
             },
             noise_reduction: {
               type: "far_field"

@@ -142,7 +142,7 @@ describe("ClassicRealtimeTranslationClient", () => {
       session: {
         audio: {
           input: {
-            transcription: { model: "tr-test", language: "ko" }
+            transcription: { model: "tr-test" }
           },
           output: { language: "zh" }
         }
