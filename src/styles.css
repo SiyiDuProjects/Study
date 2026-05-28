@@ -582,54 +582,62 @@ button {
   gap: clamp(14px, 2dvh, 26px);
 }
 
-.subtitle-line {
-  width: 100%;
-  text-align: center;
+.subtitle-flow-stack {
+  align-items: center;
 }
 
-.subtitle-line p {
+.subtitle-flow {
   width: min(92vw, 1500px);
+  max-height: min(74dvh, calc(100dvh - 176px));
   margin: 0;
   margin-inline: auto;
+  overflow-y: auto;
+  text-align: center;
+  scrollbar-width: none;
+}
+
+.subtitle-flow::-webkit-scrollbar {
+  display: none;
+}
+
+.subtitle-pair {
+  display: inline-grid;
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(2.9rem, auto);
+  justify-items: center;
+  vertical-align: top;
+  margin: 0 0.18em 0.58em;
+}
+
+.subtitle-source,
+.subtitle-translation {
+  min-width: 0;
+  max-width: 100%;
   letter-spacing: 0;
   overflow-wrap: break-word;
-  text-wrap: balance;
+  white-space: pre-wrap;
 }
 
-.subtitle-line.latest p {
+.subtitle-source {
   color: #0f172a;
-  font-size: clamp(
-    calc(4.8rem * var(--subtitle-scale)),
-    calc(5.8vw * var(--subtitle-scale)),
-    calc(8.2rem * var(--subtitle-scale))
-  );
+  font-size: calc(4.6rem * var(--subtitle-scale));
   font-weight: 810;
-  line-height: 1.06;
+  line-height: 1.12;
 }
 
-.subtitle-line.previous p {
-  color: #64748b;
-  font-size: clamp(
-    calc(1.75rem * var(--subtitle-scale)),
-    calc(2.9vw * var(--subtitle-scale)),
-    calc(3.15rem * var(--subtitle-scale))
-  );
-  font-weight: 650;
-  line-height: 1.2;
-}
-
-.subtitle-line .translation-line {
+.subtitle-translation {
   display: block;
-  width: min(92vw, 1500px);
-  margin: 14px auto 0;
+  margin-top: 0.7rem;
   color: #475569;
-  font-size: clamp(1rem, 1.45vw, 1.55rem);
-  line-height: 1.42;
-  min-height: calc(1.42em * 2);
-  text-wrap: balance;
+  font-size: calc(1.55rem * var(--subtitle-scale));
+  font-weight: 620;
+  line-height: 1.45;
+  min-height: calc(1.45em * 2);
 }
 
-.subtitle-line .translation-line.pending {
+.subtitle-translation.pending {
   visibility: hidden;
 }
 
@@ -1025,21 +1033,19 @@ button {
     );
   }
 
-  .subtitle-line.latest p {
-    font-size: clamp(
-      calc(3rem * var(--subtitle-scale)),
-      calc(13vw * var(--subtitle-scale)),
-      calc(5.2rem * var(--subtitle-scale))
-    );
-    line-height: 1.08;
+  .subtitle-pair {
+    grid-template-rows: auto minmax(2.35rem, auto);
+    margin-bottom: 0.48em;
   }
 
-  .subtitle-line.previous p {
-    font-size: clamp(
-      calc(1.25rem * var(--subtitle-scale)),
-      calc(5vw * var(--subtitle-scale)),
-      calc(2rem * var(--subtitle-scale))
-    );
+  .subtitle-source {
+    font-size: calc(3.35rem * var(--subtitle-scale));
+    line-height: 1.14;
+  }
+
+  .subtitle-translation {
+    margin-top: 0.55rem;
+    font-size: calc(1.25rem * var(--subtitle-scale));
   }
 
   .document-header {

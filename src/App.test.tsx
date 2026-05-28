@@ -158,6 +158,45 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText("录音中")).toBeTruthy();
   });
 
+  it("renders live subtitles as growing bilingual sentence pairs", async () => {
+    window.localStorage.setItem(
+      "korean-class-subtitler-settings",
+      JSON.stringify({
+        version: 6,
+        subtitleScale: 1,
+        showKoreanInline: false,
+        translationMode: "transcribe-then-translate",
+        textTranslationModel: "",
+        audioBoostEnabled: false
+      })
+    );
+    mocks.realtimeStart.mockImplementationOnce(async (callbacks: RealtimeClientCallbacks) => {
+      callbacks.onOpen();
+      callbacks.onSegment?.({
+        sourceText: "첫 문장입니다.",
+        translatedText: "第一句。",
+        elapsedMs: 0
+      });
+      callbacks.onSegment?.({
+        sourceText: "두 번째입니다.",
+        translatedText: "第二句。",
+        elapsedMs: 1200
+      });
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
+    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+
+    expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
+    expect(screen.getByText("第一句。")).toBeTruthy();
+    expect(screen.getByText("두 번째입니다.")).toBeTruthy();
+    expect(screen.getByText("第二句。")).toBeTruthy();
+    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("第一句。");
+    expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("第二句。");
+    expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
+  });
+
   it("selects a course and surfaces a start failure", async () => {
     mocks.realtimeStart.mockRejectedValueOnce(new Error("麦克风被拒绝"));
     render(<App />);

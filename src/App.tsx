@@ -4,8 +4,6 @@ import {
   ChevronUp,
   Copy,
   Download,
-  Eye,
-  EyeOff,
   FolderOpen,
   Library,
   Mic,
@@ -48,8 +46,7 @@ import {
   applyTranscriptDelta,
   commitActiveSegment,
   createTranscriptState,
-  getAllSegments,
-  getDisplaySegments
+  getAllSegments
 } from "./lib/transcriptReducer";
 import {
   defaultSettings,
@@ -125,7 +122,7 @@ export default function App() {
   const isSyncingPendingRef = useRef(false);
   const recordingCourseRef = useRef<CourseOption | null>(null);
 
-  const visibleSegments = useMemo(() => getDisplaySegments(transcriptState, 3), [transcriptState]);
+  const visibleSegments = useMemo(() => getAllSegments(transcriptState), [transcriptState]);
   const latestSegment = visibleSegments.at(-1);
   const selectedCourse = useMemo(
     () => courses.find((course) => course.id === selectedCourseId) ?? null,
@@ -594,10 +591,6 @@ export default function App() {
     await persistSettings({ ...settings, subtitleScale: value });
   }
 
-  async function toggleKoreanInline() {
-    await persistSettings({ ...settings, showKoreanInline: !settings.showKoreanInline });
-  }
-
   async function toggleAudioBoost() {
     await persistSettings({ ...settings, audioBoostEnabled: !settings.audioBoostEnabled });
   }
@@ -699,10 +692,6 @@ export default function App() {
               type="range"
             />
           </label>
-          <button className="ghost-button" type="button" onClick={toggleKoreanInline}>
-            {settings.showKoreanInline ? <EyeOff size={17} /> : <Eye size={17} />}
-            {settings.showKoreanInline ? "只显示韩文主行" : "显示中文副行"}
-          </button>
           <label className="toggle-field">
             <input type="checkbox" checked={settings.audioBoostEnabled} disabled={isLive} onChange={toggleAudioBoost} />
             远距离收音增强（低音量时再开）
@@ -742,7 +731,6 @@ export default function App() {
           <LiveSubtitleView
             status={status}
             segments={visibleSegments}
-            showTranslation={settings.showKoreanInline}
             courses={courses}
             selectedCourseId={selectedCourseId}
             canChooseCourse={!isLive}
@@ -906,7 +894,6 @@ function modeLabel(mode: AppSettings["translationMode"]): string {
 function LiveSubtitleView({
   status,
   segments,
-  showTranslation,
   courses,
   selectedCourseId,
   canChooseCourse,
@@ -916,8 +903,7 @@ function LiveSubtitleView({
   onStart
 }: {
   status: ConnectionStatus;
-  segments: ReturnType<typeof getDisplaySegments>;
-  showTranslation: boolean;
+  segments: ReturnType<typeof getAllSegments>;
   courses: CourseOption[];
   selectedCourseId: string;
   canChooseCourse: boolean;
@@ -926,10 +912,24 @@ function LiveSubtitleView({
   onSelectCourse: (courseId: string) => void;
   onStart: () => void;
 }) {
-  const hasText = segments.some((segment) => segment.translatedText.trim());
-  const hasSourceText = segments.some((segment) => segment.sourceText.trim());
+  const subtitlePairs = segments
+    .map((segment) => ({
+      id: segment.id,
+      sourceText: segment.sourceText.trim(),
+      translatedText: segment.translatedText.trim()
+    }))
+    .filter((segment) => segment.sourceText || segment.translatedText);
+  const subtitleFlowRef = useRef<HTMLDivElement>(null);
+  const hasText = subtitlePairs.length > 0;
 
-  if (!hasText && !hasSourceText) {
+  useEffect(() => {
+    const node = subtitleFlowRef.current;
+    if (node) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [segments]);
+
+  if (!hasText) {
     if (!canChooseCourse) {
       return (
         <section className="subtitle-stage empty-stage">
@@ -952,22 +952,20 @@ function LiveSubtitleView({
 
   return (
     <section className="subtitle-stage" aria-live="polite">
-      <div className="subtitle-stack">
-        {segments.map((segment, index) => {
-          const isLatest = index === segments.length - 1;
-          const translatedText = segment.translatedText.trim();
-          const sourceText = segment.sourceText.trim();
-          return (
-            <article className={`subtitle-line ${isLatest ? "latest" : "previous"}`} key={segment.id}>
-              <p className="source-line">{sourceText || translatedText}</p>
-              {showTranslation || !translatedText ? (
-                <small className={translatedText ? "translation-line" : "translation-line pending"} aria-hidden={!translatedText}>
-                  {translatedText || " "}
-                </small>
-              ) : null}
-            </article>
-          );
-        })}
+      <div className="subtitle-stack subtitle-flow-stack">
+        <div className="subtitle-flow" ref={subtitleFlowRef}>
+          {subtitlePairs.map(({ id, sourceText, translatedText }) => {
+            const hasBilingualPair = Boolean(sourceText && translatedText);
+            return (
+              <span className="subtitle-pair" key={id}>
+                <span className="subtitle-source">{sourceText || translatedText}</span>
+                <span className={hasBilingualPair ? "subtitle-translation" : "subtitle-translation pending"} aria-hidden={!hasBilingualPair}>
+                  {hasBilingualPair ? translatedText : " "}
+                </span>
+              </span>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
