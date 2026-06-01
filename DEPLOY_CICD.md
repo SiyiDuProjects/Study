@@ -89,6 +89,7 @@ jiahuan_app:
     PORT: "80"
     JIAHUAN_DB_PATH: /data/jiahuan.sqlite
     JIAHUAN_STATIC_DIR: /app/dist
+    OPENAI_REALTIME_TRANSCRIPTION_MODEL: gpt-realtime-whisper
     OPENAI_TEXT_TRANSLATION_MODELS: gpt-5.4-mini,gpt-5.4-nano
   env_file:
     - /home/ubuntu/muxing/jiahuan.env

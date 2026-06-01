@@ -4,11 +4,7 @@ import { createMicrophoneInput, type MicrophoneInput } from "./microphoneInput";
 import { createRealtimeWebRtcTransport, type RealtimeWebRtcTransport } from "./realtimeWebRtc";
 
 const TRANSCRIPTION_CALL_URL = "https://api.openai.com/v1/realtime/calls";
-const SPEECH_RMS_THRESHOLD = 0.0008;
 const DIAGNOSTIC_LEVEL_INTERVAL_MS = 500;
-const MIN_COMMIT_MS = 800;
-const SILENCE_COMMIT_MS = 900;
-const MAX_SENTENCE_COMMIT_MS = 8000;
 const STOP_FLUSH_TIMEOUT_MS = 6000;
 const STOP_FLUSH_QUIET_MS = 1000;
 const SENTENCE_END_PATTERN = /([。！？!?]|[.](?!\d))\s*/u;
@@ -31,9 +27,6 @@ export class RealtimeTranscriptionTranslationClient {
   private audioMonitorInterval: number | null = null;
   private audioSamples: Float32Array<ArrayBuffer> | null = null;
   private isStreaming = false;
-  private hasAudioToCommit = false;
-  private bufferStartedAt = 0;
-  private lastSpeechAt = 0;
   private sessionStartedAt = 0;
   private lastDiagnosticAt = 0;
   private stopped = false;
@@ -42,7 +35,6 @@ export class RealtimeTranscriptionTranslationClient {
   private stopPromise: Promise<void> | null = null;
   private translationQueue: Promise<void> = Promise.resolve();
   private pendingTranslationCount = 0;
-  private lastInputCommitAt = 0;
   private lastTranscriptionAt = 0;
   private lastTranslationSettledAt = 0;
   private recentSegments: Array<{ sourceText: string; translatedText: string }> = [];
@@ -87,7 +79,6 @@ export class RealtimeTranscriptionTranslationClient {
   }
 
   pause(): void {
-    this.commitInputBuffer();
     this.isStreaming = false;
     this.setAudioEnabled(false);
   }
@@ -107,9 +98,8 @@ export class RealtimeTranscriptionTranslationClient {
 
   private async flushAndClose(): Promise<void> {
     this.isStreaming = false;
-    const committed = this.commitInputBuffer();
     this.setAudioEnabled(false);
-    await this.waitForPendingWork(committed);
+    await this.waitForPendingWork();
     this.stopped = true;
     this.sendRealtimeEvent({ type: "session.close" });
     this.closeTransport();
@@ -129,11 +119,19 @@ export class RealtimeTranscriptionTranslationClient {
         type: "transcription",
         audio: {
           input: {
+            noise_reduction: {
+              type: "far_field"
+            },
             transcription: {
               model: this.realtimeTranscriptionModel,
               language: "ko"
             },
-            turn_detection: null
+            turn_detection: {
+              type: "server_vad",
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 400
+            }
           }
         }
       }
@@ -172,41 +170,7 @@ export class RealtimeTranscriptionTranslationClient {
           at: now
         });
       }
-
-      if (rms >= SPEECH_RMS_THRESHOLD) {
-        this.lastSpeechAt = now;
-        if (!this.hasAudioToCommit) {
-          this.hasAudioToCommit = true;
-          this.bufferStartedAt = now;
-        }
-      }
-
-      this.maybeCommitInputBuffer(now);
     }, 120);
-  }
-
-  private maybeCommitInputBuffer(now: number): void {
-    if (!this.hasAudioToCommit) {
-      return;
-    }
-
-    const bufferAge = now - this.bufferStartedAt;
-    const silenceAge = now - this.lastSpeechAt;
-    if (bufferAge >= MAX_SENTENCE_COMMIT_MS || (bufferAge >= MIN_COMMIT_MS && silenceAge >= SILENCE_COMMIT_MS)) {
-      this.commitInputBuffer();
-    }
-  }
-
-  private commitInputBuffer(): boolean {
-    if (!this.hasAudioToCommit || !this.sendRealtimeEvent({ type: "input_audio_buffer.commit" })) {
-      return false;
-    }
-
-    this.hasAudioToCommit = false;
-    this.bufferStartedAt = 0;
-    this.lastSpeechAt = 0;
-    this.lastInputCommitAt = Date.now();
-    return true;
   }
 
   private handleMessage(raw: unknown): void {
@@ -341,16 +305,11 @@ export class RealtimeTranscriptionTranslationClient {
       });
   }
 
-  private async waitForPendingWork(committedInput: boolean): Promise<void> {
+  private async waitForPendingWork(): Promise<void> {
     const startedAt = Date.now();
-    const firstQuietReference = committedInput ? this.lastInputCommitAt : Date.now();
+    const firstQuietReference = Date.now();
     while (Date.now() - startedAt < STOP_FLUSH_TIMEOUT_MS) {
-      const quietReference = Math.max(
-        firstQuietReference,
-        this.lastInputCommitAt,
-        this.lastTranscriptionAt,
-        this.lastTranslationSettledAt
-      );
+      const quietReference = Math.max(firstQuietReference, this.lastTranscriptionAt, this.lastTranslationSettledAt);
       if (this.pendingTranslationCount === 0 && Date.now() - quietReference >= STOP_FLUSH_QUIET_MS) {
         return;
       }
@@ -423,7 +382,6 @@ export class RealtimeTranscriptionTranslationClient {
     this.microphoneInput = null;
     this.audioContext = null;
     this.audioSamples = null;
-    this.hasAudioToCommit = false;
   }
 
   private emitAudioBoostFallbackWarning(): void {

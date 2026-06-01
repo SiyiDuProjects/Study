@@ -335,7 +335,7 @@ export default function App() {
         ? new ClassicRealtimeTranslationClient(
             getClientSecret,
             appConfig.realtimeTranslationModel || "gpt-realtime-translate",
-            appConfig.realtimeTranscriptionModel || "gpt-4o-transcribe",
+            appConfig.realtimeTranscriptionModel || "gpt-realtime-whisper",
             callbacks,
             settings.audioBoostEnabled
           )
@@ -343,7 +343,7 @@ export default function App() {
         ? new RealtimeTranslationClient(getClientSecret, callbacks, settings.audioBoostEnabled)
         : new RealtimeTranscriptionTranslationClient(
             getClientSecret,
-            appConfig.realtimeTranscriptionModel || "gpt-4o-transcribe",
+            appConfig.realtimeTranscriptionModel || "gpt-realtime-whisper",
             settings.textTranslationModel || appConfig.defaultTextTranslationModel,
             callbacks,
             settings.audioBoostEnabled
