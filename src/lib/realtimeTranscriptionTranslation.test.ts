@@ -29,6 +29,7 @@ describe("RealtimeTranscriptionTranslationClient", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     sentEvents = [];
     onMessage = null;
     currentRms = 0;
@@ -128,13 +129,67 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     });
 
     translation.resolve("这里是上课内容。");
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
 
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "여기서",
-      translatedText: "这里是上课内容。"
+      translatedText: "这里是上课内容。",
+      elapsedMs: 1400
+    });
+  });
+
+  it("translates each completed Korean sentence separately", async () => {
+    mocks.translateKoreanText.mockResolvedValueOnce("这是第一句。").mockResolvedValueOnce("这是第二句。");
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
+
+    await client.start();
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "첫 문장입니다. 두 번째 문장입니다.",
+      elapsed_ms: 1000
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item_1",
+      transcript: "첫 문장입니다. 두 번째 문장입니다.",
+      elapsed_ms: 1600
+    });
+    await flushPromises();
+
+    expect(callbacks.onSegment).toHaveBeenNthCalledWith(1, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1600,
+      replaceActive: true,
+      replaceActiveSourceText: "첫 문장입니다. 두 번째 문장입니다."
+    });
+    expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
+      sourceText: "두 번째 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1640,
+      replaceActive: false,
+      replaceActiveSourceText: ""
+    });
+    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(1, {
+      model: "txt-test",
+      text: "첫 문장입니다.",
+      context: []
+    });
+    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(2, {
+      model: "txt-test",
+      text: "두 번째 문장입니다.",
+      context: [{ sourceText: "첫 문장입니다.", translatedText: "这是第一句。" }]
+    });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "첫 문장입니다.",
+      translatedText: "这是第一句。",
+      elapsedMs: 1600
+    });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "두 번째 문장입니다.",
+      translatedText: "这是第二句。",
+      elapsedMs: 1640
     });
   });
 
@@ -248,6 +303,12 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   });
 
   return { promise, resolve };
+}
+
+async function flushPromises(count = 8): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 function createStream(): MediaStream {

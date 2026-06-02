@@ -4,7 +4,7 @@ React + Vite + TypeScript PWA，用于韩语课堂实时中文字幕、韩文转
 
 ## 功能
 
-- 默认使用实时转录 + 翻译模式：浏览器用服务端签发的短期 client secret 建立 OpenAI Realtime 转录会话，服务端 VAD 低延迟切分韩语，韩文先流式显示，再按句调用服务端文本翻译补中文副行。
+- 默认使用实时转录 + 翻译模式：浏览器用服务端签发的短期 client secret 建立 OpenAI Realtime 转录会话，服务端 VAD 低延迟切分韩语，韩文先流式显示，再按韩文句末标点调用服务端文本翻译补中文副行。
 - 保留实时直译 WebSocket 模式和官方 WebRTC 翻译模式，用于网络兼容性 fallback 和质量对照。
 - 远距离收音增强保留为本机设置开关，默认关闭；只有课堂音量明显偏低时再手动开启，避免放大环境噪声影响转录。
 - API key 只放在服务器，浏览器通过 `/api/realtime/client-secret` 获取短期 Realtime client secret。

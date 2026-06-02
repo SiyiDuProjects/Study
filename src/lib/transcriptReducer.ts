@@ -73,7 +73,9 @@ export function appendTranscriptSegment(
     return state;
   }
 
-  const patchedState = segment.replaceActive ? null : patchExistingSourceTranslation(state, sourceText, translatedText, nowIso);
+  const patchedState = segment.replaceActive
+    ? null
+    : patchExistingSourceTranslation(state, sourceText, translatedText, segment.elapsedMs, nowIso);
   if (patchedState) {
     return patchedState;
   }
@@ -104,6 +106,7 @@ function patchExistingSourceTranslation(
   state: TranscriptState,
   sourceText: string,
   translatedText: string,
+  elapsedMs: number | undefined,
   nowIso: string
 ): TranscriptState | null {
   if (!sourceText || !translatedText) {
@@ -122,7 +125,10 @@ function patchExistingSourceTranslation(
     };
   }
 
-  const segmentIndex = findLatestSegmentIndex(state.segments, sourceText);
+  const segmentIndex =
+    elapsedMs === undefined
+      ? findLatestSegmentIndex(state.segments, sourceText)
+      : findSegmentIndexBySourceAndStart(state.segments, sourceText, elapsedMs);
   if (segmentIndex < 0) {
     return null;
   }
@@ -144,6 +150,12 @@ function patchExistingSourceTranslation(
         : item
     )
   };
+}
+
+function findSegmentIndexBySourceAndStart(segments: TranscriptSegment[], sourceText: string, startedAtMs: number): number {
+  return segments.findIndex(
+    (segment) => sameNormalizedText(segment.sourceText, sourceText) && segment.startedAtMs === startedAtMs
+  );
 }
 
 function findLatestSegmentIndex(segments: TranscriptSegment[], sourceText: string): number {

@@ -7,6 +7,7 @@ const TRANSCRIPTION_CALL_URL = "https://api.openai.com/v1/realtime/calls";
 const DIAGNOSTIC_LEVEL_INTERVAL_MS = 500;
 const STOP_FLUSH_TIMEOUT_MS = 6000;
 const STOP_FLUSH_QUIET_MS = 1000;
+const SENTENCE_TIME_OFFSET_MS = 40;
 const TRANSIENT_PARTIAL_GLYPH_PATTERN = /[\u25a1\ufffc\ufffd]/g;
 
 interface TranscriptionCompletedEvent {
@@ -206,17 +207,21 @@ export class RealtimeTranscriptionTranslationClient {
     }
 
     const replaceActiveSourceText = sanitizeRealtimePartialDelta(streamedSourceText).trim();
-    this.callbacks.onSegment?.({
-      sourceText: normalizedSource,
-      translatedText: "",
-      elapsedMs,
-      replaceActive: Boolean(replaceActiveSourceText),
-      replaceActiveSourceText
+    const sourceSegments = splitTranslationUnits(normalizedSource);
+    sourceSegments.forEach((sourceSegment, index) => {
+      const segmentElapsedMs = sentenceElapsedMs(elapsedMs, index);
+      this.callbacks.onSegment?.({
+        sourceText: sourceSegment,
+        translatedText: "",
+        elapsedMs: segmentElapsedMs,
+        replaceActive: index === 0 && Boolean(replaceActiveSourceText),
+        replaceActiveSourceText: index === 0 ? replaceActiveSourceText : ""
+      });
+      this.enqueueTranslation(sourceSegment, segmentElapsedMs);
     });
-    this.enqueueTranslation(normalizedSource);
   }
 
-  private enqueueTranslation(sourceText: string): void {
+  private enqueueTranslation(sourceText: string, elapsedMs?: number): void {
     const normalizedSource = sourceText.trim();
     if (!normalizedSource) {
       return;
@@ -238,7 +243,8 @@ export class RealtimeTranscriptionTranslationClient {
         const normalizedTranslation = translatedText.trim();
         this.callbacks.onSegment?.({
           sourceText: normalizedSource,
-          translatedText: normalizedTranslation
+          translatedText: normalizedTranslation,
+          elapsedMs
         });
         this.recentSegments = [...this.recentSegments, { sourceText: normalizedSource, translatedText: normalizedTranslation }].slice(-4);
       })
@@ -356,6 +362,55 @@ function calculateRms(input: ArrayLike<number>): number {
 
 function sanitizeRealtimePartialDelta(delta: string): string {
   return delta.replace(TRANSIENT_PARTIAL_GLYPH_PATTERN, "");
+}
+
+function splitTranslationUnits(text: string): string[] {
+  const units: string[] = [];
+  let start = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (!isSentenceTerminator(text, index)) {
+      continue;
+    }
+
+    const unit = text.slice(start, index + 1).trim();
+    if (unit) {
+      units.push(unit);
+    }
+    start = index + 1;
+    while (start < text.length && /\s/u.test(text[start])) {
+      start += 1;
+    }
+    index = start - 1;
+  }
+
+  const remainder = text.slice(start).trim();
+  if (remainder) {
+    units.push(remainder);
+  }
+
+  return units.length > 0 ? units : [text.trim()].filter(Boolean);
+}
+
+function isSentenceTerminator(text: string, index: number): boolean {
+  const char = text[index];
+  if (char === "。" || char === "！" || char === "？" || char === "!" || char === "?") {
+    return true;
+  }
+
+  if (char !== ".") {
+    return false;
+  }
+
+  return !isDigit(text[index - 1]) || !isDigit(text[index + 1]);
+}
+
+function isDigit(char: string | undefined): boolean {
+  return Boolean(char && /[0-9]/.test(char));
+}
+
+function sentenceElapsedMs(elapsedMs: number | undefined, sentenceIndex: number): number | undefined {
+  return elapsedMs === undefined ? undefined : elapsedMs + sentenceIndex * SENTENCE_TIME_OFFSET_MS;
 }
 
 function transcriptionItemId(event: TranscriptionCompletedEvent): string {

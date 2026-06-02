@@ -122,4 +122,30 @@ describe("transcript reducer", () => {
     expect(state.segments).toHaveLength(2);
     expect(state.segments.map((segment) => segment.sourceText)).toEqual(["네.", "네."]);
   });
+
+  it("uses elapsed time to patch the intended repeated Korean source segment", () => {
+    let state = createTranscriptState();
+
+    state = appendTranscriptSegment(state, {
+      sourceText: "네.",
+      translatedText: "",
+      elapsedMs: 1000,
+      replaceActive: true
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "네.",
+      translatedText: "",
+      elapsedMs: 2000,
+      replaceActive: true
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "네.",
+      translatedText: "是的。",
+      elapsedMs: 1000
+    });
+
+    expect(state.segments).toHaveLength(2);
+    expect(state.segments[0].translatedText).toBe("是的。");
+    expect(state.segments[1].translatedText).toBe("");
+  });
 });
