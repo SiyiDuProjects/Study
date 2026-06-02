@@ -117,7 +117,7 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     });
   });
 
-  it("uses server VAD for low-latency transcription instead of manual input commits", async () => {
+  it("configures realtime transcription without unsupported turn detection", async () => {
     const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "tr-test", "txt-test", callbacks);
 
     await client.start();
@@ -142,18 +142,13 @@ describe("RealtimeTranscriptionTranslationClient", () => {
               transcription: expect.objectContaining({
                 model: "tr-test",
                 language: "ko"
-              }),
-              turn_detection: {
-                type: "server_vad",
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 400
-              }
+              })
             })
           })
         })
       })
     );
+    expect(JSON.stringify(sentEvents)).not.toContain("turn_detection");
     expect(sentEvents).not.toContainEqual({ type: "input_audio_buffer.commit" });
   });
 });
