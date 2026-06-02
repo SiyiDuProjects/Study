@@ -41,6 +41,7 @@ export class RealtimeTranscriptionTranslationClient {
   private lastTranslationSettledAt = 0;
   private recentSegments: Array<{ sourceText: string; translatedText: string }> = [];
   private activeSourceDeltaByItemId = new Map<string, string>();
+  private translatedUnitCountByItemId = new Map<string, number>();
 
   constructor(
     private readonly getClientSecret: () => Promise<string>,
@@ -173,24 +174,28 @@ export class RealtimeTranscriptionTranslationClient {
       }
 
       const itemId = transcriptionItemId(event);
-      this.activeSourceDeltaByItemId.set(itemId, `${this.activeSourceDeltaByItemId.get(itemId) ?? ""}${cleanDelta}`);
+      const nextSourceBuffer = `${this.activeSourceDeltaByItemId.get(itemId) ?? ""}${cleanDelta}`;
+      this.activeSourceDeltaByItemId.set(itemId, nextSourceBuffer);
       this.callbacks.onDelta({
         channel: "source",
         delta: cleanDelta,
         elapsedMs: event.elapsed_ms ?? Math.max(0, performance.now() - this.sessionStartedAt)
       });
+      this.flushCompletedStreamingSentences(itemId, nextSourceBuffer, event.elapsed_ms);
       return;
     }
 
     if (event.type === "conversation.item.input_audio_transcription.completed") {
       const itemId = transcriptionItemId(event);
       const streamedSourceText = this.activeSourceDeltaByItemId.get(itemId) ?? "";
+      const translatedUnitCount = this.translatedUnitCountByItemId.get(itemId) ?? 0;
       this.activeSourceDeltaByItemId.delete(itemId);
+      this.translatedUnitCountByItemId.delete(itemId);
       if (!event.transcript?.trim()) {
         return;
       }
       this.lastTranscriptionAt = Date.now();
-      this.handleCompletedTranscription(event.transcript, streamedSourceText, event.elapsed_ms);
+      this.handleCompletedTranscription(event.transcript, streamedSourceText, event.elapsed_ms, translatedUnitCount);
       return;
     }
 
@@ -200,14 +205,43 @@ export class RealtimeTranscriptionTranslationClient {
     }
   }
 
-  private handleCompletedTranscription(sourceText: string, streamedSourceText: string, elapsedMs?: number): void {
+  private flushCompletedStreamingSentences(itemId: string, sourceBuffer: string, elapsedMs?: number): void {
+    const { readyUnits, remainder } = splitReadyTranslationUnits(sourceBuffer);
+    if (readyUnits.length === 0) {
+      return;
+    }
+
+    const replaceActiveSourceText = sourceBuffer.trim();
+    this.activeSourceDeltaByItemId.set(itemId, remainder);
+    this.translatedUnitCountByItemId.set(itemId, (this.translatedUnitCountByItemId.get(itemId) ?? 0) + readyUnits.length);
+    this.queueSourceSegments(readyUnits, elapsedMs, replaceActiveSourceText);
+
+    if (remainder.trim()) {
+      this.callbacks.onDelta({
+        channel: "source",
+        delta: remainder.trimStart(),
+        elapsedMs: sentenceElapsedMs(elapsedMs, readyUnits.length)
+      });
+    }
+  }
+
+  private handleCompletedTranscription(
+    sourceText: string,
+    streamedSourceText: string,
+    elapsedMs?: number,
+    translatedUnitCount = 0
+  ): void {
     const normalizedSource = sourceText.trim();
     if (!normalizedSource) {
       return;
     }
 
     const replaceActiveSourceText = sanitizeRealtimePartialDelta(streamedSourceText).trim();
-    const sourceSegments = splitTranslationUnits(normalizedSource);
+    const sourceSegments = splitTranslationUnits(normalizedSource).slice(translatedUnitCount);
+    this.queueSourceSegments(sourceSegments, elapsedMs, replaceActiveSourceText);
+  }
+
+  private queueSourceSegments(sourceSegments: string[], elapsedMs: number | undefined, replaceActiveSourceText: string): void {
     sourceSegments.forEach((sourceSegment, index) => {
       const segmentElapsedMs = sentenceElapsedMs(elapsedMs, index);
       this.callbacks.onSegment?.({
@@ -382,6 +416,11 @@ function sanitizeRealtimePartialDelta(delta: string): string {
 }
 
 function splitTranslationUnits(text: string): string[] {
+  const { readyUnits, remainder } = splitReadyTranslationUnits(text);
+  return remainder.trim() ? [...readyUnits, remainder.trim()] : readyUnits;
+}
+
+function splitReadyTranslationUnits(text: string): { readyUnits: string[]; remainder: string } {
   const units: string[] = [];
   let start = 0;
 
@@ -401,12 +440,10 @@ function splitTranslationUnits(text: string): string[] {
     index = start - 1;
   }
 
-  const remainder = text.slice(start).trim();
-  if (remainder) {
-    units.push(remainder);
-  }
-
-  return units.length > 0 ? units : [text.trim()].filter(Boolean);
+  return {
+    readyUnits: units,
+    remainder: text.slice(start).trimStart()
+  };
 }
 
 function isSentenceTerminator(text: string, index: number): boolean {

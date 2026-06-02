@@ -168,7 +168,7 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     expect(callbacks.onSegment).toHaveBeenNthCalledWith(1, {
       sourceText: "첫 문장입니다.",
       translatedText: "",
-      elapsedMs: 1600,
+      elapsedMs: 1000,
       replaceActive: true,
       replaceActiveSourceText: "첫 문장입니다. 두 번째 문장입니다.",
       translationStatus: "queued"
@@ -176,7 +176,7 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
       sourceText: "두 번째 문장입니다.",
       translatedText: "",
-      elapsedMs: 1640,
+      elapsedMs: 1040,
       replaceActive: false,
       replaceActiveSourceText: "",
       translationStatus: "queued"
@@ -184,13 +184,13 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "첫 문장입니다.",
       translatedText: "",
-      elapsedMs: 1600,
+      elapsedMs: 1000,
       translationStatus: "translating"
     });
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "두 번째 문장입니다.",
       translatedText: "",
-      elapsedMs: 1640,
+      elapsedMs: 1040,
       translationStatus: "translating"
     });
     expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(1, {
@@ -206,13 +206,67 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "첫 문장입니다.",
       translatedText: "这是第一句。",
-      elapsedMs: 1600,
+      elapsedMs: 1000,
       translationStatus: "translated"
     });
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "두 번째 문장입니다.",
       translatedText: "这是第二句。",
-      elapsedMs: 1640,
+      elapsedMs: 1040,
+      translationStatus: "translated"
+    });
+  });
+
+  it("sends completed streaming sentences to translation before a completed event arrives", async () => {
+    mocks.translateKoreanText.mockResolvedValueOnce("这是第一句。").mockResolvedValueOnce("这是第二句。");
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
+
+    await client.start();
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "첫 문장입니다. 두 번째 문장입니다.",
+      elapsed_ms: 1000
+    });
+    await flushPromises();
+
+    expect(callbacks.onSegment).toHaveBeenNthCalledWith(1, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1000,
+      replaceActive: true,
+      replaceActiveSourceText: "첫 문장입니다. 두 번째 문장입니다.",
+      translationStatus: "queued"
+    });
+    expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
+      sourceText: "두 번째 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1040,
+      replaceActive: false,
+      replaceActiveSourceText: "",
+      translationStatus: "queued"
+    });
+    expect(mocks.translateKoreanText).toHaveBeenCalledTimes(2);
+    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(1, {
+      model: "txt-test",
+      text: "첫 문장입니다.",
+      context: []
+    });
+    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(2, {
+      model: "txt-test",
+      text: "두 번째 문장입니다.",
+      context: [{ sourceText: "첫 문장입니다.", translatedText: "这是第一句。" }]
+    });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "첫 문장입니다.",
+      translatedText: "这是第一句。",
+      elapsedMs: 1000,
+      translationStatus: "translated"
+    });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "두 번째 문장입니다.",
+      translatedText: "这是第二句。",
+      elapsedMs: 1040,
       translationStatus: "translated"
     });
   });
@@ -323,7 +377,7 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "첫 문장입니다.",
       translatedText: "",
-      elapsedMs: 1300,
+      elapsedMs: 1000,
       translationStatus: "failed",
       translationError: "OpenAI translation request failed: 500 upstream"
     });
