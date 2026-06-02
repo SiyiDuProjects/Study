@@ -960,15 +960,16 @@ function LiveSubtitleView({
         <div className="subtitle-flow" ref={subtitleFlowRef}>
           {subtitlePairs.map(({ id, sourceText, translatedText }, index) => {
             const hasBilingualPair = Boolean(sourceText && translatedText);
+            const isWaitingForTranslation = Boolean(sourceText && !translatedText);
             return (
               <Fragment key={id}>
                 <span className="subtitle-pair">
                   <span className="subtitle-source">{sourceText || translatedText}</span>
                   <span
-                    className={hasBilingualPair ? "subtitle-translation" : "subtitle-translation pending"}
-                    aria-hidden={!hasBilingualPair}
+                    className={isWaitingForTranslation ? "subtitle-translation pending" : "subtitle-translation"}
+                    aria-hidden={!sourceText}
                   >
-                    {hasBilingualPair ? translatedText : "\u00a0"}
+                    {hasBilingualPair ? translatedText : isWaitingForTranslation ? "翻译中..." : "\u00a0"}
                   </span>
                 </span>
                 {index < subtitlePairs.length - 1 ? " " : null}

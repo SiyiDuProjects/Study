@@ -637,7 +637,8 @@ button {
 }
 
 .subtitle-translation.pending {
-  visibility: hidden;
+  color: #64748b;
+  font-weight: 560;
 }
 
 .records-view {

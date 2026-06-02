@@ -218,6 +218,9 @@ describe("App classroom workflow", () => {
 
     expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
     expect(screen.getByText("두 번째입니다.")).toBeTruthy();
+    expect(screen.getAllByText("翻译中...")).toHaveLength(2);
+    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("翻译中...");
+    expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("翻译中...");
     expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
   });
 
