@@ -16,11 +16,12 @@ GitHub Actions
 -> package dist/, dist-server/, package.json, and package-lock.json
 -> rsync release to VPS
 -> npm ci --omit=dev inside a node:22-bookworm-slim container on the VPS
--> docker compose up -d jiahuan_app
+-> docker compose up -d jiahuan_web
 -> SSH to VPS and curl local health URL
 ```
 
 The workflow does not upload `.env` files or API keys. `OPENAI_API_KEY` must live in a VPS-side env file referenced by Docker Compose.
+That key must support OpenAI Realtime client secrets. Text-only API gateways can be used for translation models only, not for starting live recording.
 
 ## Required GitHub Secrets
 
@@ -31,7 +32,7 @@ SSH_HOST=49.51.38.235
 SSH_PORT=22
 SSH_USER=ubuntu
 SSH_KEY=<authorized private key contents>
-COMPOSE_PATH=/home/ubuntu/muxing
+COMPOSE_PATH=/home/ubuntu/siyi
 ```
 
 On this Mac, the authorized shared key is stored at:
@@ -47,7 +48,7 @@ Project-specific secrets:
 ```text
 JIAHUAN_APP_PATH=/opt/jiahuan/app
 JIAHUAN_DATA_PATH=/opt/jiahuan/data
-JIAHUAN_COMPOSE_SERVICE=jiahuan_app
+JIAHUAN_COMPOSE_SERVICE=jiahuan_web
 JIAHUAN_LOCAL_HEALTH_URL=http://127.0.0.1:8091/api/health
 ```
 
@@ -67,32 +68,34 @@ Create app and data directories:
 sudo mkdir -p /opt/jiahuan/app /opt/jiahuan/data
 ```
 
-Create `/home/ubuntu/muxing/jiahuan.env` on the VPS:
+Create `/home/ubuntu/siyi/jiahuan.env` on the VPS:
 
 ```text
 OPENAI_API_KEY=sk-...
 ```
 
-Add this service to `/home/ubuntu/muxing/docker-compose.yml`:
+Use a server-side key with OpenAI Realtime access here. A text-only API/gateway will make `/api/realtime/client-secret` fail and the app cannot start recording.
+
+Add this service to `/home/ubuntu/siyi/docker-compose.yml`:
 
 ```yaml
-jiahuan_app:
+jiahuan_web:
   image: node:22-bookworm-slim
-  container_name: jiahuan_app
+  container_name: jiahuan_web
   restart: always
   working_dir: /app
-  command: ["node", "dist-server/server/index.js"]
+  command: npm run server:start
   ports:
-    - "127.0.0.1:8091:80"
+    - "127.0.0.1:8091:3000"
   environment:
     NODE_ENV: production
-    PORT: "80"
+    PORT: "3000"
     JIAHUAN_DB_PATH: /data/jiahuan.sqlite
     JIAHUAN_STATIC_DIR: /app/dist
-    OPENAI_REALTIME_TRANSCRIPTION_MODEL: gpt-realtime-whisper
+    OPENAI_REALTIME_TRANSCRIPTION_MODEL: gpt-4o-transcribe
     OPENAI_TEXT_TRANSLATION_MODELS: gpt-5.4-mini,gpt-5.4-nano
   env_file:
-    - /home/ubuntu/muxing/jiahuan.env
+    - /home/ubuntu/siyi/jiahuan.env
   volumes:
     - /opt/jiahuan/app:/app:ro
     - /opt/jiahuan/data:/data
@@ -101,8 +104,8 @@ jiahuan_app:
 Start it after the first deploy:
 
 ```bash
-cd /home/ubuntu/muxing
-sudo docker compose up -d jiahuan_app
+cd /home/ubuntu/siyi
+sudo docker compose up -d jiahuan_web
 curl http://127.0.0.1:8091/api/health
 ```
 
@@ -133,6 +136,6 @@ The script requests short-lived Realtime client secrets for all classroom modes 
 
 - If `Configure SSH` fails, check `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_KEY`, and repository access to organization secrets.
 - If dependency installation fails on the VPS, check Docker availability and that the VPS can pull `node:22-bookworm-slim`.
-- If `Refresh app container` fails, check that `/home/ubuntu/muxing/docker-compose.yml` contains `jiahuan_app`.
-- If `/api/health` works but Realtime fails, check `/home/ubuntu/muxing/jiahuan.env`, `OPENAI_API_KEY`, and the configured `OPENAI_*_MODEL` variables.
+- If `Refresh app container` fails, check that `/home/ubuntu/siyi/docker-compose.yml` contains `jiahuan_web`.
+- If `/api/health` works but Realtime fails, check `/home/ubuntu/siyi/jiahuan.env`, `OPENAI_API_KEY`, and the configured `OPENAI_*_MODEL` variables. The recording path requires a Realtime-capable key, not only text-model access.
 - If the public hostname fails but the local health check passes, check Cloudflare Tunnel routing and Cloudflare Access policy.

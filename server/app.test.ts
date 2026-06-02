@@ -78,6 +78,27 @@ describe("server app", () => {
     expect(requestedMode).toBe("classic-websocket-translate");
   });
 
+  it("returns a clear error when realtime client secrets cannot be issued", async () => {
+    app = createServerApp({
+      db,
+      openAiApiKey: "test",
+      staticDir: null,
+      modelConfig,
+      createClientSecret: async () => {
+        throw new Error("Realtime not supported");
+      },
+      translateText: async ({ model, text }) => `${model}:${text}:中文`
+    });
+
+    const response = await injectApp("POST", "/api/realtime/client-secret", {
+      body: { mode: "transcribe-then-translate" }
+    });
+
+    expect(response.status).toBe(502);
+    expect(response.body.error).toContain("OpenAI Realtime");
+    expect(response.body.error).toContain("文字模型");
+  });
+
   it("saves sessions through the API and returns shared summaries", async () => {
     const session = createSampleSession();
     const saveResponse = await injectApp("POST", "/api/sessions", {

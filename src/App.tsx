@@ -128,7 +128,7 @@ export default function App() {
     () => courses.find((course) => course.id === selectedCourseId) ?? null,
     [courses, selectedCourseId]
   );
-  const canStart = (status === "idle" || status === "error") && Boolean(selectedCourse);
+  const canStart = (status === "idle" || status === "error") && Boolean(selectedCourse) && hasRequiredModelConfig(appConfig);
   const isLive = status === "recording" || status === "paused" || status === "connecting" || status === "closing";
   const textTranslationModels = appConfig.textTranslationModels.length
     ? appConfig.textTranslationModels
@@ -299,6 +299,11 @@ export default function App() {
       return;
     }
 
+    if (!hasRequiredModelConfig(appConfig)) {
+      setErrorMessage("服务器模型配置未加载，请刷新后重试。");
+      return;
+    }
+
     const startTime = new Date();
     const initialState = createTranscriptState();
     recordingCourseRef.current = selectedCourse;
@@ -334,8 +339,8 @@ export default function App() {
       settings.translationMode === "classic-websocket-translate"
         ? new ClassicRealtimeTranslationClient(
             getClientSecret,
-            appConfig.realtimeTranslationModel || "gpt-realtime-translate",
-            appConfig.realtimeTranscriptionModel || "gpt-realtime-whisper",
+            appConfig.realtimeTranslationModel,
+            appConfig.realtimeTranscriptionModel,
             callbacks,
             settings.audioBoostEnabled
           )
@@ -343,7 +348,7 @@ export default function App() {
         ? new RealtimeTranslationClient(getClientSecret, callbacks, settings.audioBoostEnabled)
         : new RealtimeTranscriptionTranslationClient(
             getClientSecret,
-            appConfig.realtimeTranscriptionModel || "gpt-realtime-whisper",
+            appConfig.realtimeTranscriptionModel,
             settings.textTranslationModel || appConfig.defaultTextTranslationModel,
             callbacks,
             settings.audioBoostEnabled
@@ -1395,6 +1400,15 @@ async function writeClipboard(text: string): Promise<void> {
 
 function isRealtimeTranslationMode(mode: AppSettings["translationMode"]): boolean {
   return mode === "classic-websocket-translate" || mode === "realtime-translate";
+}
+
+function hasRequiredModelConfig(config: AppConfig): boolean {
+  return Boolean(
+    config.realtimeTranslationModel &&
+      config.realtimeTranscriptionModel &&
+      config.defaultTextTranslationModel &&
+      config.textTranslationModels.length
+  );
 }
 
 function normalizeSettingsForConfig(settings: AppSettings, config: AppConfig): AppSettings {

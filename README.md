@@ -42,13 +42,14 @@ PORT=3001
 JIAHUAN_DB_PATH=/data/jiahuan.sqlite
 JIAHUAN_STATIC_DIR=/app/dist
 OPENAI_REALTIME_TRANSLATION_MODEL=gpt-realtime-translate
-OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
+OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.4-mini
 OPENAI_TEXT_TRANSLATION_MODELS=gpt-5.4-mini,gpt-5.4-nano
 ```
 
 生产环境通过 Cloudflare Access 保护站点入口；应用内不实现账号系统。
 模型名由服务端环境变量集中配置，浏览器 UI 从 `/api/config` 获取可选模型。浏览器不保存、不输入 OpenAI 主 API key。
+`OPENAI_API_KEY` 必须支持 OpenAI Realtime client secrets；只支持文字模型的中转 API 只能用于文本翻译，不能启动实时录音转录。
 
 ## VPS 部署
 
@@ -65,36 +66,38 @@ chmod 700 /Users/bytedance/Projects/keys
 chmod 600 /Users/bytedance/Projects/keys/connection-prod-20260526.pem
 ```
 
-推荐在现有 VPS `/home/ubuntu/muxing/docker-compose.yml` 中使用一个 Node 容器同时服务静态前端和 `/api`：
+推荐在现有 VPS `/home/ubuntu/siyi/docker-compose.yml` 中使用一个 Node 容器同时服务静态前端和 `/api`：
 
 ```yaml
-jiahuan_app:
+jiahuan_web:
   image: node:22-bookworm-slim
-  container_name: jiahuan_app
+  container_name: jiahuan_web
   restart: always
   working_dir: /app
-  command: ["node", "dist-server/server/index.js"]
+  command: npm run server:start
   ports:
-    - "127.0.0.1:8091:80"
+    - "127.0.0.1:8091:3000"
   environment:
     NODE_ENV: production
-    PORT: "80"
+    PORT: "3000"
     JIAHUAN_DB_PATH: /data/jiahuan.sqlite
     JIAHUAN_STATIC_DIR: /app/dist
-    OPENAI_REALTIME_TRANSCRIPTION_MODEL: gpt-realtime-whisper
+    OPENAI_REALTIME_TRANSCRIPTION_MODEL: gpt-4o-transcribe
     OPENAI_TEXT_TRANSLATION_MODELS: gpt-5.4-mini,gpt-5.4-nano
   env_file:
-    - /home/ubuntu/muxing/jiahuan.env
+    - /home/ubuntu/siyi/jiahuan.env
   volumes:
     - /opt/jiahuan/app:/app:ro
     - /opt/jiahuan/data:/data
 ```
 
-`/home/ubuntu/muxing/jiahuan.env` 只放在 VPS：
+`/home/ubuntu/siyi/jiahuan.env` 只放在 VPS：
 
 ```text
 OPENAI_API_KEY=sk-...
 ```
+
+这里需要放支持 OpenAI Realtime 的服务端 key。只支持 `gpt-5.4-mini`、`gpt-5.4-nano` 这类文字模型的 API 不能用于“开始录音”。
 
 Cloudflare Tunnel public hostname 继续指向：
 

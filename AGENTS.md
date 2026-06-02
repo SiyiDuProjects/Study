@@ -41,6 +41,7 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - Do not commit API keys or `.env` files.
 - Keep OpenAI API keys on the server. The browser receives only short-lived Realtime client secrets.
 - OpenAI model names are server configuration; do not hardcode new model names in browser UI or schemas.
+- Live recording requires a server API key that supports OpenAI Realtime client secrets; text-only API gateways can only support the later Korean-to-Chinese translation step.
 - Default classroom mode is `transcribe-then-translate`; keep `classic-websocket-translate` and `realtime-translate` available as fallback comparison modes.
 
 ## Deployment Notes
@@ -57,7 +58,7 @@ Known VPS context from sibling `Interview` and `connection` projects:
 - Local Mac SSH command: `ssh -i /Users/bytedance/Projects/keys/connection-prod-20260526.pem ubuntu@49.51.38.235`
 - Tencent Cloud SSH key name/ID: `connection_prod_20260526` / `lhkp-41patbaz`
 - Legacy Windows SSH key path: `C:\Users\Administrator\Desktop\Projects\Siyi.pem`
-- Shared Docker Compose directory on host: `/home/ubuntu/muxing`
+- Shared Docker Compose directory on host: `/home/ubuntu/siyi`
 - Cloudflare Tunnel is already used on the VPS for public hostnames.
 - Existing reserved/local ports:
   - `8000` = Interview API
@@ -76,7 +77,7 @@ chmod 600 /Users/bytedance/Projects/keys/connection-prod-20260526.pem
 Recommended VPS deployment for this project:
 
 - Host the app release from `/opt/jiahuan/app` and SQLite data from `/opt/jiahuan/data`.
-- Add a Node service to `/home/ubuntu/muxing/docker-compose.yml`, for example a `node:22-bookworm-slim` container named `jiahuan_app`.
+- Add a Node service to `/home/ubuntu/siyi/docker-compose.yml`, for example a `node:22-bookworm-slim` container named `jiahuan_web`.
 - Run `node dist-server/server/index.js` with `JIAHUAN_STATIC_DIR=/app/dist` and `JIAHUAN_DB_PATH=/data/jiahuan.sqlite`.
 - Bind it only on localhost, e.g. `127.0.0.1:8091:80`, to avoid exposing it directly outside the VPS.
 - Add a Cloudflare Tunnel public hostname such as `jiahuan.gaid.studio` or `subtitle.gaid.studio` pointing to `http://localhost:8091`.
@@ -104,8 +105,8 @@ Then on the VPS:
 sudo mkdir -p /opt/jiahuan/app /opt/jiahuan/data
 sudo rsync -a --delete /tmp/jiahuan-app/ /opt/jiahuan/app/
 sudo docker run --rm -v /opt/jiahuan/app:/app -w /app node:22-bookworm-slim npm ci --omit=dev
-cd /home/ubuntu/muxing
-sudo docker compose up -d jiahuan_app
+cd /home/ubuntu/siyi
+sudo docker compose up -d jiahuan_web
 ```
 
 CI/CD deployment:
@@ -115,5 +116,5 @@ CI/CD deployment:
 - Required shared GitHub Actions secrets: `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_KEY`, `COMPOSE_PATH`
 - Required project-specific secrets: `JIAHUAN_APP_PATH`, `JIAHUAN_DATA_PATH`, `JIAHUAN_COMPOSE_SERVICE`
 - Optional project-specific secret: `JIAHUAN_LOCAL_HEALTH_URL`, defaulting to `http://127.0.0.1:8091/api/health`
-- The workflow runs `npm ci`, `npm test`, `npm run build`, syncs `dist/` and `dist-server/` to the VPS, installs production dependencies on the VPS, runs `docker compose up -d jiahuan_app`, then checks the local health endpoint over SSH.
+- The workflow runs `npm ci`, `npm test`, `npm run build`, syncs `dist/` and `dist-server/` to the VPS, installs production dependencies on the VPS, runs `docker compose up -d jiahuan_web`, then checks the local health endpoint over SSH.
 - After syncing the app release, the workflow normalizes app file permissions to `755` for directories and `644` for files so the Node container can read them.

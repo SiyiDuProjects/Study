@@ -124,7 +124,7 @@ jobs:
       - name: Refresh app container
         env:
           COMPOSE_PATH: ${{ secrets.COMPOSE_PATH }}
-          COMPOSE_SERVICE: ${{ secrets.JIAHUAN_COMPOSE_SERVICE || 'jiahuan_app' }}
+          COMPOSE_SERVICE: ${{ secrets.JIAHUAN_COMPOSE_SERVICE || 'jiahuan_web' }}
         run: |
           test -n "$COMPOSE_PATH"
           test -n "$COMPOSE_SERVICE"

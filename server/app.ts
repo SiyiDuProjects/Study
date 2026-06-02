@@ -60,12 +60,22 @@ export function createServerApp({
         return;
       }
 
-      const clientSecret = await createClientSecret({
-        apiKey: openAiApiKey,
-        mode: parsed.data.mode,
-        safetyIdentifier: safetyIdentifierFromEmail(getRequesterEmail(req)),
-        modelConfig
-      });
+      let clientSecret;
+      try {
+        clientSecret = await createClientSecret({
+          apiKey: openAiApiKey,
+          mode: parsed.data.mode,
+          safetyIdentifier: safetyIdentifierFromEmail(getRequesterEmail(req)),
+          modelConfig
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(502).json({
+          error: "实时转录 API 请求失败。请确认服务端 API key 支持 OpenAI Realtime，不能只配置文字模型 API。"
+        });
+        return;
+      }
+
       res.json(clientSecret);
     } catch (error) {
       next(error);
