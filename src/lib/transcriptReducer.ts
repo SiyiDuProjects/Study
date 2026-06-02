@@ -69,13 +69,23 @@ export function appendTranscriptSegment(
 ): TranscriptState {
   const sourceText = segment.sourceText.trim();
   const translatedText = segment.translatedText.trim();
+  const translationError = segment.translationError?.trim();
+  const translationStatus = inferTranslationStatus(segment.translationStatus, sourceText, translatedText, translationError);
   if (!sourceText && !translatedText) {
     return state;
   }
 
   const patchedState = segment.replaceActive
     ? null
-    : patchExistingSourceTranslation(state, sourceText, translatedText, segment.elapsedMs, nowIso);
+    : patchExistingSourceTranslation(
+        state,
+        sourceText,
+        translatedText,
+        translationStatus,
+        translationError,
+        segment.elapsedMs,
+        nowIso
+      );
   if (patchedState) {
     return patchedState;
   }
@@ -90,6 +100,8 @@ export function appendTranscriptSegment(
     endedAtMs: startedAtMs + Math.max(1200, Math.max(sourceText.length, translatedText.length) * 90),
     sourceText,
     translatedText,
+    translationStatus,
+    translationError,
     isFinal: true,
     createdAt: nowIso,
     updatedAt: nowIso
@@ -106,20 +118,28 @@ function patchExistingSourceTranslation(
   state: TranscriptState,
   sourceText: string,
   translatedText: string,
+  translationStatus: TranscriptSegment["translationStatus"],
+  translationError: string | undefined,
   elapsedMs: number | undefined,
   nowIso: string
 ): TranscriptState | null {
-  if (!sourceText || !translatedText) {
+  if (!sourceText || (!translatedText && !translationStatus && !translationError)) {
     return null;
   }
 
   const active = state.activeSegment;
-  if (active && sameNormalizedText(active.sourceText, sourceText) && !active.translatedText.trim()) {
+  if (active && sameNormalizedText(active.sourceText, sourceText)) {
+    if (active.translatedText.trim() && !translatedText) {
+      return null;
+    }
+
     return {
       ...state,
       activeSegment: {
         ...active,
-        translatedText,
+        translatedText: translatedText || active.translatedText,
+        translationStatus: translationStatus ?? active.translationStatus,
+        translationError,
         updatedAt: nowIso
       }
     };
@@ -134,7 +154,7 @@ function patchExistingSourceTranslation(
   }
 
   const existing = state.segments[segmentIndex];
-  if (existing.translatedText.trim()) {
+  if (existing.translatedText.trim() && !translatedText) {
     return null;
   }
 
@@ -144,12 +164,39 @@ function patchExistingSourceTranslation(
       index === segmentIndex
         ? {
             ...item,
-            translatedText,
+            translatedText: translatedText || item.translatedText,
+            translationStatus: translationStatus ?? item.translationStatus,
+            translationError,
             updatedAt: nowIso
           }
         : item
     )
   };
+}
+
+function inferTranslationStatus(
+  status: TranscriptSegment["translationStatus"],
+  sourceText: string,
+  translatedText: string,
+  translationError: string | undefined
+): TranscriptSegment["translationStatus"] {
+  if (status) {
+    return status;
+  }
+
+  if (translationError) {
+    return "failed";
+  }
+
+  if (sourceText && translatedText) {
+    return "translated";
+  }
+
+  if (sourceText && !translatedText) {
+    return "queued";
+  }
+
+  return undefined;
 }
 
 function findSegmentIndexBySourceAndStart(segments: TranscriptSegment[], sourceText: string, startedAtMs: number): number {

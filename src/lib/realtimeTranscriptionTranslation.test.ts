@@ -118,10 +118,17 @@ describe("RealtimeTranscriptionTranslationClient", () => {
       translatedText: "",
       elapsedMs: 1400,
       replaceActive: true,
-      replaceActiveSourceText: "여기서"
+      replaceActiveSourceText: "여기서",
+      translationStatus: "queued"
     });
 
     await Promise.resolve();
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "여기서",
+      translatedText: "",
+      elapsedMs: 1400,
+      translationStatus: "translating"
+    });
     expect(mocks.translateKoreanText).toHaveBeenCalledWith({
       model: "txt-test",
       text: "여기서",
@@ -134,11 +141,12 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "여기서",
       translatedText: "这里是上课内容。",
-      elapsedMs: 1400
+      elapsedMs: 1400,
+      translationStatus: "translated"
     });
   });
 
-  it("translates each completed Korean sentence separately", async () => {
+  it("simulates streamed Korean and translates each completed sentence separately", async () => {
     mocks.translateKoreanText.mockResolvedValueOnce("这是第一句。").mockResolvedValueOnce("这是第二句。");
     const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
 
@@ -162,14 +170,28 @@ describe("RealtimeTranscriptionTranslationClient", () => {
       translatedText: "",
       elapsedMs: 1600,
       replaceActive: true,
-      replaceActiveSourceText: "첫 문장입니다. 두 번째 문장입니다."
+      replaceActiveSourceText: "첫 문장입니다. 두 번째 문장입니다.",
+      translationStatus: "queued"
     });
     expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
       sourceText: "두 번째 문장입니다.",
       translatedText: "",
       elapsedMs: 1640,
       replaceActive: false,
-      replaceActiveSourceText: ""
+      replaceActiveSourceText: "",
+      translationStatus: "queued"
+    });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1600,
+      translationStatus: "translating"
+    });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "두 번째 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1640,
+      translationStatus: "translating"
     });
     expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(1, {
       model: "txt-test",
@@ -184,12 +206,14 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "첫 문장입니다.",
       translatedText: "这是第一句。",
-      elapsedMs: 1600
+      elapsedMs: 1600,
+      translationStatus: "translated"
     });
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "두 번째 문장입니다.",
       translatedText: "这是第二句。",
-      elapsedMs: 1640
+      elapsedMs: 1640,
+      translationStatus: "translated"
     });
   });
 
@@ -229,14 +253,16 @@ describe("RealtimeTranscriptionTranslationClient", () => {
       translatedText: "",
       elapsedMs: 1300,
       replaceActive: true,
-      replaceActiveSourceText: "첫 문장"
+      replaceActiveSourceText: "첫 문장",
+      translationStatus: "queued"
     });
     expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
       sourceText: "두 번째 문장입니다.",
       translatedText: "",
       elapsedMs: 2500,
       replaceActive: true,
-      replaceActiveSourceText: "두 번째"
+      replaceActiveSourceText: "두 번째",
+      translationStatus: "queued"
     });
   });
 
@@ -270,8 +296,38 @@ describe("RealtimeTranscriptionTranslationClient", () => {
       translatedText: "",
       elapsedMs: 1400,
       replaceActive: true,
-      replaceActiveSourceText: "여기서"
+      replaceActiveSourceText: "여기서",
+      translationStatus: "queued"
     });
+  });
+
+  it("marks a single sentence translation failure with the API error", async () => {
+    mocks.translateKoreanText.mockRejectedValue(new Error("OpenAI translation request failed: 500 upstream"));
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
+
+    await client.start();
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "첫 문장입니다.",
+      elapsed_ms: 1000
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item_1",
+      transcript: "첫 문장입니다.",
+      elapsed_ms: 1300
+    });
+    await flushPromises();
+
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1300,
+      translationStatus: "failed",
+      translationError: "OpenAI translation request failed: 500 upstream"
+    });
+    expect(callbacks.onError).toHaveBeenCalledWith("OpenAI translation request failed: 500 upstream");
   });
 
   it("uses the server-issued transcription session without browser session updates", async () => {

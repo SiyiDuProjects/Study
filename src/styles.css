@@ -641,6 +641,10 @@ button {
   font-weight: 560;
 }
 
+.subtitle-translation.failed {
+  color: #b42318;
+}
+
 .records-view {
   width: min(1120px, 100%);
   margin: 0 auto;

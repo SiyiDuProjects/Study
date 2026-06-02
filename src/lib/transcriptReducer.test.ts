@@ -86,17 +86,51 @@ describe("transcript reducer", () => {
       sourceText: "첫 문장입니다.",
       translatedText: "",
       elapsedMs: 1000,
-      replaceActive: true
+      replaceActive: true,
+      translationStatus: "queued"
     });
     state = appendTranscriptSegment(state, {
       sourceText: "첫 문장입니다.",
-      translatedText: "这是第一句。"
+      translatedText: "",
+      elapsedMs: 1000,
+      translationStatus: "translating"
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "这是第一句。",
+      elapsedMs: 1000,
+      translationStatus: "translated"
     });
 
     expect(state.activeSegment).toBeNull();
     expect(state.segments).toHaveLength(1);
     expect(state.segments[0].sourceText).toBe("첫 문장입니다.");
     expect(state.segments[0].translatedText).toBe("这是第一句。");
+    expect(state.segments[0].translationStatus).toBe("translated");
+  });
+
+  it("patches a translation failure onto the intended Korean source segment", () => {
+    let state = createTranscriptState();
+
+    state = appendTranscriptSegment(state, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1000,
+      replaceActive: true,
+      translationStatus: "queued"
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1000,
+      translationStatus: "failed",
+      translationError: "OpenAI translation request failed"
+    });
+
+    expect(state.segments).toHaveLength(1);
+    expect(state.segments[0].translatedText).toBe("");
+    expect(state.segments[0].translationStatus).toBe("failed");
+    expect(state.segments[0].translationError).toBe("OpenAI translation request failed");
   });
 
   it("does not collapse repeated Korean lines that already have translations", () => {

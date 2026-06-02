@@ -215,7 +215,8 @@ export class RealtimeTranscriptionTranslationClient {
         translatedText: "",
         elapsedMs: segmentElapsedMs,
         replaceActive: index === 0 && Boolean(replaceActiveSourceText),
-        replaceActiveSourceText: index === 0 ? replaceActiveSourceText : ""
+        replaceActiveSourceText: index === 0 ? replaceActiveSourceText : "",
+        translationStatus: "queued"
       });
       this.enqueueTranslation(sourceSegment, segmentElapsedMs);
     });
@@ -230,6 +231,13 @@ export class RealtimeTranscriptionTranslationClient {
     this.pendingTranslationCount += 1;
     this.translationQueue = this.translationQueue
       .then(async () => {
+        this.callbacks.onSegment?.({
+          sourceText: normalizedSource,
+          translatedText: "",
+          elapsedMs,
+          translationStatus: "translating"
+        });
+
         const translatedText = await translateKoreanText({
           model: this.textModel,
           text: normalizedSource,
@@ -244,12 +252,21 @@ export class RealtimeTranscriptionTranslationClient {
         this.callbacks.onSegment?.({
           sourceText: normalizedSource,
           translatedText: normalizedTranslation,
-          elapsedMs
+          elapsedMs,
+          translationStatus: "translated"
         });
         this.recentSegments = [...this.recentSegments, { sourceText: normalizedSource, translatedText: normalizedTranslation }].slice(-4);
       })
       .catch((error: unknown) => {
-        this.callbacks.onError(error instanceof Error ? error.message : "文本翻译失败。");
+        const message = error instanceof Error ? error.message : "文本翻译失败。";
+        this.callbacks.onSegment?.({
+          sourceText: normalizedSource,
+          translatedText: "",
+          elapsedMs,
+          translationStatus: "failed",
+          translationError: message
+        });
+        this.callbacks.onError(message);
       })
       .finally(() => {
         this.pendingTranslationCount = Math.max(0, this.pendingTranslationCount - 1);

@@ -1,6 +1,7 @@
 export type ConnectionStatus = "idle" | "connecting" | "recording" | "paused" | "closing" | "error";
 
 export type TranscriptChannel = "translation" | "source";
+export type SegmentTranslationStatus = "queued" | "translating" | "translated" | "failed";
 
 export const TRANSLATION_MODES = ["classic-websocket-translate", "realtime-translate", "transcribe-then-translate"] as const;
 
@@ -21,6 +22,8 @@ export interface TranscriptSegment {
   endedAtMs?: number;
   sourceText: string;
   translatedText: string;
+  translationStatus?: SegmentTranslationStatus;
+  translationError?: string;
   isFinal: boolean;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +81,8 @@ export interface RealtimeTranscriptSegment {
   elapsedMs?: number;
   replaceActive?: boolean;
   replaceActiveSourceText?: string;
+  translationStatus?: SegmentTranslationStatus;
+  translationError?: string;
 }
 
 export interface RealtimeClientDiagnostic {

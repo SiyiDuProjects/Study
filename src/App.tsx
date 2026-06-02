@@ -920,7 +920,9 @@ function LiveSubtitleView({
     .map((segment) => ({
       id: segment.id,
       sourceText: segment.sourceText.trim(),
-      translatedText: segment.translatedText.trim()
+      translatedText: segment.translatedText.trim(),
+      translationStatus: segment.translationStatus,
+      translationError: segment.translationError
     }))
     .filter((segment) => segment.sourceText || segment.translatedText);
   const subtitleFlowRef = useRef<HTMLDivElement>(null);
@@ -958,18 +960,26 @@ function LiveSubtitleView({
     <section className="subtitle-stage" aria-live="polite">
       <div className="subtitle-stack subtitle-flow-stack">
         <div className="subtitle-flow" ref={subtitleFlowRef}>
-          {subtitlePairs.map(({ id, sourceText, translatedText }, index) => {
+          {subtitlePairs.map(({ id, sourceText, translatedText, translationStatus, translationError }, index) => {
             const hasBilingualPair = Boolean(sourceText && translatedText);
+            const pendingTranslationText = translationStatusText({ sourceText, translatedText, translationStatus, translationError });
             const isWaitingForTranslation = Boolean(sourceText && !translatedText);
+            const translationClassName = [
+              "subtitle-translation",
+              isWaitingForTranslation ? "pending" : "",
+              translationStatus === "failed" ? "failed" : ""
+            ]
+              .filter(Boolean)
+              .join(" ");
             return (
               <Fragment key={id}>
                 <span className="subtitle-pair">
                   <span className="subtitle-source">{sourceText || translatedText}</span>
                   <span
-                    className={isWaitingForTranslation ? "subtitle-translation pending" : "subtitle-translation"}
+                    className={translationClassName}
                     aria-hidden={!sourceText}
                   >
-                    {hasBilingualPair ? translatedText : isWaitingForTranslation ? "翻译中..." : "\u00a0"}
+                    {hasBilingualPair ? translatedText : pendingTranslationText}
                   </span>
                 </span>
                 {index < subtitlePairs.length - 1 ? " " : null}
@@ -980,6 +990,36 @@ function LiveSubtitleView({
       </div>
     </section>
   );
+}
+
+function translationStatusText({
+  sourceText,
+  translatedText,
+  translationStatus,
+  translationError
+}: {
+  sourceText: string;
+  translatedText: string;
+  translationStatus?: string;
+  translationError?: string;
+}): string {
+  if (!sourceText || translatedText) {
+    return "\u00a0";
+  }
+
+  if (translationStatus === "failed") {
+    return `翻译失败：${translationError || "请检查 /api/translate 或文本模型配置"}`;
+  }
+
+  if (translationStatus === "translating") {
+    return "正在请求 /api/translate...";
+  }
+
+  if (translationStatus === "queued") {
+    return "等待翻译队列（前一句完成后发送）...";
+  }
+
+  return "等待韩语句子结束...";
 }
 
 function ClassStartView({

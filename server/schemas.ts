@@ -11,6 +11,8 @@ export const transcriptSegmentSchema = z
     endedAtMs: z.number().finite().nonnegative().optional(),
     sourceText: z.string(),
     translatedText: z.string(),
+    translationStatus: z.enum(["queued", "translating", "translated", "failed"]).optional(),
+    translationError: z.string().max(1000).optional(),
     isFinal: z.boolean(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime()

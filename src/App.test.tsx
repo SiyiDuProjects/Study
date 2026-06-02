@@ -203,12 +203,14 @@ describe("App classroom workflow", () => {
       callbacks.onSegment?.({
         sourceText: "첫 문장입니다.",
         translatedText: "",
-        elapsedMs: 0
+        elapsedMs: 0,
+        translationStatus: "translating"
       });
       callbacks.onSegment?.({
         sourceText: "두 번째입니다.",
         translatedText: "",
-        elapsedMs: 1200
+        elapsedMs: 1200,
+        translationStatus: "queued"
       });
     });
     render(<App />);
@@ -218,9 +220,12 @@ describe("App classroom workflow", () => {
 
     expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
     expect(screen.getByText("두 번째입니다.")).toBeTruthy();
-    expect(screen.getAllByText("翻译中...")).toHaveLength(2);
-    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("翻译中...");
-    expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("翻译中...");
+    expect(screen.getByText("正在请求 /api/translate...")).toBeTruthy();
+    expect(screen.getByText("等待翻译队列（前一句完成后发送）...")).toBeTruthy();
+    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("正在请求 /api/translate...");
+    expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain(
+      "等待翻译队列（前一句完成后发送）..."
+    );
     expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
   });
 
