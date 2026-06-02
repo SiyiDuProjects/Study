@@ -93,12 +93,8 @@ describe("OpenAI client secrets", () => {
         body: expect.stringContaining('"noise_reduction":{"type":"far_field"}')
       })
     );
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: expect.stringContaining('"turn_detection":{"type":"server_vad"}')
-      })
-    );
+    const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    expect(requestBody.session.audio.input).not.toHaveProperty("turn_detection");
   });
 });
 

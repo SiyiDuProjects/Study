@@ -49,6 +49,7 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - Keep Korean transcription, Chinese text translation, and subtitle rendering as separate responsibilities. Korean display must never depend on `/api/translate` finishing.
 - Realtime model names and session model choices must come from server configuration. Do not hardcode or swap browser-side model names to work around a runtime failure without explicit approval.
 - Fix Realtime failures at the session, event, or audio transport boundary first. Do not hide main-chain failures with UI timers, localStorage version bumps, forced fallback modes, or translation fallback behavior.
+- Do not add explicit `turn_detection` to the `transcribe-then-translate` transcription client-secret session unless the configured realtime transcription model has been verified against the real API to accept it. The current `gpt-realtime-whisper` path relies on Realtime transcription's default VAD.
 - Temporary diagnostics must stay isolated and removable. Do not let debugging probes become production control flow.
 
 ## Deployment Notes
