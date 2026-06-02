@@ -96,7 +96,7 @@ describe("OpenAI client secrets", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        body: expect.not.stringContaining('"turn_detection"')
+        body: expect.stringContaining('"turn_detection":{"type":"server_vad"}')
       })
     );
   });

@@ -25,7 +25,6 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - `src/lib/classicRealtimeTranslation.ts`: fallback low-latency OpenAI Realtime Translation WebSocket client.
 - `src/lib/audio.ts`: 24 kHz PCM16 microphone frame conversion for classic WebSocket mode.
 - `src/lib/realtimeTranslation.ts`: fallback OpenAI Realtime Translation WebRTC client.
-- `src/lib/realtimeTranscriptionTranslation.ts`: WebRTC transcription plus server-side text translation flow.
 - `src/lib/realtimeWebRtc.ts`: shared OpenAI Realtime WebRTC transport.
 - `src/lib/transcriptReducer.ts`: source/translation delta merging and segment commit logic.
 - `src/lib/storage.ts`: local settings and IndexedDB pending-session sync queue.
@@ -43,6 +42,14 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - OpenAI model names are server configuration; do not hardcode new model names in browser UI or schemas.
 - Live recording requires a server API key that supports OpenAI Realtime client secrets; text-only API gateways can only support the later Korean-to-Chinese translation step.
 - Default classroom mode is `transcribe-then-translate`; keep `classic-websocket-translate` and `realtime-translate` available as fallback comparison modes.
+
+## Realtime Change Discipline
+
+- Treat `transcribe-then-translate` as the production classroom path: Realtime produces Korean transcription first, then `/api/translate` fills Chinese text after the Korean segment exists.
+- Keep Korean transcription, Chinese text translation, and subtitle rendering as separate responsibilities. Korean display must never depend on `/api/translate` finishing.
+- Realtime model names and session model choices must come from server configuration. Do not hardcode or swap browser-side model names to work around a runtime failure without explicit approval.
+- Fix Realtime failures at the session, event, or audio transport boundary first. Do not hide main-chain failures with UI timers, localStorage version bumps, forced fallback modes, or translation fallback behavior.
+- Temporary diagnostics must stay isolated and removable. Do not let debugging probes become production control flow.
 
 ## Deployment Notes
 

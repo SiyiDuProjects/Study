@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RealtimeTranscriptionTranslationClient } from "./realtimeTranscriptionTranslation";
 import type { RealtimeClientCallbacks } from "../types";
+import { RealtimeTranscriptionTranslationClient } from "./realtimeTranscriptionTranslation";
 
 const mocks = vi.hoisted(() => ({
   createMicrophoneInput: vi.fn(),
@@ -85,67 +85,142 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("streams Korean deltas first, then adds Chinese to the same subtitle line and commits it", async () => {
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "tr-test", "txt-test", callbacks);
+  it("commits Korean transcription before the text translation settles", async () => {
+    const translation = deferred<string>();
+    mocks.translateKoreanText.mockReturnValue(translation.promise);
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
 
     await client.start();
-    onMessage?.(JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "여기", elapsed_ms: 1200 }));
-    onMessage?.(JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "서", elapsed_ms: 1300 }));
-    onMessage?.(
-      JSON.stringify({
-        type: "conversation.item.input_audio_transcription.completed",
-        transcript: "여기서",
-        elapsed_ms: 1400
-      })
-    );
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "여기",
+      elapsed_ms: 1200
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "서",
+      elapsed_ms: 1300
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item_1",
+      transcript: "여기서",
+      elapsed_ms: 1400
+    });
 
     expect(callbacks.onDelta).toHaveBeenNthCalledWith(1, { channel: "source", delta: "여기", elapsedMs: 1200 });
     expect(callbacks.onDelta).toHaveBeenNthCalledWith(2, { channel: "source", delta: "서", elapsedMs: 1300 });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "여기서",
+      translatedText: "",
+      elapsedMs: 1400,
+      replaceActive: true,
+      replaceActiveSourceText: "여기서"
+    });
+
+    await Promise.resolve();
     expect(mocks.translateKoreanText).toHaveBeenCalledWith({
       model: "txt-test",
       text: "여기서",
       context: []
     });
+
+    translation.resolve("这里是上课内容。");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "여기서",
-      translatedText: "这里是上课内容。",
-      elapsedMs: 1400,
-      replaceActive: true
+      translatedText: "这里是上课内容。"
+    });
+  });
+
+  it("keeps later Korean transcription items independent from unresolved translations", async () => {
+    const translation = deferred<string>();
+    mocks.translateKoreanText.mockReturnValue(translation.promise);
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
+
+    await client.start();
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "첫 문장",
+      elapsed_ms: 1000
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item_1",
+      transcript: "첫 문장입니다.",
+      elapsed_ms: 1300
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_2",
+      delta: "두 번째",
+      elapsed_ms: 2200
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item_2",
+      transcript: "두 번째 문장입니다.",
+      elapsed_ms: 2500
+    });
+
+    expect(callbacks.onSegment).toHaveBeenNthCalledWith(1, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1300,
+      replaceActive: true,
+      replaceActiveSourceText: "첫 문장"
+    });
+    expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
+      sourceText: "두 번째 문장입니다.",
+      translatedText: "",
+      elapsedMs: 2500,
+      replaceActive: true,
+      replaceActiveSourceText: "두 번째"
     });
   });
 
   it("filters transient replacement glyphs from partial transcription deltas", async () => {
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "tr-test", "txt-test", callbacks);
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
 
     await client.start();
-    onMessage?.(JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "여�기", elapsed_ms: 1200 }));
-    onMessage?.(JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "□서", elapsed_ms: 1300 }));
-    onMessage?.(
-      JSON.stringify({
-        type: "conversation.item.input_audio_transcription.completed",
-        transcript: "여기서",
-        elapsed_ms: 1400
-      })
-    );
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "여\ufffd기",
+      elapsed_ms: 1200
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "item_1",
+      delta: "\u25a1서",
+      elapsed_ms: 1300
+    });
+    emitRealtimeEvent({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "item_1",
+      transcript: "여기서",
+      elapsed_ms: 1400
+    });
 
     expect(callbacks.onDelta).toHaveBeenNthCalledWith(1, { channel: "source", delta: "여기", elapsedMs: 1200 });
     expect(callbacks.onDelta).toHaveBeenNthCalledWith(2, { channel: "source", delta: "서", elapsedMs: 1300 });
     expect(callbacks.onSegment).toHaveBeenCalledWith({
       sourceText: "여기서",
-      translatedText: "这里是上课内容。",
+      translatedText: "",
       elapsedMs: 1400,
-      replaceActive: true
+      replaceActive: true,
+      replaceActiveSourceText: "여기서"
     });
   });
 
-  it("configures realtime transcription without unsupported turn detection", async () => {
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "tr-test", "txt-test", callbacks);
+  it("uses the server-issued transcription session without browser session updates", async () => {
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
 
     await client.start();
     currentRms = 0.002;
@@ -153,32 +228,27 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     currentRms = 0;
     await vi.advanceTimersByTimeAsync(960);
 
-    expect(sentEvents).toContainEqual(
+    expect(sentEvents).not.toContainEqual(
       expect.objectContaining({
         type: "session.update"
       })
     );
-    expect(sentEvents).toContainEqual(
-      expect.objectContaining({
-        session: expect.objectContaining({
-          audio: expect.objectContaining({
-            input: expect.objectContaining({
-              noise_reduction: {
-                type: "far_field"
-              },
-              transcription: expect.objectContaining({
-                model: "tr-test",
-                language: "ko"
-              })
-            })
-          })
-        })
-      })
-    );
-    expect(JSON.stringify(sentEvents)).not.toContain("turn_detection");
     expect(sentEvents).not.toContainEqual({ type: "input_audio_buffer.commit" });
   });
+
+  function emitRealtimeEvent(event: unknown): void {
+    onMessage?.(JSON.stringify(event));
+  }
 });
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+
+  return { promise, resolve };
+}
 
 function createStream(): MediaStream {
   return {

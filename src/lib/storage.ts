@@ -5,6 +5,7 @@ const FALLBACK_PENDING_SESSIONS_KEY = "korean-class-subtitler-pending-sessions";
 const DB_NAME = "korean-class-subtitler";
 const DB_VERSION = 1;
 const PENDING_SESSIONS_STORE = "pendingSessions";
+// Settings versions are only for settings-schema migrations, not for masking Realtime mode or model failures.
 const SETTINGS_VERSION = 7;
 
 export const defaultSettings: AppSettings = {

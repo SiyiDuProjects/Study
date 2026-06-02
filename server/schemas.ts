@@ -51,7 +51,7 @@ export const courseQuerySchema = z
 
 export const realtimeClientSecretRequestSchema = z
   .object({
-    mode: z.enum(TRANSLATION_MODES).default("classic-websocket-translate")
+    mode: z.enum(TRANSLATION_MODES).default("transcribe-then-translate")
   })
   .strict();
 

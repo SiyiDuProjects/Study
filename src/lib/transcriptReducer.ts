@@ -73,7 +73,14 @@ export function appendTranscriptSegment(
     return state;
   }
 
-  const baseState = segment.replaceActive ? { ...state, activeSegment: null } : commitActiveSegment(state, nowIso);
+  const patchedState = segment.replaceActive ? null : patchExistingSourceTranslation(state, sourceText, translatedText, nowIso);
+  if (patchedState) {
+    return patchedState;
+  }
+
+  const baseState = shouldReplaceActiveSegment(state.activeSegment, segment)
+    ? { ...state, activeSegment: null }
+    : commitActiveSegment(state, nowIso);
   const startedAtMs = segment.elapsedMs ?? inferNextStartMs(baseState);
   const nextSegment: TranscriptSegment = {
     id: createId("seg"),
@@ -91,6 +98,79 @@ export function appendTranscriptSegment(
     segments: [...baseState.segments, nextSegment],
     activeSegment: null
   };
+}
+
+function patchExistingSourceTranslation(
+  state: TranscriptState,
+  sourceText: string,
+  translatedText: string,
+  nowIso: string
+): TranscriptState | null {
+  if (!sourceText || !translatedText) {
+    return null;
+  }
+
+  const active = state.activeSegment;
+  if (active && sameNormalizedText(active.sourceText, sourceText) && !active.translatedText.trim()) {
+    return {
+      ...state,
+      activeSegment: {
+        ...active,
+        translatedText,
+        updatedAt: nowIso
+      }
+    };
+  }
+
+  const segmentIndex = findLatestSegmentIndex(state.segments, sourceText);
+  if (segmentIndex < 0) {
+    return null;
+  }
+
+  const existing = state.segments[segmentIndex];
+  if (existing.translatedText.trim()) {
+    return null;
+  }
+
+  return {
+    ...state,
+    segments: state.segments.map((item, index) =>
+      index === segmentIndex
+        ? {
+            ...item,
+            translatedText,
+            updatedAt: nowIso
+          }
+        : item
+    )
+  };
+}
+
+function findLatestSegmentIndex(segments: TranscriptSegment[], sourceText: string): number {
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    if (sameNormalizedText(segments[index].sourceText, sourceText)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function shouldReplaceActiveSegment(active: TranscriptSegment | null, segment: RealtimeTranscriptSegment): boolean {
+  if (!segment.replaceActive) {
+    return false;
+  }
+
+  const expectedSource = segment.replaceActiveSourceText?.trim();
+  if (!expectedSource || !active?.sourceText.trim()) {
+    return true;
+  }
+
+  return sameNormalizedText(active.sourceText, expectedSource);
+}
+
+function sameNormalizedText(left: string, right: string): boolean {
+  return left.trim().replace(/\s+/g, " ") === right.trim().replace(/\s+/g, " ");
 }
 
 export function getDisplaySegments(state: TranscriptState, count = 3): TranscriptSegment[] {

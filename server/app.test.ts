@@ -55,7 +55,7 @@ describe("server app", () => {
     });
   });
 
-  it("defaults realtime client secrets to classic low-latency mode", async () => {
+  it("defaults realtime client secrets to transcription plus text translation mode", async () => {
     let requestedMode = "";
     app = createServerApp({
       db,
@@ -75,7 +75,7 @@ describe("server app", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ clientSecret: "ek_test", expiresAt: 123 });
-    expect(requestedMode).toBe("classic-websocket-translate");
+    expect(requestedMode).toBe("transcribe-then-translate");
   });
 
   it("returns a clear error when realtime client secrets cannot be issued", async () => {

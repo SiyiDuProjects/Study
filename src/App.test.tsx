@@ -85,7 +85,6 @@ vi.mock("./lib/realtimeTranscriptionTranslation", () => ({
   RealtimeTranscriptionTranslationClient: class {
     constructor(
       _getClientSecret: () => Promise<string>,
-      _realtimeTranscriptionModel: string,
       _textModel: string,
       private readonly callbacks: RealtimeClientCallbacks,
       audioBoostEnabled = true
@@ -196,6 +195,30 @@ describe("App classroom workflow", () => {
     expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("第二句。");
     expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
     expect(document.querySelector(".subtitle-pair")?.tagName).toBe("SPAN");
+  });
+
+  it("keeps Korean subtitles visible when Chinese translation has not returned", async () => {
+    mocks.realtimeStart.mockImplementationOnce(async (callbacks: RealtimeClientCallbacks) => {
+      callbacks.onOpen();
+      callbacks.onSegment?.({
+        sourceText: "첫 문장입니다.",
+        translatedText: "",
+        elapsedMs: 0
+      });
+      callbacks.onSegment?.({
+        sourceText: "두 번째입니다.",
+        translatedText: "",
+        elapsedMs: 1200
+      });
+    });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
+    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+
+    expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
+    expect(screen.getByText("두 번째입니다.")).toBeTruthy();
+    expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
   });
 
   it("selects a course and surfaces a start failure", async () => {

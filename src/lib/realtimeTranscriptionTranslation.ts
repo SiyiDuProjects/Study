@@ -7,13 +7,13 @@ const TRANSCRIPTION_CALL_URL = "https://api.openai.com/v1/realtime/calls";
 const DIAGNOSTIC_LEVEL_INTERVAL_MS = 500;
 const STOP_FLUSH_TIMEOUT_MS = 6000;
 const STOP_FLUSH_QUIET_MS = 1000;
-const SENTENCE_END_PATTERN = /([。！？!?]|[.](?!\d))\s*/u;
 const TRANSIENT_PARTIAL_GLYPH_PATTERN = /[\u25a1\ufffc\ufffd]/g;
 
 interface TranscriptionCompletedEvent {
   type?: string;
   delta?: string;
   transcript?: string;
+  item_id?: string;
   elapsed_ms?: number;
   error?: { message?: string };
 }
@@ -39,11 +39,10 @@ export class RealtimeTranscriptionTranslationClient {
   private lastTranscriptionAt = 0;
   private lastTranslationSettledAt = 0;
   private recentSegments: Array<{ sourceText: string; translatedText: string }> = [];
-  private activeSourceDelta = "";
+  private activeSourceDeltaByItemId = new Map<string, string>();
 
   constructor(
     private readonly getClientSecret: () => Promise<string>,
-    private readonly realtimeTranscriptionModel: string,
     private readonly textModel: TextTranslationModel,
     private readonly callbacks: RealtimeClientCallbacks,
     private readonly audioBoostEnabled = true
@@ -108,29 +107,8 @@ export class RealtimeTranscriptionTranslationClient {
 
   private handleTransportOpen(transport: RealtimeWebRtcTransport): void {
     this.transport = transport;
-    this.configureSession();
     this.startSpeechMonitor();
     this.callbacks.onOpen();
-  }
-
-  private configureSession(): void {
-    this.sendRealtimeEvent({
-      type: "session.update",
-      session: {
-        type: "transcription",
-        audio: {
-          input: {
-            noise_reduction: {
-              type: "far_field"
-            },
-            transcription: {
-              model: this.realtimeTranscriptionModel,
-              language: "ko"
-            }
-          }
-        }
-      }
-    });
   }
 
   private startSpeechMonitor(): void {
@@ -193,7 +171,8 @@ export class RealtimeTranscriptionTranslationClient {
         return;
       }
 
-      this.activeSourceDelta += cleanDelta;
+      const itemId = transcriptionItemId(event);
+      this.activeSourceDeltaByItemId.set(itemId, `${this.activeSourceDeltaByItemId.get(itemId) ?? ""}${cleanDelta}`);
       this.callbacks.onDelta({
         channel: "source",
         delta: cleanDelta,
@@ -203,8 +182,9 @@ export class RealtimeTranscriptionTranslationClient {
     }
 
     if (event.type === "conversation.item.input_audio_transcription.completed") {
-      const streamedSourceText = this.activeSourceDelta;
-      this.activeSourceDelta = "";
+      const itemId = transcriptionItemId(event);
+      const streamedSourceText = this.activeSourceDeltaByItemId.get(itemId) ?? "";
+      this.activeSourceDeltaByItemId.delete(itemId);
       if (!event.transcript?.trim()) {
         return;
       }
@@ -225,48 +205,23 @@ export class RealtimeTranscriptionTranslationClient {
       return;
     }
 
-    const sourceRemainder = getUnstreamedSourceRemainder(normalizedSource, streamedSourceText);
-    if (sourceRemainder) {
-      this.callbacks.onDelta({
-        channel: "source",
-        delta: sourceRemainder,
-        elapsedMs
-      });
-    }
-
-    const { completeSentences, remainder } = splitCompleteSentences(normalizedSource);
-    if (completeSentences.length > 0) {
-      completeSentences.forEach((sentence, index) => {
-        this.enqueueTranslation({
-          sourceText: sentence,
-          elapsedMs,
-          replaceActive: index === 0,
-          restoreSourceText: index === completeSentences.length - 1 ? remainder : ""
-        });
-      });
-      return;
-    }
-
-    this.enqueueTranslation({ sourceText: normalizedSource, elapsedMs, replaceActive: true });
+    const replaceActiveSourceText = sanitizeRealtimePartialDelta(streamedSourceText).trim();
+    this.callbacks.onSegment?.({
+      sourceText: normalizedSource,
+      translatedText: "",
+      elapsedMs,
+      replaceActive: Boolean(replaceActiveSourceText),
+      replaceActiveSourceText
+    });
+    this.enqueueTranslation(normalizedSource);
   }
 
-  private enqueueTranslation({
-    sourceText,
-    elapsedMs,
-    replaceActive,
-    restoreSourceText = ""
-  }: {
-    sourceText: string;
-    elapsedMs?: number;
-    replaceActive: boolean;
-    restoreSourceText?: string;
-  }): void {
+  private enqueueTranslation(sourceText: string): void {
     const normalizedSource = sourceText.trim();
     if (!normalizedSource) {
       return;
     }
 
-    const segmentStartMs = elapsedMs ?? Math.max(0, performance.now() - this.sessionStartedAt);
     this.pendingTranslationCount += 1;
     this.translationQueue = this.translationQueue
       .then(async () => {
@@ -283,17 +238,8 @@ export class RealtimeTranscriptionTranslationClient {
         const normalizedTranslation = translatedText.trim();
         this.callbacks.onSegment?.({
           sourceText: normalizedSource,
-          translatedText: normalizedTranslation,
-          replaceActive,
-          elapsedMs: segmentStartMs
+          translatedText: normalizedTranslation
         });
-        if (restoreSourceText.trim()) {
-          this.callbacks.onDelta({
-            channel: "source",
-            delta: restoreSourceText.trimStart(),
-            elapsedMs: segmentStartMs
-          });
-        }
         this.recentSegments = [...this.recentSegments, { sourceText: normalizedSource, translatedText: normalizedTranslation }].slice(-4);
       })
       .catch((error: unknown) => {
@@ -395,37 +341,6 @@ export class RealtimeTranscriptionTranslationClient {
   }
 }
 
-function getUnstreamedSourceRemainder(fullText: string, streamedText: string): string {
-  const normalizedStreamedText = streamedText.trim();
-  if (!normalizedStreamedText) {
-    return fullText;
-  }
-
-  if (fullText.startsWith(normalizedStreamedText)) {
-    return fullText.slice(normalizedStreamedText.length).trimStart();
-  }
-
-  return "";
-}
-
-function splitCompleteSentences(text: string): { completeSentences: string[]; remainder: string } {
-  const completeSentences: string[] = [];
-  let rest = text.trim();
-
-  while (rest) {
-    const match = SENTENCE_END_PATTERN.exec(rest);
-    if (!match || match.index === undefined) {
-      break;
-    }
-
-    const end = match.index + match[0].length;
-    completeSentences.push(rest.slice(0, end).trim());
-    rest = rest.slice(end).trim();
-  }
-
-  return { completeSentences, remainder: rest };
-}
-
 function calculateRms(input: ArrayLike<number>): number {
   if (input.length === 0) {
     return 0;
@@ -441,6 +356,10 @@ function calculateRms(input: ArrayLike<number>): number {
 
 function sanitizeRealtimePartialDelta(delta: string): string {
   return delta.replace(TRANSIENT_PARTIAL_GLYPH_PATTERN, "");
+}
+
+function transcriptionItemId(event: TranscriptionCompletedEvent): string {
+  return event.item_id || "default";
 }
 
 function delay(ms: number): Promise<void> {

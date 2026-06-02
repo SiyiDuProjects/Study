@@ -78,4 +78,48 @@ describe("transcript reducer", () => {
     expect(state.segments[0].sourceText).toBe("여기서");
     expect(state.segments[0].translatedText).toBe("在这里");
   });
+
+  it("patches Chinese onto the latest finalized Korean source segment", () => {
+    let state = createTranscriptState();
+
+    state = appendTranscriptSegment(state, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "",
+      elapsedMs: 1000,
+      replaceActive: true
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "첫 문장입니다.",
+      translatedText: "这是第一句。"
+    });
+
+    expect(state.activeSegment).toBeNull();
+    expect(state.segments).toHaveLength(1);
+    expect(state.segments[0].sourceText).toBe("첫 문장입니다.");
+    expect(state.segments[0].translatedText).toBe("这是第一句。");
+  });
+
+  it("does not collapse repeated Korean lines that already have translations", () => {
+    let state = createTranscriptState();
+
+    state = appendTranscriptSegment(state, {
+      sourceText: "네.",
+      translatedText: "",
+      elapsedMs: 1000,
+      replaceActive: true
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "네.",
+      translatedText: "是的。"
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "네.",
+      translatedText: "",
+      elapsedMs: 2200,
+      replaceActive: true
+    });
+
+    expect(state.segments).toHaveLength(2);
+    expect(state.segments.map((segment) => segment.sourceText)).toEqual(["네.", "네."]);
+  });
 });

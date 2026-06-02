@@ -348,7 +348,6 @@ export default function App() {
         ? new RealtimeTranslationClient(getClientSecret, callbacks, settings.audioBoostEnabled)
         : new RealtimeTranscriptionTranslationClient(
             getClientSecret,
-            appConfig.realtimeTranscriptionModel,
             settings.textTranslationModel || appConfig.defaultTextTranslationModel,
             callbacks,
             settings.audioBoostEnabled

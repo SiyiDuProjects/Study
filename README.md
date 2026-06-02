@@ -51,6 +51,14 @@ OPENAI_TEXT_TRANSLATION_MODELS=gpt-5.4-mini,gpt-5.4-nano
 模型名由服务端环境变量集中配置，浏览器 UI 从 `/api/config` 获取可选模型。浏览器不保存、不输入 OpenAI 主 API key。
 `OPENAI_API_KEY` 必须支持 OpenAI Realtime client secrets；只支持文字模型的中转 API 只能用于文本翻译，不能启动实时录音转录。
 
+## Realtime 修改纪律
+
+- 默认课堂链路是 `transcribe-then-translate`：OpenAI Realtime 只负责韩文转录，服务器 `/api/translate` 在韩文段落已经出现后补中文。
+- 韩文转录、中文翻译、字幕渲染必须分层处理。中文翻译失败、延迟或未返回时，不能阻塞后续韩文字幕继续显示。
+- Realtime 模型名只能来自服务端配置和 `/api/config`，不能在浏览器代码或临时修复里偷换模型。
+- 修 Realtime 问题时先检查 client secret session、VAD/event、WebRTC/audio 输入链路。不要用 UI 定时器、localStorage 版本重置、强制 fallback 模式或翻译兜底来掩盖主链路故障。
+- 临时诊断只能帮助定位问题，不能变成生产控制流；修复后要能明确删除或隔离。
+
 ## VPS 部署
 
 这台 Mac 可用共享私钥登录现有 VPS：

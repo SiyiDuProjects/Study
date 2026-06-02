@@ -128,6 +128,9 @@ function realtimeSessionForMode(mode: TranslationMode, modelConfig: OpenAIModelC
           transcription: {
             model: modelConfig.realtimeTranscriptionModel,
             language: "ko"
+          },
+          turn_detection: {
+            type: "server_vad"
           }
         }
       }
