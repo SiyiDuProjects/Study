@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -959,15 +959,23 @@ function LiveSubtitleView({
     <section className="subtitle-stage" aria-live="polite">
       <div className="subtitle-stack subtitle-flow-stack">
         <div className="subtitle-flow" ref={subtitleFlowRef}>
-          {subtitlePairs.map(({ id, sourceText, translatedText }) => {
+          {subtitlePairs.map(({ id, sourceText, translatedText }, index) => {
             const hasBilingualPair = Boolean(sourceText && translatedText);
             return (
-              <span className="subtitle-pair" key={id}>
-                <span className="subtitle-source">{sourceText || translatedText}</span>
-                <span className={hasBilingualPair ? "subtitle-translation" : "subtitle-translation pending"} aria-hidden={!hasBilingualPair}>
-                  {hasBilingualPair ? translatedText : " "}
-                </span>
-              </span>
+              <Fragment key={id}>
+                <ruby className="subtitle-pair">
+                  <span className="subtitle-source">{sourceText || translatedText}</span>
+                  <rp>（</rp>
+                  <rt
+                    className={hasBilingualPair ? "subtitle-translation" : "subtitle-translation pending"}
+                    aria-hidden={!hasBilingualPair}
+                  >
+                    {hasBilingualPair ? translatedText : "\u00a0"}
+                  </rt>
+                  <rp>）</rp>
+                </ruby>
+                {index < subtitlePairs.length - 1 ? " " : null}
+              </Fragment>
             );
           })}
         </div>

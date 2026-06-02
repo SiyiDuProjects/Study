@@ -158,7 +158,7 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText("录音中")).toBeTruthy();
   });
 
-  it("renders live subtitles as growing bilingual sentence pairs", async () => {
+  it("renders live subtitles as a continuous flow of aligned bilingual sentence pairs", async () => {
     window.localStorage.setItem(
       "korean-class-subtitler-settings",
       JSON.stringify({
@@ -195,6 +195,7 @@ describe("App classroom workflow", () => {
     expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("第一句。");
     expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("第二句。");
     expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
+    expect(document.querySelector(".subtitle-pair")?.tagName).toBe("RUBY");
   });
 
   it("selects a course and surfaces a start failure", async () => {

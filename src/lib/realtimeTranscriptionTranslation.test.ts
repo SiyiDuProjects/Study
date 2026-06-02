@@ -117,6 +117,33 @@ describe("RealtimeTranscriptionTranslationClient", () => {
     });
   });
 
+  it("filters transient replacement glyphs from partial transcription deltas", async () => {
+    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "tr-test", "txt-test", callbacks);
+
+    await client.start();
+    onMessage?.(JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "여�기", elapsed_ms: 1200 }));
+    onMessage?.(JSON.stringify({ type: "conversation.item.input_audio_transcription.delta", delta: "□서", elapsed_ms: 1300 }));
+    onMessage?.(
+      JSON.stringify({
+        type: "conversation.item.input_audio_transcription.completed",
+        transcript: "여기서",
+        elapsed_ms: 1400
+      })
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(callbacks.onDelta).toHaveBeenNthCalledWith(1, { channel: "source", delta: "여기", elapsedMs: 1200 });
+    expect(callbacks.onDelta).toHaveBeenNthCalledWith(2, { channel: "source", delta: "서", elapsedMs: 1300 });
+    expect(callbacks.onSegment).toHaveBeenCalledWith({
+      sourceText: "여기서",
+      translatedText: "这里是上课内容。",
+      elapsedMs: 1400,
+      replaceActive: true
+    });
+  });
+
   it("configures realtime transcription without unsupported turn detection", async () => {
     const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "tr-test", "txt-test", callbacks);
 

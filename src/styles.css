@@ -594,6 +594,7 @@ button {
   overflow-y: auto;
   text-align: center;
   scrollbar-width: none;
+  line-height: 1.82;
 }
 
 .subtitle-flow::-webkit-scrollbar {
@@ -601,14 +602,9 @@ button {
 }
 
 .subtitle-pair {
-  display: inline-grid;
-  width: fit-content;
-  max-width: 100%;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(2.9rem, auto);
-  justify-items: center;
-  vertical-align: top;
-  margin: 0 0.18em 0.58em;
+  ruby-align: center;
+  ruby-position: under;
+  vertical-align: baseline;
 }
 
 .subtitle-source,
@@ -617,24 +613,21 @@ button {
   max-width: 100%;
   letter-spacing: 0;
   overflow-wrap: break-word;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 
 .subtitle-source {
   color: #0f172a;
-  font-size: calc(4.6rem * var(--subtitle-scale));
+  font-size: calc(4.3rem * var(--subtitle-scale));
   font-weight: 810;
   line-height: 1.12;
 }
 
 .subtitle-translation {
-  display: block;
-  margin-top: 0.7rem;
   color: #475569;
-  font-size: calc(1.55rem * var(--subtitle-scale));
+  font-size: calc(1.45rem * var(--subtitle-scale));
   font-weight: 620;
-  line-height: 1.45;
-  min-height: calc(1.45em * 2);
+  line-height: 1.35;
 }
 
 .subtitle-translation.pending {
@@ -1034,17 +1027,15 @@ button {
   }
 
   .subtitle-pair {
-    grid-template-rows: auto minmax(2.35rem, auto);
-    margin-bottom: 0.48em;
+    ruby-position: under;
   }
 
   .subtitle-source {
-    font-size: calc(3.35rem * var(--subtitle-scale));
+    font-size: calc(3.15rem * var(--subtitle-scale));
     line-height: 1.14;
   }
 
   .subtitle-translation {
-    margin-top: 0.55rem;
     font-size: calc(1.25rem * var(--subtitle-scale));
   }
 

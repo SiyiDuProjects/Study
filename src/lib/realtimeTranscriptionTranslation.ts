@@ -8,6 +8,7 @@ const DIAGNOSTIC_LEVEL_INTERVAL_MS = 500;
 const STOP_FLUSH_TIMEOUT_MS = 6000;
 const STOP_FLUSH_QUIET_MS = 1000;
 const SENTENCE_END_PATTERN = /([。！？!?]|[.](?!\d))\s*/u;
+const TRANSIENT_PARTIAL_GLYPH_PATTERN = /[\u25a1\ufffc\ufffd]/g;
 
 interface TranscriptionCompletedEvent {
   type?: string;
@@ -187,10 +188,15 @@ export class RealtimeTranscriptionTranslationClient {
     }
 
     if (event.type === "conversation.item.input_audio_transcription.delta" && event.delta) {
-      this.activeSourceDelta += event.delta;
+      const cleanDelta = sanitizeRealtimePartialDelta(event.delta);
+      if (!cleanDelta) {
+        return;
+      }
+
+      this.activeSourceDelta += cleanDelta;
       this.callbacks.onDelta({
         channel: "source",
-        delta: event.delta,
+        delta: cleanDelta,
         elapsedMs: event.elapsed_ms ?? Math.max(0, performance.now() - this.sessionStartedAt)
       });
       return;
@@ -431,6 +437,10 @@ function calculateRms(input: ArrayLike<number>): number {
     sum += sample * sample;
   }
   return Math.sqrt(sum / input.length);
+}
+
+function sanitizeRealtimePartialDelta(delta: string): string {
+  return delta.replace(TRANSIENT_PARTIAL_GLYPH_PATTERN, "");
 }
 
 function delay(ms: number): Promise<void> {
