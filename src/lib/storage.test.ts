@@ -62,7 +62,10 @@ describe("pending session storage", () => {
       })
     );
 
-    await expect(loadSettings()).resolves.toMatchObject({ audioBoostEnabled: true });
+    await expect(loadSettings()).resolves.toMatchObject({
+      translationMode: "transcribe-then-translate",
+      audioBoostEnabled: true
+    });
   });
 });
 

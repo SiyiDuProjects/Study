@@ -963,17 +963,15 @@ function LiveSubtitleView({
             const hasBilingualPair = Boolean(sourceText && translatedText);
             return (
               <Fragment key={id}>
-                <ruby className="subtitle-pair">
+                <span className="subtitle-pair">
                   <span className="subtitle-source">{sourceText || translatedText}</span>
-                  <rp>（</rp>
-                  <rt
+                  <span
                     className={hasBilingualPair ? "subtitle-translation" : "subtitle-translation pending"}
                     aria-hidden={!hasBilingualPair}
                   >
                     {hasBilingualPair ? translatedText : "\u00a0"}
-                  </rt>
-                  <rp>）</rp>
-                </ruby>
+                  </span>
+                </span>
                 {index < subtitlePairs.length - 1 ? " " : null}
               </Fragment>
             );

@@ -195,7 +195,7 @@ describe("App classroom workflow", () => {
     expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("第一句。");
     expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("第二句。");
     expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
-    expect(document.querySelector(".subtitle-pair")?.tagName).toBe("RUBY");
+    expect(document.querySelector(".subtitle-pair")?.tagName).toBe("SPAN");
   });
 
   it("selects a course and surfaces a start failure", async () => {

@@ -594,7 +594,7 @@ button {
   overflow-y: auto;
   text-align: center;
   scrollbar-width: none;
-  line-height: 1.82;
+  line-height: 1.12;
 }
 
 .subtitle-flow::-webkit-scrollbar {
@@ -602,9 +602,12 @@ button {
 }
 
 .subtitle-pair {
-  ruby-align: center;
-  ruby-position: under;
-  vertical-align: baseline;
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: bottom;
+  margin: 0 0.24em 0.44em;
 }
 
 .subtitle-source,
@@ -618,16 +621,19 @@ button {
 
 .subtitle-source {
   color: #0f172a;
-  font-size: calc(4.3rem * var(--subtitle-scale));
+  font-size: calc(3.95rem * var(--subtitle-scale));
   font-weight: 810;
   line-height: 1.12;
 }
 
 .subtitle-translation {
+  display: block;
+  min-height: 1.32em;
+  margin-top: 0.42rem;
   color: #475569;
-  font-size: calc(1.45rem * var(--subtitle-scale));
+  font-size: calc(1.42rem * var(--subtitle-scale));
   font-weight: 620;
-  line-height: 1.35;
+  line-height: 1.32;
 }
 
 .subtitle-translation.pending {
