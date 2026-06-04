@@ -15,8 +15,8 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 
 ## Change Hygiene
 
-- After completing meaningful code, configuration, deployment, or documentation changes, create a git commit unless the user explicitly asks not to.
-- When a change affects setup, commands, deployment, architecture, environment variables, or project operating notes, update `README.md` and/or `AGENTS.md` in the same change so docs stay current.
+- Follow the global documentation and context rules in `/Users/bytedance/.codex/AGENTS.md`.
+- Keep this file focused on Jiahuan-specific realtime, storage, deployment, and verification details.
 
 ## Architecture
 
@@ -37,7 +37,6 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 
 - Do not save or persist raw classroom audio.
 - Keep the live screen subtitle-first and uncluttered.
-- Do not commit API keys or `.env` files.
 - Keep OpenAI API keys on the server. The browser receives only short-lived Realtime client secrets.
 - OpenAI model names are server configuration; do not hardcode new model names in browser UI or schemas.
 - Live recording requires a server API key that supports OpenAI Realtime client secrets; text-only API gateways can only support the later Korean-to-Chinese translation step.
@@ -58,29 +57,11 @@ This repo deploys a Vite frontend plus a Node/Express API. `npm.cmd run build` p
 
 GitHub remote: `https://github.com/SiyiDuProjects/Jiahuan.git`.
 
-Known VPS context from sibling `Interview` and `connection` projects:
+Shared VPS access, key permissions, and secret-printing rules are documented in `/Users/bytedance/.codex/AGENTS.md`. Project-specific deployment details:
 
-- Host: `49.51.38.235`
-- SSH user: `ubuntu`
-- Local Mac SSH key: `/Users/bytedance/Projects/keys/connection-prod-20260526.pem`
-- Local Mac SSH command: `ssh -i /Users/bytedance/Projects/keys/connection-prod-20260526.pem ubuntu@49.51.38.235`
-- Tencent Cloud SSH key name/ID: `connection_prod_20260526` / `lhkp-41patbaz`
-- Legacy Windows SSH key path: `C:\Users\Administrator\Desktop\Projects\Siyi.pem`
 - Shared Docker Compose directory on host: `/home/ubuntu/siyi`
 - Cloudflare Tunnel is already used on the VPS for public hostnames.
-- Existing reserved/local ports:
-  - `8000` = Interview API
-  - `8080` = sub2api
-  - `8787` = connection contacts API
-  - `20241` = cloudflared metrics
-  - `40000` = WARP
-
-On this Mac, multiple local projects share `/Users/bytedance/Projects/keys/connection-prod-20260526.pem` for VPS access. Do not print, paste, or commit the private key. If permissions drift, fix them with:
-
-```bash
-chmod 700 /Users/bytedance/Projects/keys
-chmod 600 /Users/bytedance/Projects/keys/connection-prod-20260526.pem
-```
+- Existing reserved/local ports to avoid for this project: `8000`, `8080`, `8787`, `20241`, `40000`.
 
 Recommended VPS deployment for this project:
 
@@ -99,7 +80,7 @@ npm.cmd run build
 scp -i C:\Users\Administrator\Desktop\Projects\Siyi.pem -r dist dist-server package.json package-lock.json ubuntu@49.51.38.235:/tmp/jiahuan-app/
 ```
 
-On this Mac:
+On this Mac, use the shared VPS SSH key documented globally:
 
 ```bash
 npm test

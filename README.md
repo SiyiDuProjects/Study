@@ -62,18 +62,7 @@ OPENAI_TEXT_TRANSLATION_MODELS=gpt-5.4-mini,gpt-5.4-nano
 
 ## VPS 部署
 
-这台 Mac 可用共享私钥登录现有 VPS：
-
-```bash
-ssh -i /Users/bytedance/Projects/keys/connection-prod-20260526.pem ubuntu@49.51.38.235
-```
-
-私钥在多个本地项目间共用，不要提交、打印或粘贴私钥内容。权限异常时：
-
-```bash
-chmod 700 /Users/bytedance/Projects/keys
-chmod 600 /Users/bytedance/Projects/keys/connection-prod-20260526.pem
-```
+这台 Mac 的共享 VPS SSH 入口、私钥路径、权限修复和保密规则见 `/Users/bytedance/.codex/AGENTS.md`。
 
 推荐在现有 VPS `/home/ubuntu/siyi/docker-compose.yml` 中使用一个 Node 容器同时服务静态前端和 `/api`：
 
