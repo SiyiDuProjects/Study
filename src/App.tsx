@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
+  ArrowDown,
+  Check,
   Copy,
   Download,
-  FolderOpen,
+  Languages,
   Library,
   Mic,
   Pause,
@@ -114,6 +114,7 @@ export default function App() {
   const [diagnostic, setDiagnostic] = useState<DiagnosticState>(createDiagnosticState);
   const [courseSelectionRequested, setCourseSelectionRequested] = useState(false);
   const [copyingTarget, setCopyingTarget] = useState<string | null>(null);
+  const [recordsFocusSessionId, setRecordsFocusSessionId] = useState<string | null>(null);
 
   const clientRef = useRef<LiveSubtitleClient | null>(null);
   const transcriptRef = useRef<TranscriptState>(transcriptState);
@@ -213,6 +214,19 @@ export default function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLive) {
+      return;
+    }
+
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [isLive]);
 
   async function refreshSessions() {
     setSessions(await listRemoteSessions());
@@ -315,6 +329,7 @@ export default function App() {
     setErrorMessage("");
     setCopyMessage("");
     setCourseSelectionRequested(false);
+    setSettingsOpen(false);
     setViewMode("live");
     setStatus("connecting");
 
@@ -529,6 +544,7 @@ export default function App() {
   async function openSession(session: ClassSessionSummary) {
     try {
       const fullSession = await getRemoteSession(session.id);
+      setRecordsFocusSessionId(session.id);
       setSelectedSession(fullSession);
       setViewMode("document");
       setErrorMessage("");
@@ -584,11 +600,16 @@ export default function App() {
       return;
     }
 
-    await deleteRemoteSession(session.id);
-    if (selectedSession?.id === session.id) {
-      setSelectedSession(null);
+    try {
+      await deleteRemoteSession(session.id);
+      if (selectedSession?.id === session.id) {
+        setSelectedSession(null);
+      }
+      await refreshSessions();
+      setErrorMessage("");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "删除记录失败。");
     }
-    await refreshSessions();
   }
 
   async function updateSubtitleScale(value: number) {
@@ -608,28 +629,73 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell" style={{ "--subtitle-scale": settings.subtitleScale } as React.CSSProperties}>
+    <div
+      className={`app-shell view-${viewMode} ${isLive ? "class-in-progress" : ""}`}
+      style={{ "--subtitle-scale": settings.subtitleScale } as React.CSSProperties}
+    >
       <header className="top-bar">
-        <button className="brand-button" type="button" onClick={() => setViewMode("live")} aria-label="回到字幕">
-          <span className="brand-mark">字</span>
-          <span>课堂字幕</span>
+        <button
+          className="brand-button"
+          type="button"
+          onClick={() => {
+            setViewMode("live");
+            setSettingsOpen(false);
+          }}
+          aria-label="回到字幕"
+        >
+          <span className="brand-mark"><Languages size={19} aria-hidden="true" /></span>
+          <span className="brand-copy">
+            <strong>课堂字幕</strong>
+            <small>한국어 · 中文</small>
+          </span>
         </button>
 
-        <div className="status-strip" aria-live="polite">
+        <nav className="view-tabs" aria-label="页面">
+          <button
+            className={viewMode === "live" ? "active" : ""}
+            type="button"
+            aria-current={viewMode === "live" ? "page" : undefined}
+            onClick={() => {
+              setViewMode("live");
+              setSettingsOpen(false);
+            }}
+          >
+            实时字幕
+          </button>
+          <button
+            className={viewMode !== "live" ? "active" : ""}
+            type="button"
+            title="资料库"
+            aria-current={viewMode !== "live" ? "page" : undefined}
+            onClick={() => {
+              setViewMode("records");
+              setSettingsOpen(false);
+            }}
+          >
+            资料库
+          </button>
+        </nav>
+
+        <div className={`status-strip ${isLive ? "is-live" : ""}`}>
           <span className={`status-dot status-${status}`} />
-          <span>{statusLabel(status)}</span>
-          <span className="timer">{formatDuration(elapsedMs)}</span>
+          <span role="status" aria-live="polite">{statusLabel(status)}</span>
+          <span className="timer" aria-hidden="true">{formatDuration(elapsedMs)}</span>
         </div>
 
-        <nav className="top-actions" aria-label="主要操作">
-          <button className="icon-button" type="button" onClick={() => setSettingsOpen((open) => !open)} title="设置">
+        <div className="top-actions" role="group" aria-label="主要操作">
+          <button
+            className="icon-button"
+            type="button"
+            onClick={() => setSettingsOpen((open) => !open)}
+            title="设置"
+            aria-label="设置"
+            aria-expanded={settingsOpen}
+            aria-controls="settings-panel"
+          >
             <Settings size={20} />
           </button>
-          <button className="icon-button secondary-nav" type="button" onClick={() => setViewMode("records")} title="资料库">
-            <Library size={20} />
-          </button>
           {status === "paused" ? (
-            <button className="primary-action" type="button" onClick={resumeClass} title="继续">
+            <button className="primary-action" type="button" onClick={resumeClass} title="继续" aria-label="继续录音">
               <Play size={19} />
               <span className="control-label">继续</span>
             </button>
@@ -644,18 +710,32 @@ export default function App() {
               <span className="control-label">{selectedCourse ? "开始" : "选课"}</span>
             </button>
           ) : (
-            <button className="icon-button control" type="button" onClick={pauseClass} title="暂停" disabled={status !== "recording"}>
+            <button
+              className="icon-button control"
+              type="button"
+              onClick={pauseClass}
+              title="暂停"
+              aria-label="暂停录音"
+              disabled={status !== "recording"}
+            >
               <Pause size={20} />
             </button>
           )}
-          <button className="icon-button danger" type="button" onClick={endClass} title="结束" disabled={!isLive}>
+          <button
+            className="icon-button danger"
+            type="button"
+            onClick={endClass}
+            title="结束"
+            aria-label="结束并保存课堂"
+            disabled={!isLive}
+          >
             <Square size={18} />
           </button>
-        </nav>
+        </div>
       </header>
 
       {settingsOpen ? (
-        <section className="settings-panel" aria-label="设置">
+        <section id="settings-panel" className="settings-panel" aria-label="设置">
           <label className="select-field">
             模式
             <select
@@ -686,7 +766,7 @@ export default function App() {
             </label>
           ) : null}
           <label className="range-field">
-            字号
+            <span>字幕字号</span>
             <input
               value={settings.subtitleScale}
               min="0.8"
@@ -698,37 +778,35 @@ export default function App() {
           </label>
           <label className="toggle-field">
             <input type="checkbox" checked={settings.audioBoostEnabled} disabled={isLive} onChange={toggleAudioBoost} />
-            远距离收音增强（低音量时再开）
+            <span>远距离收音增强</span>
           </label>
+          {isLive ? (
+            <DiagnosticStrip
+              diagnostic={diagnostic}
+              mode={settings.translationMode}
+              audioBoostEnabled={settings.audioBoostEnabled}
+              now={Date.now()}
+            />
+          ) : null}
           <button
-            className="ghost-button settings-records-link"
+            className="icon-button"
             type="button"
-            onClick={() => {
-              setViewMode("records");
-              setSettingsOpen(false);
-            }}
+            onClick={() => setSettingsOpen(false)}
+            title="关闭设置"
+            aria-label="关闭设置"
           >
-            <Library size={17} />
-            资料库
-          </button>
-          <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} title="关闭设置">
             <X size={18} />
           </button>
         </section>
       ) : null}
 
-      {isLive ? (
-        <DiagnosticStrip
-          diagnostic={diagnostic}
-          mode={settings.translationMode}
-          audioBoostEnabled={settings.audioBoostEnabled}
-          now={Date.now()}
-        />
+      {errorMessage || copyMessage || pendingSyncCount > 0 ? (
+        <aside className="notice-stack" aria-label="通知">
+          {errorMessage ? <p className="error-banner" role="alert">{errorMessage}</p> : null}
+          {copyMessage ? <p className="copy-banner" role="status">{copyMessage}</p> : null}
+          {pendingSyncCount > 0 ? <p className="sync-banner" role="status">{pendingSyncCount} 条记录待同步，会自动重试。</p> : null}
+        </aside>
       ) : null}
-
-      {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
-      {copyMessage ? <p className="copy-banner">{copyMessage}</p> : null}
-      {pendingSyncCount > 0 ? <p className="sync-banner">{pendingSyncCount} 条记录待同步，会自动重试。</p> : null}
 
       <main className="main-surface">
         {viewMode === "live" ? (
@@ -754,6 +832,8 @@ export default function App() {
             onExport={exportSession}
             onCopySession={copySessionForAi}
             onCopyCourse={copyCourseForAi}
+            focusSessionId={recordsFocusSessionId}
+            onFocusRestored={() => setRecordsFocusSessionId(null)}
           />
         ) : null}
         {viewMode === "document" ? (
@@ -922,18 +1002,47 @@ function LiveSubtitleView({
       sourceText: segment.sourceText.trim(),
       translatedText: segment.translatedText.trim(),
       translationStatus: segment.translationStatus,
-      translationError: segment.translationError
+      translationError: segment.translationError,
+      isFinal: segment.isFinal
     }))
     .filter((segment) => segment.sourceText || segment.translatedText);
   const subtitleFlowRef = useRef<HTMLDivElement>(null);
   const hasText = subtitlePairs.length > 0;
+  const [followLatest, setFollowLatest] = useState(true);
+  const latestAnnouncement = [...subtitlePairs].reverse().find(
+    (segment) =>
+      segment.isFinal &&
+      Boolean(
+        segment.translatedText ||
+          segment.translationStatus === "failed" ||
+          (!segment.translationStatus && segment.sourceText)
+      )
+  );
 
   useEffect(() => {
     const node = subtitleFlowRef.current;
-    if (node) {
+    if (node && followLatest) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [segments]);
+  }, [segments, followLatest]);
+
+  function handleSubtitleScroll() {
+    const node = subtitleFlowRef.current;
+    if (!node) {
+      return;
+    }
+    setFollowLatest(node.scrollHeight - node.scrollTop - node.clientHeight < 48);
+  }
+
+  function returnToLatest() {
+    const node = subtitleFlowRef.current;
+    if (!node) {
+      return;
+    }
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    node.scrollTo({ top: node.scrollHeight, behavior: prefersReducedMotion ? "auto" : "smooth" });
+    setFollowLatest(true);
+  }
 
   if (!hasText) {
     if (!canChooseCourse) {
@@ -957,9 +1066,18 @@ function LiveSubtitleView({
   }
 
   return (
-    <section className="subtitle-stage" aria-live="polite">
+    <section className="subtitle-stage live-stage">
+      <p className="sr-only" aria-live="polite">
+        {latestAnnouncement?.translatedText || latestAnnouncement?.sourceText || ""}
+      </p>
       <div className="subtitle-stack subtitle-flow-stack">
-        <div className="subtitle-flow" ref={subtitleFlowRef}>
+        <div
+          className="subtitle-flow"
+          ref={subtitleFlowRef}
+          onScroll={handleSubtitleScroll}
+          tabIndex={0}
+          aria-label="实时课堂字幕，可滚动查看较早内容"
+        >
           {subtitlePairs.map(({ id, sourceText, translatedText, translationStatus, translationError }, index) => {
             const hasBilingualPair = Boolean(sourceText && translatedText);
             const pendingTranslationText = translationStatusText({ sourceText, translatedText, translationStatus, translationError });
@@ -973,10 +1091,13 @@ function LiveSubtitleView({
               .join(" ");
             return (
               <Fragment key={id}>
-                <span className="subtitle-pair">
-                  <span className="subtitle-source">{sourceText || translatedText}</span>
+                <span
+                  className={`subtitle-pair ${hasBilingualPair ? "translated" : isWaitingForTranslation ? "waiting" : "translation-only"}`}
+                >
+                  <span className="subtitle-source" lang={sourceText ? "ko" : "zh-CN"}>{sourceText || translatedText}</span>
                   <span
                     className={translationClassName}
+                    lang="zh-CN"
                     aria-hidden={!sourceText}
                   >
                     {hasBilingualPair ? translatedText : pendingTranslationText}
@@ -987,6 +1108,12 @@ function LiveSubtitleView({
             );
           })}
         </div>
+        {!followLatest ? (
+          <button className="return-latest-button" type="button" onClick={returnToLatest}>
+            <ArrowDown size={17} aria-hidden="true" />
+            回到最新
+          </button>
+        ) : null}
       </div>
     </section>
   );
@@ -1008,15 +1135,15 @@ function translationStatusText({
   }
 
   if (translationStatus === "failed") {
-    return `翻译失败：${translationError || "请检查 /api/translate 或文本模型配置"}`;
+    return translationError ? `翻译暂不可用：${translationError}` : "翻译暂不可用";
   }
 
   if (translationStatus === "translating") {
-    return "正在请求 /api/translate...";
+    return "正在翻译...";
   }
 
   if (translationStatus === "queued") {
-    return "等待翻译队列（前一句完成后发送）...";
+    return "等待翻译...";
   }
 
   return "等待韩语句子结束...";
@@ -1048,7 +1175,7 @@ function ClassStartView({
           <p>{hasCourse ? `已选择「${selectedCourse?.name}」，现在可以开始录音。` : "只需要先选课程；没有对应课程就选日常 / 不选课程。"}</p>
         </div>
 
-        <div className="start-panel">
+        <aside className="start-panel" aria-label="本节课录音">
           <div className="prep-summary">
             <span>当前课程</span>
             <strong>{selectedCourse ? selectedCourse.name : "未选择"}</strong>
@@ -1058,7 +1185,7 @@ function ClassStartView({
             <Mic size={23} />
             <span>{hasCourse ? "开始录音" : "先选择课程"}</span>
           </button>
-        </div>
+        </aside>
 
         {needsCourseAttention && !hasCourse ? (
           <p className="start-hint" role="status">
@@ -1088,78 +1215,29 @@ function CoursePicker({
   highlight?: boolean;
   onSelectCourse: (courseId: string) => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(!selectedCourseId);
-  const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? null;
-  const gridId = "course-picker-grid";
-
-  useEffect(() => {
-    if (!selectedCourseId) {
-      setIsExpanded(true);
-    }
-  }, [selectedCourseId]);
-
-  useEffect(() => {
-    if (highlight) {
-      setIsExpanded(true);
-    }
-  }, [highlight]);
-
-  function handleSelectCourse(courseId: string) {
-    onSelectCourse(courseId);
-    setIsExpanded(false);
-  }
-
-  if (!isExpanded && selectedCourse) {
-    return (
-      <div className="course-picker course-picker-compact" aria-label="选择课程">
-        <button
-          className="course-picker-toggle"
-          type="button"
-          aria-expanded={false}
-          aria-controls={gridId}
-          onClick={() => setIsExpanded(true)}
-        >
-          <FolderOpen size={18} aria-hidden="true" />
-          <span className="course-picker-summary">
-            <strong>{selectedCourse.name}</strong>
-            <span>{courseMeta(selectedCourse)}</span>
-          </span>
-          <span className="course-picker-change">更换</span>
-          <ChevronDown size={18} aria-hidden="true" />
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className={`course-picker ${highlight ? "attention" : ""}`} aria-label="选择课程">
-      <button
-        className="course-picker-title"
-        type="button"
-        aria-expanded={true}
-        aria-controls={gridId}
-        disabled={!selectedCourse}
-        onClick={() => setIsExpanded(false)}
-      >
-        <FolderOpen size={18} aria-hidden="true" />
-        <span>选择课程</span>
-        {selectedCourse ? <ChevronUp size={16} aria-hidden="true" /> : null}
-      </button>
-      <div className="course-grid" id={gridId}>
+    <fieldset className={`course-picker ${highlight ? "attention" : ""}`}>
+      <legend className="course-picker-title">选择课程</legend>
+      <div className="course-grid">
         {courses.map((course) => (
           <button
-            className={`course-button ${course.id === selectedCourseId ? "selected" : ""}`}
+            className={`course-button ${course.id === selectedCourseId ? "selected" : ""} ${course.id === DAILY_COURSE_ID ? "daily-course" : ""}`}
             type="button"
             key={course.id}
             aria-pressed={course.id === selectedCourseId}
-            onClick={() => handleSelectCourse(course.id)}
+            onClick={() => onSelectCourse(course.id)}
           >
-            <strong>{course.name}</strong>
-            <span>{courseMeta(course)}</span>
+            <span className="course-check" aria-hidden="true">
+              {course.id === selectedCourseId ? <Check size={15} /> : null}
+            </span>
+            <span className="course-button-copy">
+              <strong>{course.name}</strong>
+              <span>{courseMeta(course)}</span>
+            </span>
           </button>
         ))}
       </div>
-    </div>
+    </fieldset>
   );
 }
 
@@ -1171,7 +1249,9 @@ function RecordsView({
   onDelete,
   onExport,
   onCopySession,
-  onCopyCourse
+  onCopyCourse,
+  focusSessionId,
+  onFocusRestored
 }: {
   courses: CourseOption[];
   sessions: ClassSessionSummary[];
@@ -1181,10 +1261,28 @@ function RecordsView({
   onExport: (session: ClassSessionSummary) => void;
   onCopySession: (session: ClassSessionSummary) => void;
   onCopyCourse: (group: SessionCourseGroup) => void;
+  focusSessionId: string | null;
+  onFocusRestored: () => void;
 }) {
   const groups = groupSessionsByCourse(courses, sessions);
   const [selectedCourseFolder, setSelectedCourseFolder] = useState("");
-  const selectedGroup = groups.find((group) => group.courseFolderName === selectedCourseFolder) ?? groups[0] ?? null;
+  const sessionButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const focusGroup = focusSessionId
+    ? groups.find((group) => group.sessions.some((session) => session.id === focusSessionId))
+    : null;
+  const selectedGroup =
+    groups.find((group) => group.courseFolderName === selectedCourseFolder) ?? focusGroup ?? groups[0] ?? null;
+
+  useEffect(() => {
+    if (!focusSessionId) {
+      return;
+    }
+    const button = sessionButtonRefs.current.get(focusSessionId);
+    if (button) {
+      button.focus();
+      onFocusRestored();
+    }
+  }, [focusSessionId, onFocusRestored, selectedGroup?.courseFolderName]);
 
   return (
     <section className="records-view library-view">
@@ -1250,7 +1348,18 @@ function RecordsView({
               <ul className="session-list">
                 {selectedGroup.sessions.map((session) => (
                   <li className="session-row" key={session.id}>
-                    <button type="button" onClick={() => onSelect(session)}>
+                    <button
+                      type="button"
+                      aria-label={`打开课堂记录：${session.title}`}
+                      ref={(node) => {
+                        if (node) {
+                          sessionButtonRefs.current.set(session.id, node);
+                        } else {
+                          sessionButtonRefs.current.delete(session.id);
+                        }
+                      }}
+                      onClick={() => onSelect(session)}
+                    >
                       <strong>{session.title}</strong>
                       <span>
                         {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {session.segmentCount} 段
@@ -1267,10 +1376,22 @@ function RecordsView({
                         <Copy size={17} />
                         <span>{copyingTarget === `session:${session.id}` ? "复制中" : "复制"}</span>
                       </button>
-                      <button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown">
+                      <button
+                        className="icon-button"
+                        type="button"
+                        onClick={() => onExport(session)}
+                        title="导出 Markdown"
+                        aria-label={`导出 ${session.title} 为 Markdown`}
+                      >
                         <Download size={18} />
                       </button>
-                      <button className="icon-button danger" type="button" onClick={() => onDelete(session)} title="删除">
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        onClick={() => onDelete(session)}
+                        title="删除"
+                        aria-label={`删除 ${session.title}`}
+                      >
                         <Trash2 size={18} />
                       </button>
                     </div>
@@ -1298,6 +1419,12 @@ function DocumentView({
   onCopy: (session: ClassSession) => void;
   isCopying: boolean;
 }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [session?.id]);
+
   if (!session) {
     return (
       <section className="records-view">
@@ -1316,7 +1443,7 @@ function DocumentView({
           返回
         </button>
         <div>
-          <h1>{session.title}</h1>
+          <h1 ref={headingRef} tabIndex={-1}>{session.title}</h1>
           <p>
             {session.courseName}
             {session.courseTerm ? ` · ${session.courseTerm}` : ""} · {formatDateTime(session.startedAt)} ·{" "}
@@ -1328,7 +1455,7 @@ function DocumentView({
             <Copy size={18} />
             <span className="control-label">{isCopying ? "复制中" : "复制给 AI"}</span>
           </button>
-          <button className="ghost-button" type="button" onClick={() => onExport(session)}>
+          <button className="ghost-button" type="button" onClick={() => onExport(session)} aria-label="导出 Markdown">
             <Download size={18} />
             <span className="control-label">Markdown</span>
           </button>
@@ -1339,9 +1466,9 @@ function DocumentView({
           <p className="muted">这节课没有保存到字幕文本。</p>
         ) : (
           session.segments.map((segment) => (
-            <article className="transcript-block" key={segment.id}>
+            <article className="transcript-block" key={segment.id} aria-label={`字幕 ${formatTimestamp(segment.startedAtMs)}`}>
               <time>{formatTimestamp(segment.startedAtMs)}</time>
-              <p className="zh-text">{segment.translatedText.trim() || "无中文译文"}</p>
+              <p className="zh-text" lang="zh-CN">{segment.translatedText.trim() || "无中文译文"}</p>
               <details>
                 <summary>韩文原文</summary>
                 <p lang="ko">{segment.sourceText.trim() || "无韩文原文"}</p>

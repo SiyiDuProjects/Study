@@ -157,7 +157,7 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText("录音中")).toBeTruthy();
   });
 
-  it("renders live subtitles as a continuous flow of aligned bilingual sentence pairs", async () => {
+  it("renders live subtitles as ordered bilingual sentence blocks", async () => {
     window.localStorage.setItem(
       "korean-class-subtitler-settings",
       JSON.stringify({
@@ -190,7 +190,7 @@ describe("App classroom workflow", () => {
     expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
     expect(screen.getByText("第一句。")).toBeTruthy();
     expect(screen.getByText("두 번째입니다.")).toBeTruthy();
-    expect(screen.getByText("第二句。")).toBeTruthy();
+    expect(screen.getAllByText("第二句。")).toHaveLength(2);
     expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("第一句。");
     expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("第二句。");
     expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
@@ -219,13 +219,11 @@ describe("App classroom workflow", () => {
     fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
 
     expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
-    expect(screen.getByText("두 번째입니다.")).toBeTruthy();
-    expect(screen.getByText("正在请求 /api/translate...")).toBeTruthy();
-    expect(screen.getByText("等待翻译队列（前一句完成后发送）...")).toBeTruthy();
-    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("正在请求 /api/translate...");
-    expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain(
-      "等待翻译队列（前一句完成后发送）..."
-    );
+    expect(screen.getAllByText("두 번째입니다.")).toHaveLength(1);
+    expect(screen.getByText("正在翻译...")).toBeTruthy();
+    expect(screen.getByText("等待翻译...")).toBeTruthy();
+    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("正在翻译...");
+    expect(document.querySelectorAll(".subtitle-pair")[1]?.textContent).toContain("等待翻译...");
     expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
   });
 
@@ -251,7 +249,7 @@ describe("App classroom workflow", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByTitle("设置"));
-    const audioBoostToggle = screen.getByRole("checkbox", { name: "远距离收音增强（低音量时再开）" }) as HTMLInputElement;
+    const audioBoostToggle = screen.getByRole("checkbox", { name: "远距离收音增强" }) as HTMLInputElement;
     expect(audioBoostToggle.checked).toBe(false);
 
     fireEvent.click(audioBoostToggle);
@@ -334,6 +332,20 @@ describe("App classroom workflow", () => {
     await waitFor(() => expect(mocks.deleteRemoteSession).toHaveBeenCalledWith(summary.id));
   });
 
+  it("surfaces a saved-record deletion failure", async () => {
+    const summary = createSummary();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mocks.listRemoteSessions.mockResolvedValue([summary]);
+    mocks.deleteRemoteSession.mockRejectedValueOnce(new Error("删除服务暂不可用"));
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("资料库"));
+    await screen.findByText(summary.title);
+    fireEvent.click(screen.getByTitle("删除"));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("删除服务暂不可用");
+  });
+
   it("copies a single class record as AI context", async () => {
     const summary = createSummary();
     mocks.listRemoteSessions.mockResolvedValue([summary]);
@@ -384,6 +396,24 @@ describe("App classroom workflow", () => {
 
     expect(await screen.findByText("第二门课记录")).toBeTruthy();
     expect(screen.queryByText("第一门课记录")).toBeNull();
+  });
+
+  it("moves focus into a record and restores it when returning to the library", async () => {
+    const session = createSession();
+    const summary = createSummary(session);
+    mocks.listRemoteSessions.mockResolvedValue([summary]);
+    render(<App />);
+
+    fireEvent.click(await screen.findByTitle("资料库"));
+    const sessionButton = await screen.findByRole("button", { name: `打开课堂记录：${summary.title}` });
+    fireEvent.click(sessionButton);
+
+    const documentHeading = await screen.findByRole("heading", { name: summary.title });
+    await waitFor(() => expect(document.activeElement).toBe(documentHeading));
+    fireEvent.click(screen.getByRole("button", { name: "返回" }));
+
+    const restoredButton = await screen.findByRole("button", { name: `打开课堂记录：${summary.title}` });
+    await waitFor(() => expect(document.activeElement).toBe(restoredButton));
   });
 
   it("copies all saved course records from oldest to newest", async () => {

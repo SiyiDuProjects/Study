@@ -10,6 +10,10 @@ This repo is a React + Vite + TypeScript PWA plus a Node/Express API for Korean 
 - Dev server: `npm.cmd run dev`
 - Build: `npm.cmd run build`
 - Test: `npm.cmd run test`
+- Sites dev: `npm.cmd run sites:dev`
+- Sites build: `npm.cmd run sites:build`
+- D1 migration: `npm.cmd run db:generate`
+- Apply local D1 migrations: `npm.cmd run sites:db:apply`
 
 Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execution policy.
 
@@ -32,6 +36,11 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - `server/app.ts`: Express API for courses, config, OpenAI client secrets, translation, and sessions.
 - `server/openai.ts`: server-side OpenAI client secret and Responses API integration.
 - `server/db.ts`: SQLite session repository.
+- `worker/index.ts`: Sites/Cloudflare Worker API with the same browser-facing `/api` contract.
+- `worker/db.ts`: D1 session repository used only by the Sites runtime.
+- `db/schema.ts` and `drizzle/`: Sites D1 schema and generated migrations.
+- `vite.sites.config.mts`: Sites-compatible Worker/static-assets build; normal VPS builds continue using `vite.config.mts`.
+- `.openai/hosting.json`: Sites project handle plus logical D1/R2 bindings only.
 
 ## Constraints
 
@@ -41,6 +50,9 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - OpenAI model names are server configuration; do not hardcode new model names in browser UI or schemas.
 - Live recording requires a server API key that supports OpenAI Realtime client secrets; text-only API gateways can only support the later Korean-to-Chinese translation step.
 - Default classroom mode is `transcribe-then-translate`; keep `classic-websocket-translate` and `realtime-translate` available as fallback comparison modes.
+- Keep the VPS Node/SQLite path and Sites Worker/D1 path behaviorally aligned. Browser API routes stay relative and keep the same request/response schemas.
+- Sites runtime values belong in Sites environment settings. Never put secrets, real D1 IDs, or environment values in `.openai/hosting.json`.
+- Sites D1 and VPS SQLite do not share data automatically. Treat record migration and count/content verification as a required step before changing the production hostname.
 
 ## Realtime Change Discipline
 
@@ -54,6 +66,8 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 ## Deployment Notes
 
 This repo deploys a Vite frontend plus a Node/Express API. `npm.cmd run build` produces `dist/` and `dist-server/`; production should run `node dist-server/server/index.js` behind HTTPS.
+
+The repo also supports a parallel OpenAI Sites deployment. `npm.cmd run sites:build` produces a Cloudflare Worker entry at `dist/server/index.js`, static assets, Sites metadata, and D1 migrations. Keep the initial Sites deployment private until the Realtime secret, record migration, and live classroom checks are complete.
 
 GitHub remote: `https://github.com/SiyiDuProjects/Jiahuan.git`.
 

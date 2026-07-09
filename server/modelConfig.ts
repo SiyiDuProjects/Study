@@ -9,7 +9,7 @@ const FALLBACK_REALTIME_TRANSLATION_MODEL = "gpt-realtime-translate";
 const FALLBACK_REALTIME_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
 const FALLBACK_TEXT_TRANSLATION_MODELS = ["gpt-5.4-mini", "gpt-5.4-nano"];
 
-export function loadOpenAIModelConfig(env: NodeJS.ProcessEnv = process.env): OpenAIModelConfig {
+export function loadOpenAIModelConfig(env: Record<string, string | undefined> = process.env): OpenAIModelConfig {
   const textTranslationModels = parseModelList(env.OPENAI_TEXT_TRANSLATION_MODELS, FALLBACK_TEXT_TRANSLATION_MODELS);
   const defaultTextTranslationModel =
     env.OPENAI_TEXT_TRANSLATION_MODEL && textTranslationModels.includes(env.OPENAI_TEXT_TRANSLATION_MODEL)
