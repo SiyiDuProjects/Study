@@ -10,10 +10,6 @@ This repo is a React + Vite + TypeScript PWA plus a Node/Express API for Korean 
 - Dev server: `npm.cmd run dev`
 - Build: `npm.cmd run build`
 - Test: `npm.cmd run test`
-- Sites dev: `npm.cmd run sites:dev`
-- Sites build: `npm.cmd run sites:build`
-- D1 migration: `npm.cmd run db:generate`
-- Apply local D1 migrations: `npm.cmd run sites:db:apply`
 
 Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execution policy.
 
@@ -36,11 +32,6 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - `server/app.ts`: Express API for courses, config, OpenAI client secrets, translation, and sessions.
 - `server/openai.ts`: server-side OpenAI client secret and Responses API integration.
 - `server/db.ts`: SQLite session repository.
-- `worker/index.ts`: Sites/Cloudflare Worker API with the same browser-facing `/api` contract.
-- `worker/db.ts`: D1 session repository used only by the Sites runtime.
-- `db/schema.ts` and `drizzle/`: Sites D1 schema and generated migrations.
-- `vite.sites.config.mts`: Sites-compatible Worker/static-assets build; normal VPS builds continue using `vite.config.mts`.
-- `.openai/hosting.json`: Sites project handle plus logical D1/R2 bindings only.
 
 ## Constraints
 
@@ -50,9 +41,6 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 - OpenAI model names are server configuration; do not hardcode new model names in browser UI or schemas.
 - Live recording requires a server API key that supports OpenAI Realtime client secrets; text-only API gateways can only support the later Korean-to-Chinese translation step.
 - Default classroom mode is `transcribe-then-translate`; keep `classic-websocket-translate` and `realtime-translate` available as fallback comparison modes.
-- Keep the VPS Node/SQLite path and Sites Worker/D1 path behaviorally aligned. Browser API routes stay relative and keep the same request/response schemas.
-- Sites runtime values belong in Sites environment settings. Never put secrets, real D1 IDs, or environment values in `.openai/hosting.json`.
-- Sites D1 and VPS SQLite do not share data automatically. Treat record migration and count/content verification as a required step before changing the production hostname.
 
 ## Realtime Change Discipline
 
@@ -65,9 +53,7 @@ Use `npm.cmd` on Windows PowerShell because plain `npm` may be blocked by execut
 
 ## Deployment Notes
 
-This repo deploys a Vite frontend plus a Node/Express API. `npm.cmd run build` produces `dist/` and `dist-server/`; production should run `node dist-server/server/index.js` behind HTTPS.
-
-The repo also supports a parallel OpenAI Sites deployment. `npm.cmd run sites:build` produces a Cloudflare Worker entry at `dist/server/index.js`, static assets, Sites metadata, and D1 migrations. Keep the initial Sites deployment private until the Realtime secret, record migration, and live classroom checks are complete.
+This repo deploys only to the existing VPS. `npm.cmd run build` produces `dist/` and `dist-server/`; production runs `node dist-server/server/index.js` behind HTTPS and Cloudflare Tunnel.
 
 GitHub remote: `https://github.com/SiyiDuProjects/Jiahuan.git`.
 
@@ -119,6 +105,5 @@ CI/CD deployment:
 - Required shared GitHub Actions secrets: `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_KEY`, `COMPOSE_PATH`
 - Required project-specific secrets: `JIAHUAN_APP_PATH`, `JIAHUAN_DATA_PATH`, `JIAHUAN_COMPOSE_SERVICE`
 - Optional project-specific secret: `JIAHUAN_LOCAL_HEALTH_URL`, defaulting to `http://127.0.0.1:8091/api/health`
-- The workflow validates `npm run build` and `npm run sites:build` in separate jobs from the same commit. After both pass, it syncs the Node/Express `dist/` and `dist-server/` release to the VPS, installs production dependencies, runs `docker compose up -d jiahuan_web`, then checks the local health endpoint over SSH.
-- GitHub Actions does not publish the OpenAI Sites version. Sites publication still uses a short-lived source credential and the Sites version/deployment flow from the same validated commit; never store that credential in GitHub Secrets or replace it with direct `wrangler deploy` against the placeholder local D1 ID.
+- The workflow runs tests and the production build, then syncs the Node/Express `dist/` and `dist-server/` release to the VPS, installs production dependencies, runs `docker compose up -d jiahuan_web`, and checks the local health endpoint over SSH.
 - After syncing the app release, the workflow normalizes app file permissions to `755` for directories and `644` for files so the Node container can read them.

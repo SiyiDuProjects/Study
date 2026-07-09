@@ -6,13 +6,11 @@ GitHub repository: `https://github.com/SiyiDuProjects/Jiahuan`.
 
 ## What It Does
 
-On every push to `main` that changes app, server, shared, Sites, or workflow files:
+On every push to `main` that changes app, server, shared, or workflow files:
 
 ```text
 GitHub Actions
 -> Validate VPS build: npm ci -> npm test -> npm run build
--> Validate Sites build: npm ci -> npm run sites:build
--> wait for both validation jobs
 -> package dist/, dist-server/, package.json, and package-lock.json
 -> rsync release to VPS
 -> npm ci --omit=dev inside a node:22-bookworm-slim container on the VPS
@@ -23,27 +21,11 @@ GitHub Actions
 The workflow does not upload `.env` files or API keys. `OPENAI_API_KEY` must live in a VPS-side env file referenced by Docker Compose.
 That key must support OpenAI Realtime client secrets. Text-only API gateways can be used for translation models only, not for starting live recording.
 
-Sites-only changes under `worker/`, `db/`, `drizzle/`, `build/`, `.openai/`, or the Sites/Wrangler configuration files also trigger this workflow. The VPS and Sites builds run in separate jobs because both write to `dist/`.
-
-## VPS And Sites Release Boundary
-
-GitHub `main` is the shared source of truth for both deployment paths. A commit must pass both the Node/Express build and the Sites Worker/D1 build before the VPS deploy job can run.
-
-The VPS remains the automatic production deployment:
+The VPS is the only deployment target:
 
 ```text
-push main -> dual validation -> deploy jiahuan_web -> local VPS health check
+push main -> test and build -> deploy jiahuan_web -> local VPS health check
 ```
-
-OpenAI Sites is validated by the same GitHub Actions run but published separately from the exact same commit through Sites. Sites issues short-lived source credentials and owns the real D1 and runtime bindings, so do not store a Sites source token in GitHub Secrets and do not replace this flow with `wrangler deploy` using the placeholder local D1 ID.
-
-```text
-same validated commit -> Sites source push -> save Sites version -> private Sites deployment
-```
-
-The Sites runtime secret is managed in Sites, not copied from the VPS env file or GitHub. The current VPS SQLite database and Sites D1 database are independent. Before moving `jiahuan.gaid.studio` from the VPS tunnel to Sites, configure the Realtime-capable Sites secret, migrate and verify records, run a real microphone/translation/save check, and confirm the intended access policy.
-
-For parallel acceptance testing, prefer a separate hostname such as `jiahuan-sites.gaid.studio`. Keep `jiahuan.gaid.studio` on the VPS until the cutover checklist is complete so the existing tunnel route remains the rollback path.
 
 ## Required GitHub Secrets
 
@@ -75,8 +57,6 @@ JIAHUAN_LOCAL_HEALTH_URL=http://127.0.0.1:8091/api/health
 ```
 
 `JIAHUAN_LOCAL_HEALTH_URL` is optional; the workflow defaults to `http://127.0.0.1:8091/api/health`.
-
-No Sites token, D1 ID, or Sites runtime secret belongs in GitHub Secrets for this workflow.
 
 ## One-Time VPS Setup
 

@@ -1,5 +1,0 @@
-OPENAI_API_KEY=replace-with-a-server-side-key
-OPENAI_REALTIME_TRANSLATION_MODEL=gpt-realtime-translate
-OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
-OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.4-mini
-OPENAI_TEXT_TRANSLATION_MODELS=gpt-5.4-mini,gpt-5.4-nano
