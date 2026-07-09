@@ -119,5 +119,6 @@ CI/CD deployment:
 - Required shared GitHub Actions secrets: `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_KEY`, `COMPOSE_PATH`
 - Required project-specific secrets: `JIAHUAN_APP_PATH`, `JIAHUAN_DATA_PATH`, `JIAHUAN_COMPOSE_SERVICE`
 - Optional project-specific secret: `JIAHUAN_LOCAL_HEALTH_URL`, defaulting to `http://127.0.0.1:8091/api/health`
-- The workflow runs `npm ci`, `npm test`, `npm run build`, syncs `dist/` and `dist-server/` to the VPS, installs production dependencies on the VPS, runs `docker compose up -d jiahuan_web`, then checks the local health endpoint over SSH.
+- The workflow validates `npm run build` and `npm run sites:build` in separate jobs from the same commit. After both pass, it syncs the Node/Express `dist/` and `dist-server/` release to the VPS, installs production dependencies, runs `docker compose up -d jiahuan_web`, then checks the local health endpoint over SSH.
+- GitHub Actions does not publish the OpenAI Sites version. Sites publication still uses a short-lived source credential and the Sites version/deployment flow from the same validated commit; never store that credential in GitHub Secrets or replace it with direct `wrangler deploy` against the placeholder local D1 ID.
 - After syncing the app release, the workflow normalizes app file permissions to `755` for directories and `644` for files so the Node container can read them.

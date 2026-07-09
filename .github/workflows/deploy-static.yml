@@ -8,13 +8,21 @@ on:
       - "server/**"
       - "shared/**"
       - "scripts/**"
+      - "worker/**"
+      - "db/**"
+      - "drizzle/**"
+      - "build/**"
       - "public/**"
+      - ".openai/**"
       - "index.html"
+      - "drizzle.config.ts"
       - "package.json"
       - "package-lock.json"
       - "tsconfig*.json"
       - "vite.config.mts"
+      - "vite.sites.config.mts"
       - "vitest.config.mts"
+      - "wrangler.sites.jsonc"
       - ".github/workflows/deploy-static.yml"
   workflow_dispatch:
 
@@ -27,6 +35,7 @@ permissions:
 
 jobs:
   validate:
+    name: Validate VPS build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,8 +57,29 @@ jobs:
       - name: Build
         run: npm run build
 
+  validate-sites:
+    name: Validate Sites build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Sites artifact
+        run: npm run sites:build
+
   deploy:
-    needs: validate
+    name: Deploy VPS
+    needs: [validate, validate-sites]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:

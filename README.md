@@ -55,7 +55,7 @@ OPENAI_TEXT_TRANSLATION_MODELS=gpt-5.4-mini,gpt-5.4-nano
 
 ## OpenAI Sites
 
-Sites 作为与现有 VPS 并行的部署路径，不替换本地 React/PWA，也不改变现有 `npm run build` 和 VPS CI/CD：
+Sites 作为与现有 VPS 并行的部署路径，不替换本地 React/PWA、现有 `npm run build` 或 VPS 自动发布：
 
 - `worker/index.ts` 提供 Worker 版 `/api`，保持课程、模型配置、实时 client secret、翻译和课堂记录接口不变。
 - `worker/db.ts` 使用 Sites 注入的 D1 `DB` 绑定保存课堂记录；表结构和迁移位于 `db/schema.ts`、`drizzle/`。
@@ -63,6 +63,7 @@ Sites 作为与现有 VPS 并行的部署路径，不替换本地 React/PWA，�
 - Sites 运行时的 `OPENAI_API_KEY` 必须在 Sites 环境设置中配置为 secret；模型变量可按上方同名变量配置。
 - 本地 Sites 开发可按 `.dev.vars.example` 创建未提交的 `.dev.vars`，填入服务端配置后运行 `npm run sites:dev`；启动脚本会先把 `drizzle/` 迁移应用到本地 D1。
 - Sites D1 与 VPS SQLite 是两个独立数据源。切换正式入口前，应先迁移现有课堂记录并核对数量和内容。
+- GitHub Actions 会对同一个 `main` 提交分别执行 VPS 构建和 Sites 构建；两项都通过后才继续自动发布 VPS。Sites 版本仍由 Sites 使用同一提交单独私有发布。
 
 验证 Sites 产物：
 
