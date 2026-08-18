@@ -110,10 +110,10 @@ export async function importLegacySqliteExport(db: D1Database, input: unknown): 
       row.commit_sequence === null || row.commit_sequence === undefined
         ? null
         : integer(row.commit_sequence, "segment.commit_sequence"),
-      integer(row.started_at_ms, "segment.started_at_ms"),
+      Math.round(finite(row.started_at_ms, "segment.started_at_ms")),
       row.ended_at_ms === null || row.ended_at_ms === undefined
         ? null
-        : integer(row.ended_at_ms, "segment.ended_at_ms"),
+        : Math.round(finite(row.ended_at_ms, "segment.ended_at_ms")),
       text(row.source_text, "segment.source_text"),
       text(row.translated_text, "segment.translated_text"),
       bit(row.is_final, "segment.is_final"),
@@ -166,6 +166,11 @@ function nullableText(value: unknown, name: string): string | null {
 
 function integer(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`Invalid ${name}`);
+  return value;
+}
+
+function finite(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`Invalid ${name}`);
   return value;
 }
 
