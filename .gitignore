@@ -25,6 +25,7 @@ test-results
 .tsbuild
 .wrangler/
 .openai/*.zip
+.sites-artifacts/
 *.sqlite
 *.sqlite-*
 *.db

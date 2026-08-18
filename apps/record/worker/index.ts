@@ -21,6 +21,7 @@ import {
   UnfinishedLectureConflict,
   WriterLeaseConflict
 } from "./db";
+import { importLegacySqliteExport } from "./legacyImport";
 
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
 const rateLimitBuckets = new Map<string, { resetAt: number; count: number }>();
@@ -32,6 +33,7 @@ export interface SitesEnv {
   STUDY_API_URL?: string;
   STUDY_SERVICE_TOKEN?: string;
   LECTURE_SERVICE_TOKEN?: string;
+  MIGRATION_TOKEN?: string;
 }
 
 export async function handleRequest(request: Request, env: SitesEnv): Promise<Response> {
@@ -46,6 +48,12 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
     }
 
     const sessions = createD1SessionRepository(env.DB);
+
+    if (request.method === "POST" && url.pathname === "/internal/migration/import") {
+      await requireMigrationToken(request, env.MIGRATION_TOKEN);
+      const counts = await importLegacySqliteExport(env.DB, await readJson(request));
+      return json({ ok: true, counts }, 201);
+    }
 
     if (url.pathname.startsWith("/internal/mcp/lecture/")) {
       await requireServiceToken(request, env.LECTURE_SERVICE_TOKEN);
@@ -311,6 +319,13 @@ async function requireServiceToken(request: Request, expected: string | undefine
   if (!supplied || expectedHash !== suppliedHash) {
     throw new HttpError(401, "Invalid lecture service token.");
   }
+}
+
+async function requireMigrationToken(request: Request, expected: string | undefined): Promise<void> {
+  if (!expected?.trim()) throw new HttpError(503, "Migration import is not enabled.");
+  const supplied = request.headers.get("x-study-migration-token") ?? "";
+  const [expectedHash, suppliedHash] = await Promise.all([sha256(expected), sha256(supplied)]);
+  if (!supplied || expectedHash !== suppliedHash) throw new HttpError(401, "Invalid migration token.");
 }
 
 function requireSameOriginForMutation(request: Request, url: URL): void {

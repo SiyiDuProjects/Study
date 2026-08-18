@@ -12,5 +12,5 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["worker", "server/modelConfig.ts", "server/openai.ts", "server/schemas.ts", "shared", "src/types.ts"]
+  "include": ["worker", "server/openai.ts", "server/schemas.ts", "server/study.ts", "shared", "src/types.ts"]
 }
