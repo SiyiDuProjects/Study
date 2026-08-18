@@ -1,6 +1,7 @@
 import type { AppSettings } from "../types";
 
-const SETTINGS_KEY = "korean-class-subtitler-settings";
+const SETTINGS_KEY = "study-lecture-settings";
+const LEGACY_SETTINGS_KEY = "korean-class-subtitler-settings";
 
 export const defaultSettings: AppSettings = {
   subtitleScale: 1,
@@ -10,7 +11,7 @@ export const defaultSettings: AppSettings = {
 };
 
 export async function loadSettings(): Promise<AppSettings> {
-  const raw = window.localStorage.getItem(SETTINGS_KEY);
+  const raw = window.localStorage.getItem(SETTINGS_KEY) ?? window.localStorage.getItem(LEGACY_SETTINGS_KEY);
   if (!raw) {
     return defaultSettings;
   }
@@ -35,4 +36,5 @@ export async function loadSettings(): Promise<AppSettings> {
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
   window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  window.localStorage.removeItem(LEGACY_SETTINGS_KEY);
 }

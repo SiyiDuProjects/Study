@@ -61,4 +61,17 @@ describe("transcript reducer", () => {
     expect(state.segments[0].translatedText).toBe("今天讨论语法。");
     expect(state.segments[0].startedAtMs).toBe(1200);
   });
+
+  it("sorts finalized transcribe-then-translate segments by commit sequence", () => {
+    let state = createTranscriptState();
+    state = appendTranscriptSegment(state, {
+      sourceText: "둘째", translatedText: "第二", elapsedMs: 2_000, commitSequence: 1
+    });
+    state = appendTranscriptSegment(state, {
+      sourceText: "첫째", translatedText: "第一", elapsedMs: 0, commitSequence: 0
+    });
+    expect(state.segments.map((segment) => [segment.translatedText, segment.commitSequence])).toEqual([
+      ["第一", 0], ["第二", 1]
+    ]);
+  });
 });

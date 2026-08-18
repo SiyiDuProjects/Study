@@ -1,8 +1,24 @@
 import type { CourseOption } from "../../shared/courses";
-import type { ClassSession, ClassSessionSummary, TextTranslationModel, TranslationMode } from "../types";
+import type {
+  ClassSession,
+  ClassSessionSummary,
+  CompleteLectureSessionRequest,
+  CreateLectureSessionRequest,
+  FailedLectureSessionRequest,
+  LectureCheckpointRequest,
+  LectureSessionStatus,
+  ResumeLectureSessionRequest,
+  TextTranslationModel,
+  TranslationMode,
+  WriterLease
+} from "../types";
 
-interface CoursesResponse {
+export interface CoursesResponse {
   courses: CourseOption[];
+  syncedAt: string | null;
+  stale: boolean;
+  source: "study" | "cache";
+  warning?: string;
 }
 
 interface RealtimeClientSecretResponse {
@@ -18,22 +34,31 @@ interface SessionResponse {
   session: ClassSession;
 }
 
+export interface WritableSessionResponse extends SessionResponse {
+  writerLease: WriterLease;
+}
+
 interface TranslateResponse {
   translatedText: string;
 }
 
-export async function fetchCourses(): Promise<CourseOption[]> {
-  const data = await requestJson<CoursesResponse>("/api/courses");
-  return data.courses;
+export const BROWSER_API_TIMEOUT_MS = 8_000;
+
+export async function fetchCourses(includeArchived = false): Promise<CoursesResponse> {
+  return requestJson<CoursesResponse>(
+    `/api/courses?includeArchived=${includeArchived ? "true" : "false"}&refresh=true`
+  );
 }
 
-export async function createRealtimeClientSecret(mode: TranslationMode): Promise<RealtimeClientSecretResponse> {
+export async function createRealtimeClientSecret(
+  mode: TranslationMode,
+  signal?: AbortSignal
+): Promise<RealtimeClientSecretResponse> {
   return requestJson<RealtimeClientSecretResponse>("/api/realtime/client-secret", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ mode })
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+    signal
   });
 }
 
@@ -48,56 +73,131 @@ export async function translateKoreanText({
 }): Promise<string> {
   const data = await requestJson<TranslateResponse>("/api/translate", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model, text, context })
   });
   return data.translatedText;
 }
 
-export async function listRemoteSessions(courseId?: string): Promise<ClassSessionSummary[]> {
-  const params = courseId ? `?courseId=${encodeURIComponent(courseId)}` : "";
-  const data = await requestJson<SessionsResponse>(`/api/sessions${params}`);
+export async function listRemoteSessions(options: {
+  courseId?: string;
+  status?: LectureSessionStatus | "all";
+  limit?: number;
+} = {}): Promise<ClassSessionSummary[]> {
+  const params = new URLSearchParams();
+  if (options.courseId) params.set("courseId", options.courseId);
+  if (options.status) params.set("status", options.status);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.size > 0 ? `?${params}` : "";
+  const data = await requestJson<SessionsResponse>(`/api/sessions${query}`);
   return data.sessions;
 }
 
 export async function getRemoteSession(id: string): Promise<ClassSession> {
-  const data = await requestJson<SessionResponse>(`/api/sessions/${encodeURIComponent(id)}`);
-  return data.session;
+  return (await requestJson<SessionResponse>(`/api/sessions/${encodeURIComponent(id)}`)).session;
 }
 
-export async function saveRemoteSession(session: ClassSession): Promise<ClassSession> {
-  const data = await requestJson<SessionResponse>("/api/sessions", {
+export async function createRemoteSession(input: CreateLectureSessionRequest): Promise<WritableSessionResponse> {
+  return requestJson<WritableSessionResponse>("/api/sessions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(session)
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
   });
-  return data.session;
 }
 
-export async function deleteRemoteSession(id: string): Promise<void> {
-  await requestJson<void>(`/api/sessions/${encodeURIComponent(id)}`, {
-    method: "DELETE"
+export async function checkpointRemoteSession(id: string, input: LectureCheckpointRequest): Promise<ClassSession> {
+  return postSessionAction(id, "checkpoint", input);
+}
+
+export async function failRemoteSession(id: string, input: FailedLectureSessionRequest): Promise<ClassSession> {
+  return postSessionAction(id, "fail", input);
+}
+
+export async function resumeRemoteSession(
+  id: string,
+  input: ResumeLectureSessionRequest
+): Promise<WritableSessionResponse> {
+  return requestJson<WritableSessionResponse>(`/api/sessions/${encodeURIComponent(id)}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
   });
+}
+
+export async function completeRemoteSession(
+  id: string,
+  input: CompleteLectureSessionRequest
+): Promise<ClassSession> {
+  return postSessionAction(id, "complete", input);
+}
+
+export async function archiveRemoteSession(id: string): Promise<void> {
+  await requestJson<void>(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async function postSessionAction(id: string, action: string, input: unknown): Promise<ClassSession> {
+  return (
+    await requestJson<SessionResponse>(`/api/sessions/${encodeURIComponent(id)}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input)
+    })
+  ).session;
 }
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  const controller = new AbortController();
+  const upstreamSignal = init?.signal;
+  const abortFromUpstream = () => controller.abort(upstreamSignal?.reason);
+  if (upstreamSignal?.aborted) abortFromUpstream();
+  else upstreamSignal?.addEventListener("abort", abortFromUpstream, { once: true });
+  let timedOut = false;
+  let timeoutId: number | undefined;
+  const timeoutError = new ApiRequestError("服务器请求超时，请检查网络后重试。", 408, "client_timeout");
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, BROWSER_API_TIMEOUT_MS);
+  });
 
-  if (response.status === 204) {
-    return undefined as T;
+  try {
+    const operation = (async () => {
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      if (response.status === 204) return undefined as T;
+      const contentType = response.headers.get("content-type") ?? "";
+      const body = contentType.includes("application/json") ? await response.json() : await response.text();
+      if (!response.ok) {
+        const record = typeof body === "object" && body !== null ? body as Record<string, unknown> : null;
+        const message = record && typeof record.error === "string" ? record.error : "服务器请求失败。";
+        throw new ApiRequestError(
+          message,
+          response.status,
+          record && typeof record.code === "string" ? record.code : undefined,
+          record && typeof record.currentRevision === "number" ? record.currentRevision : undefined
+        );
+      }
+      return body as T;
+    })();
+    return await Promise.race([operation, timeout]);
+  } catch (error) {
+    if (timedOut) throw timeoutError;
+    throw error;
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    upstreamSignal?.removeEventListener("abort", abortFromUpstream);
   }
+}
 
-  const contentType = response.headers.get("content-type") ?? "";
-  const body = contentType.includes("application/json") ? await response.json() : await response.text();
-
-  if (!response.ok) {
-    const message = typeof body === "object" && body && "error" in body ? String(body.error) : "服务器请求失败。";
-    throw new Error(message);
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly currentRevision?: number
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
   }
-
-  return body as T;
 }

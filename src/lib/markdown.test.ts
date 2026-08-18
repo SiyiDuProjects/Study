@@ -12,6 +12,10 @@ describe("markdown export", () => {
       courseName: "아카데믹한국어듣기말하기",
       courseTerm: "2026년 1학기",
       courseFolderName: "202610HY20215_아카데믹한국어듣기말하기",
+      courseMatchStatus: "legacy_unmatched",
+      finalizationWarning: "最后一段字幕可能缺失。",
+      revision: 3,
+      status: "ready",
       startedAt: "2026-05-24T18:00:00.000Z",
       endedAt: "2026-05-24T18:30:00.000Z",
       durationMs: 30 * 60 * 1000,
@@ -21,6 +25,8 @@ describe("markdown export", () => {
         translation: "gpt-realtime-translate",
         transcription: "gpt-realtime-whisper"
       },
+      savedAt: "2026-05-24T18:30:00.000Z",
+      updatedAt: "2026-05-24T18:30:00.000Z",
       segments: [
         {
           id: "seg_1",
@@ -44,5 +50,6 @@ describe("markdown export", () => {
     expect(markdown).toContain("<summary>韩文原文</summary>");
     expect(markdown).toContain("오늘은 문법을 이야기합니다.");
     expect(markdown).toContain("gpt-realtime-translate + gpt-realtime-whisper");
+    expect(markdown).toContain("字幕完整性警告：最后一段字幕可能缺失");
   });
 });

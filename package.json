@@ -1,13 +1,14 @@
 {
-  "name": "korean-class-subtitler",
+  "name": "study-lecture",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n api,web \"npm run server:dev\" \"npm run vite:dev\"",
-    "vite:dev": "vite --host 0.0.0.0 --configLoader runner",
+    "vite:dev": "vite --configLoader runner",
     "server:dev": "tsx watch server/index.ts",
     "server:start": "node dist-server/server/index.js",
+    "typecheck": "tsc -b --pretty false",
     "build": "tsc -b && vite build --configLoader runner",
     "preview": "npm run server:start",
     "test": "vitest run --config vitest.config.mts --configLoader runner",

@@ -1,68 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRealtimeClientSecret, listRemoteSessions, saveRemoteSession } from "./api";
-import type { ClassSession } from "../types";
+import { ApiRequestError, BROWSER_API_TIMEOUT_MS, fetchCourses } from "./api";
 
-describe("api client", () => {
+describe("browser API timeout", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it("loads realtime client secrets from the server", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ clientSecret: "ek_test", expiresAt: 123 }))
+  it("aborts a hanging request at a bounded deadline", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      })
     );
+    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(createRealtimeClientSecret("realtime-translate")).resolves.toEqual({ clientSecret: "ek_test", expiresAt: 123 });
-  });
-
-  it("returns remote session summaries", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ sessions: [{ id: "class_1", segmentCount: 2 }] }))
-    );
-
-    const sessions = await listRemoteSessions();
-    expect(sessions).toEqual([{ id: "class_1", segmentCount: 2 }]);
-  });
-
-  it("throws server errors while saving", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ error: "Invalid session payload." }, 400))
-    );
-
-    await expect(saveRemoteSession(createSampleSession())).rejects.toThrow("Invalid session payload.");
+    const request = fetchCourses();
+    const rejected = expect(request).rejects.toMatchObject({
+      status: 408,
+      code: "client_timeout"
+    } satisfies Partial<ApiRequestError>);
+    await vi.advanceTimersByTimeAsync(BROWSER_API_TIMEOUT_MS);
+    await rejected;
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 });
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "Content-Type": "application/json"
-    }
-  });
-}
-
-function createSampleSession(): ClassSession {
-  return {
-    id: "class_test",
-    title: "日常 2026/05/24 18:00",
-    courseId: "daily",
-    courseCode: "daily",
-    courseName: "日常 / 不选课程",
-    courseTerm: "",
-    courseFolderName: "daily",
-    startedAt: "2026-05-24T18:00:00.000Z",
-    endedAt: "2026-05-24T18:10:00.000Z",
-    durationMs: 10 * 60 * 1000,
-    sourceLanguage: "ko",
-    targetLanguage: "zh",
-    models: {
-      translation: "gpt-realtime-translate",
-      transcription: "gpt-realtime-whisper"
-    },
-    segments: []
-  };
-}

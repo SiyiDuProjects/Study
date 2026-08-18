@@ -77,6 +77,7 @@ export function appendTranscriptSegment(
   const startedAtMs = segment.elapsedMs ?? inferNextStartMs(committedState);
   const nextSegment: TranscriptSegment = {
     id: createId("seg"),
+    commitSequence: segment.commitSequence,
     startedAtMs,
     endedAtMs: startedAtMs + Math.max(1200, Math.max(sourceText.length, translatedText.length) * 90),
     sourceText,
@@ -88,9 +89,23 @@ export function appendTranscriptSegment(
 
   return {
     ...committedState,
-    segments: [...committedState.segments, nextSegment],
+    segments: sortCommittedSegments([...committedState.segments, nextSegment]),
     activeSegment: null
   };
+}
+
+function sortCommittedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
+  return segments
+    .map((segment, index) => ({ segment, index }))
+    .sort((left, right) => {
+      const leftSequence = left.segment.commitSequence;
+      const rightSequence = right.segment.commitSequence;
+      if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
+        return leftSequence - rightSequence;
+      }
+      return left.index - right.index;
+    })
+    .map(({ segment }) => segment);
 }
 
 export function getDisplaySegments(state: TranscriptState, count = 3): TranscriptSegment[] {
