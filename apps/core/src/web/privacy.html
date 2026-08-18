@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1f6b45">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; form-action 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; manifest-src 'self'">
+    <title>Privacy · Study</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">ST</span>
+        <span>Study</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="/privacy" aria-current="page">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a class="button button-secondary" href="/account">Account</a>
+      </nav>
+    </header>
+
+    <main id="main" class="shell narrow">
+      <article class="legal-document">
+        <header>
+          <p class="eyebrow">Legal</p>
+          <h1>Privacy notice</h1>
+          <p class="meta">Last updated: August 18, 2026</p>
+        </header>
+
+        <section>
+          <h2>What this service does</h2>
+          <p>Study is an invite-only gateway that lets an authenticated user ask a compatible MCP client to read information from the user's own Hanyang HY-ON account and saved Study Lecture transcripts. The initial tool set is read-only.</p>
+        </section>
+
+        <section>
+          <h2>Information we process</h2>
+          <h3>Account and authentication data</h3>
+          <p>We process an invitation token and its institution assignment during enrollment, a display name, passkey public-key credentials, session identifiers, and basic security event data. A passkey's private key remains on your authenticator and is never sent to us.</p>
+          <h3>Canvas connection data</h3>
+          <p>We process the Canvas access token you provide, the Canvas account identity returned when the token is validated, and Canvas records requested through the service, such as courses, assignments, submissions, grades, and announcements. We do not request your university password or campus SSO credential.</p>
+          <h3>Saved lecture data</h3>
+          <p>When Study Lecture is enabled, we process course-linked recording metadata and saved Korean transcript text with its Chinese translation. Raw microphone audio is sent directly from the browser to the configured transcription provider and is not stored by Study or Study Lecture.</p>
+          <h3>Operational data</h3>
+          <p>We may process timestamps, request identifiers, coarse client information, and network addresses needed to prevent abuse, diagnose errors, and secure the service. Application logs must not contain Canvas access tokens, invitation tokens, session cookies, passkey challenges, or full Canvas response bodies.</p>
+        </section>
+
+        <section>
+          <h2>How information is used</h2>
+          <p>Information is used to authenticate you, maintain the Hanyang connection, save and retrieve authorized lecture records, execute the requests you initiate, prevent abuse, and operate the service. This service does not sell personal information or use coursework or transcripts to build advertising profiles.</p>
+        </section>
+
+        <section>
+          <h2>Where information goes</h2>
+          <p>The service sends authorized Canvas requests only to Hanyang HY-ON. Study Lecture sends live microphone audio directly to OpenAI for transcription or translation and stores only the resulting text and recording metadata on the private service. If the separately gated Hanyang LearningX pilot is enabled, a signed LTI launch form may also be sent to an allowlisted Hanyang or Xinics HTTPS origin; the Canvas PAT is never sent there. Results are returned to the MCP client you chose. ChatGPT, Codex, OpenAI, and other clients or processors handle data under their own terms and privacy notices.</p>
+        </section>
+
+        <section>
+          <h2>Storage and retention</h2>
+          <p>Canvas access tokens are encrypted at rest and decrypted only for an authorized Canvas request. Authentication and connection metadata remain until the account is deleted or the connection is revoked. Saved lecture transcripts remain until they are archived or removed by the authorized user or operator. Short-lived WebAuthn challenges, invitation state, sessions, rate-limit records, and security logs are retained only as long as needed for their stated purpose. Backups follow the operator's limited retention schedule.</p>
+        </section>
+
+        <section>
+          <h2>Your choices</h2>
+          <p>You can revoke the access token in Canvas at any time, replace the token from the account page, sign out, or delete this service account. Revoking a Canvas token immediately prevents future API use of that token, even before this service removes its stored copy.</p>
+        </section>
+
+        <section>
+          <h2>Security</h2>
+          <p>We use HTTPS, passkeys, scoped host allowlists, CSRF protection, rate limits, encrypted token storage, and least-privilege deployment controls. No internet service can guarantee absolute security. Please report a suspected vulnerability through the private security contact published by the operator rather than including sensitive data in a public issue.</p>
+        </section>
+
+        <section>
+          <h2>Contact and changes</h2>
+          <p>The service operator is GAID Studio. Before public launch, the operator must publish a monitored privacy contact at this site's domain. Material changes to this notice will be posted here with a new effective date.</p>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <span>© 2026 GAID Studio</span>
+      <nav class="footer-links" aria-label="Legal links">
+        <a href="/terms">Terms</a>
+        <a href="/account">Account</a>
+      </nav>
+    </footer>
+  </body>
+</html>

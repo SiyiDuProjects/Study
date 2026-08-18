@@ -1,0 +1,73 @@
+name: canvas-mcp
+
+services:
+  canvas:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: canvas-mcp-service:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./.env
+    environment:
+      NODE_ENV: production
+      PORT: "8794"
+      PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:-https://canvas.gaid.studio}"
+      DATABASE_PATH: /data/canvas.sqlite
+      WEBAUTHN_RP_ID: "${WEBAUTHN_RP_ID:-canvas.gaid.studio}"
+      WEBAUTHN_RP_NAME: "${WEBAUTHN_RP_NAME:-Study}"
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      STUDY_SERVICE_TOKEN: "${STUDY_SERVICE_TOKEN:?Set STUDY_SERVICE_TOKEN in .env}"
+      LECTURE_API_URL: "${LECTURE_API_URL:-}"
+      LECTURE_SERVICE_TOKEN: "${LECTURE_SERVICE_TOKEN:-}"
+      COURSE_SYNC_MIN_INTERVAL_SECONDS: "${COURSE_SYNC_MIN_INTERVAL_SECONDS:-300}"
+      LEARNINGX_ENABLED: "${LEARNINGX_ENABLED:-false}"
+      OAUTH_ADDITIONAL_REDIRECT_URIS: "${OAUTH_ADDITIONAL_REDIRECT_URIS:-}"
+      OAUTH_DCR_ENABLED: "${OAUTH_DCR_ENABLED:-false}"
+      OAUTH_MAX_CLIENTS: "${OAUTH_MAX_CLIENTS:-8}"
+      INVITE_TTL_SECONDS: "${INVITE_TTL_SECONDS:-604800}"
+      SETUP_FLOW_TTL_SECONDS: "${SETUP_FLOW_TTL_SECONDS:-600}"
+      WEBAUTHN_FLOW_TTL_SECONDS: "${WEBAUTHN_FLOW_TTL_SECONDS:-300}"
+      STEP_UP_FLOW_TTL_SECONDS: "${STEP_UP_FLOW_TTL_SECONDS:-300}"
+      STEP_UP_TOKEN_TTL_SECONDS: "${STEP_UP_TOKEN_TTL_SECONDS:-120}"
+      SESSION_TTL_SECONDS: "${SESSION_TTL_SECONDS:-43200}"
+      OAUTH_CODE_TTL_SECONDS: "${OAUTH_CODE_TTL_SECONDS:-300}"
+      ACCESS_TOKEN_TTL_SECONDS: "${ACCESS_TOKEN_TTL_SECONDS:-3600}"
+      REFRESH_TOKEN_TTL_SECONDS: "${REFRESH_TOKEN_TTL_SECONDS:-2592000}"
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8794}:8794"
+    volumes:
+      - canvas_data:/data
+    networks:
+      - default
+      - study_internal
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 256m
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8794/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  canvas_data:
+
+networks:
+  study_internal:
+    external: true
+    name: study_internal

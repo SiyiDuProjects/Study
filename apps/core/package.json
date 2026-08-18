@@ -1,0 +1,44 @@
+{
+  "name": "canvas-mcp-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Invite-only OAuth and read-only MCP gateway for Canvas LMS.",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json && node scripts/copy-web.mjs",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "create-invite": "node dist/cli/create-invite.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@simplewebauthn/server": "13.3.2",
+    "better-sqlite3": "13.0.3",
+    "cookie-parser": "1.4.7",
+    "dotenv": "16.6.1",
+    "express": "5.2.1",
+    "express-rate-limit": "8.6.2",
+    "helmet": "8.1.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/cookie-parser": "1.4.9",
+    "@types/express": "5.0.5",
+    "@types/node": "24.10.1",
+    "@types/supertest": "6.0.3",
+    "supertest": "7.1.4",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  }
+}

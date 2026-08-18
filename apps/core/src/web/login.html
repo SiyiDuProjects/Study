@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1f6b45">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; form-action 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; manifest-src 'self'">
+    <title>Sign in · Study</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/assets/app.css">
+    <script type="module" src="/assets/auth.js"></script>
+  </head>
+  <body data-page="login">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">ST</span>
+        <span>Study</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="/privacy">Privacy</a>
+        <a class="button button-secondary" href="/setup">Use an invitation</a>
+      </nav>
+    </header>
+
+    <main id="main" class="shell narrow">
+      <section class="card auth-card" aria-labelledby="login-title">
+        <header>
+          <p class="eyebrow">Passkey sign-in</p>
+          <h1 id="login-title">Welcome back</h1>
+          <p class="muted">Use the passkey you created during setup. Study never asks for your campus password.</p>
+        </header>
+
+        <button id="login-button" type="button">Continue with a passkey</button>
+        <p id="login-status" class="status" role="status" aria-live="polite"></p>
+        <p class="meta">Passkeys require HTTPS, except when developing on localhost.</p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>© 2026 GAID Studio</span>
+      <nav class="footer-links" aria-label="Legal links">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </nav>
+    </footer>
+  </body>
+</html>

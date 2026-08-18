@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1f6b45">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; form-action 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; manifest-src 'self'">
+    <title>Set up Study</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/assets/app.css">
+    <script type="module" src="/assets/auth.js"></script>
+  </head>
+  <body data-page="setup">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">ST</span>
+        <span>Study</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="/privacy">Privacy</a>
+        <a class="button button-secondary" href="/login">Sign in</a>
+      </nav>
+    </header>
+
+    <main id="main" class="shell narrow">
+      <section class="card auth-card" aria-labelledby="setup-title">
+        <header>
+          <p class="eyebrow">One-time setup</p>
+          <h1 id="setup-title">Connect Hanyang HY-ON</h1>
+          <p class="muted">Use a valid invitation, a Canvas access token, and this device's passkey support.</p>
+        </header>
+
+        <div class="notice">
+          Enter a Canvas access token—not your campus password. The token is sent in an HTTPS POST body,
+          is never placed in the URL, and is not saved in browser storage.
+        </div>
+
+        <form id="setup-form" novalidate>
+          <div class="field">
+            <label for="invite-token">Invitation token</label>
+            <input id="invite-token" name="inviteToken" type="password" required autocomplete="one-time-code" spellcheck="false" aria-describedby="invite-help">
+            <small id="invite-help" class="field-help">If your invite link included this token, it has already been removed from the address bar.</small>
+          </div>
+
+          <div class="field">
+            <label for="canvas-token">Canvas access token</label>
+            <input id="canvas-token" name="canvasAccessToken" type="password" required autocomplete="new-password" spellcheck="false" aria-describedby="token-help">
+            <small id="token-help" class="field-help">Create this token in the Canvas site named in your invitation. The invitation fixes the institution; the browser cannot override it. Do not enter a university password, recovery code, or one-time login code.</small>
+          </div>
+
+          <div class="field">
+            <label for="device-name">Passkey name <span class="muted">(optional)</span></label>
+            <input id="device-name" name="deviceName" type="text" maxlength="80" autocomplete="off" placeholder="For example, My laptop">
+          </div>
+
+          <button id="setup-submit" type="submit">Create account and passkey</button>
+          <p id="setup-status" class="status" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>© 2026 GAID Studio</span>
+      <nav class="footer-links" aria-label="Legal links">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </nav>
+    </footer>
+  </body>
+</html>

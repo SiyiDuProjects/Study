@@ -1,0 +1,19 @@
+{
+  "name": "Study",
+  "short_name": "Study",
+  "description": "Private, read-only Hanyang coursework and saved lecture context.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#edf4ef",
+  "theme_color": "#1f6b45",
+  "icons": [
+    {
+      "src": "/assets/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

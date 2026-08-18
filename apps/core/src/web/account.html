@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1f6b45">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; form-action 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; manifest-src 'self'">
+    <title>Account · Study</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/assets/app.css">
+    <script type="module" src="/assets/auth.js"></script>
+  </head>
+  <body data-page="account">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">ST</span>
+        <span>Study</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="/account" aria-current="page">Account</a>
+        <button id="logout-button" class="button-secondary" type="button">Sign out</button>
+      </nav>
+    </header>
+
+    <main id="main" class="shell">
+      <header>
+        <p class="eyebrow">Connection settings</p>
+        <h1>Account</h1>
+        <p class="lede">Review your Canvas connection and passkeys. Token values are never displayed after setup.</p>
+      </header>
+
+      <p id="account-status" class="status" role="status" aria-live="polite">Loading account…</p>
+
+      <div id="account-content" class="stack" hidden>
+        <div class="account-grid">
+          <section class="card" aria-labelledby="connection-title">
+            <h2 id="connection-title">Canvas connection</h2>
+            <dl class="definition-list">
+              <dt>Display name</dt><dd data-account-field="displayName">—</dd>
+              <dt>Institution</dt><dd data-account-field="institution">—</dd>
+              <dt>Canvas identity</dt><dd data-account-field="canvasName">—</dd>
+              <dt>Stored status</dt><dd data-account-field="connectionStatus">—</dd>
+              <dt>Token updated</dt><dd data-account-field="updatedAt">—</dd>
+            </dl>
+          </section>
+
+          <section class="card" aria-labelledby="passkeys-title">
+            <h2 id="passkeys-title">Passkeys</h2>
+            <ul id="passkey-list" class="plain-list passkey-list"></ul>
+            <button id="add-passkey-button" class="button-secondary" type="button">Add a passkey</button>
+          </section>
+        </div>
+
+        <section class="card" aria-labelledby="replace-token-title">
+          <h2 id="replace-token-title">Replace Canvas access token</h2>
+          <p class="muted">Use this only after revoking or rotating the token in Canvas. The new token is sent once in an HTTPS POST body and is not kept in browser storage.</p>
+          <form id="replace-token-form" novalidate>
+            <div class="field">
+              <label for="replacement-token">New Canvas access token</label>
+              <input id="replacement-token" name="canvasAccessToken" type="password" required autocomplete="new-password" spellcheck="false">
+            </div>
+            <button type="submit">Validate and replace token</button>
+          </form>
+        </section>
+
+        <section class="card danger-zone" aria-labelledby="delete-title">
+          <h2 id="delete-title">Delete account</h2>
+          <p>Deleting your account revokes this service's stored Canvas connection and removes account data. This action cannot be undone.</p>
+          <div class="field">
+            <label for="delete-confirmation">Type DELETE to confirm</label>
+            <input id="delete-confirmation" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <button id="delete-account-button" class="button-danger" type="button">Delete account</button>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <span>© 2026 GAID Studio</span>
+      <nav class="footer-links" aria-label="Legal links">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </nav>
+    </footer>
+  </body>
+</html>

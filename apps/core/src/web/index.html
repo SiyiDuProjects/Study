@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1f6b45">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; form-action 'self'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; manifest-src 'self'">
+    <meta name="description" content="Private, read-only Hanyang coursework and saved lecture context for supported AI clients.">
+    <title>Study</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Study home">
+        <span class="brand-mark" aria-hidden="true">ST</span>
+        <span>Study</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a class="button button-secondary" href="/login">Sign in</a>
+      </nav>
+    </header>
+
+    <main id="main" class="shell">
+      <section class="hero" aria-labelledby="hero-title">
+        <div>
+          <p class="eyebrow">Invite-only · read-only</p>
+          <h1 id="hero-title">See your coursework clearly.</h1>
+          <p class="lede">
+            Connect Hanyang HY-ON to review courses, deadlines, submission status,
+            grades, announcements, and relevant saved lecture context from a compatible AI client.
+          </p>
+          <div class="actions">
+            <a class="button" href="/setup">Use an invitation</a>
+            <a class="button button-secondary" href="/login">Sign in with a passkey</a>
+          </div>
+        </div>
+        <aside class="hero-card" aria-label="Privacy and safety summary">
+          <p class="eyebrow">Built around least access</p>
+          <ul>
+            <li><span class="check" aria-hidden="true">✓</span><span>No university password or SSO credential is requested.</span></li>
+            <li><span class="check" aria-hidden="true">✓</span><span>Your Canvas access token is sent only to this service over HTTPS.</span></li>
+            <li><span class="check" aria-hidden="true">✓</span><span>The initial tool set reads Canvas and saved lecture data and cannot submit or edit coursework.</span></li>
+            <li><span class="check" aria-hidden="true">✓</span><span>Passkeys protect access to your connection settings.</span></li>
+          </ul>
+        </aside>
+      </section>
+
+      <section class="feature-grid" aria-label="Capabilities">
+        <article class="card">
+          <h2>Upcoming work</h2>
+          <p>Review due, unlock, and lock times without collapsing them into one ambiguous deadline.</p>
+        </article>
+        <article class="card">
+          <h2>Submission state</h2>
+          <p>Separate missing, late, submitted, excused, pending-review, and graded work when Canvas exposes it.</p>
+        </article>
+        <article class="card">
+          <h2>Lecture context</h2>
+          <p>Search timestamped Korean transcripts and Chinese translations saved by Study Lecture.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>© 2026 GAID Studio</span>
+      <nav class="footer-links" aria-label="Legal links">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/account">Account</a>
+      </nav>
+    </footer>
+  </body>
+</html>
