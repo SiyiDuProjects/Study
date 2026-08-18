@@ -69,167 +69,43 @@ export function appendTranscriptSegment(
 ): TranscriptState {
   const sourceText = segment.sourceText.trim();
   const translatedText = segment.translatedText.trim();
-  const translationError = segment.translationError?.trim();
-  const translationStatus = inferTranslationStatus(segment.translationStatus, sourceText, translatedText, translationError);
   if (!sourceText && !translatedText) {
     return state;
   }
 
-  const patchedState = segment.replaceActive
-    ? null
-    : patchExistingSourceTranslation(
-        state,
-        sourceText,
-        translatedText,
-        translationStatus,
-        translationError,
-        segment.elapsedMs,
-        nowIso
-      );
-  if (patchedState) {
-    return patchedState;
-  }
-
-  const baseState = shouldReplaceActiveSegment(state.activeSegment, segment)
-    ? { ...state, activeSegment: null }
-    : commitActiveSegment(state, nowIso);
-  const startedAtMs = segment.elapsedMs ?? inferNextStartMs(baseState);
+  const committedState = commitActiveSegment(state, nowIso);
+  const startedAtMs = segment.elapsedMs ?? inferNextStartMs(committedState);
   const nextSegment: TranscriptSegment = {
     id: createId("seg"),
+    commitSequence: segment.commitSequence,
     startedAtMs,
     endedAtMs: startedAtMs + Math.max(1200, Math.max(sourceText.length, translatedText.length) * 90),
     sourceText,
     translatedText,
-    translationStatus,
-    translationError,
     isFinal: true,
     createdAt: nowIso,
     updatedAt: nowIso
   };
 
   return {
-    ...baseState,
-    segments: [...baseState.segments, nextSegment],
+    ...committedState,
+    segments: sortCommittedSegments([...committedState.segments, nextSegment]),
     activeSegment: null
   };
 }
 
-function patchExistingSourceTranslation(
-  state: TranscriptState,
-  sourceText: string,
-  translatedText: string,
-  translationStatus: TranscriptSegment["translationStatus"],
-  translationError: string | undefined,
-  elapsedMs: number | undefined,
-  nowIso: string
-): TranscriptState | null {
-  if (!sourceText || (!translatedText && !translationStatus && !translationError)) {
-    return null;
-  }
-
-  const active = state.activeSegment;
-  if (active && sameNormalizedText(active.sourceText, sourceText)) {
-    if (active.translatedText.trim() && !translatedText) {
-      return null;
-    }
-
-    return {
-      ...state,
-      activeSegment: {
-        ...active,
-        translatedText: translatedText || active.translatedText,
-        translationStatus: translationStatus ?? active.translationStatus,
-        translationError,
-        updatedAt: nowIso
+function sortCommittedSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
+  return segments
+    .map((segment, index) => ({ segment, index }))
+    .sort((left, right) => {
+      const leftSequence = left.segment.commitSequence;
+      const rightSequence = right.segment.commitSequence;
+      if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
+        return leftSequence - rightSequence;
       }
-    };
-  }
-
-  const segmentIndex =
-    elapsedMs === undefined
-      ? findLatestSegmentIndex(state.segments, sourceText)
-      : findSegmentIndexBySourceAndStart(state.segments, sourceText, elapsedMs);
-  if (segmentIndex < 0) {
-    return null;
-  }
-
-  const existing = state.segments[segmentIndex];
-  if (existing.translatedText.trim() && !translatedText) {
-    return null;
-  }
-
-  return {
-    ...state,
-    segments: state.segments.map((item, index) =>
-      index === segmentIndex
-        ? {
-            ...item,
-            translatedText: translatedText || item.translatedText,
-            translationStatus: translationStatus ?? item.translationStatus,
-            translationError,
-            updatedAt: nowIso
-          }
-        : item
-    )
-  };
-}
-
-function inferTranslationStatus(
-  status: TranscriptSegment["translationStatus"],
-  sourceText: string,
-  translatedText: string,
-  translationError: string | undefined
-): TranscriptSegment["translationStatus"] {
-  if (status) {
-    return status;
-  }
-
-  if (translationError) {
-    return "failed";
-  }
-
-  if (sourceText && translatedText) {
-    return "translated";
-  }
-
-  if (sourceText && !translatedText) {
-    return "queued";
-  }
-
-  return undefined;
-}
-
-function findSegmentIndexBySourceAndStart(segments: TranscriptSegment[], sourceText: string, startedAtMs: number): number {
-  return segments.findIndex(
-    (segment) => sameNormalizedText(segment.sourceText, sourceText) && segment.startedAtMs === startedAtMs
-  );
-}
-
-function findLatestSegmentIndex(segments: TranscriptSegment[], sourceText: string): number {
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    if (sameNormalizedText(segments[index].sourceText, sourceText)) {
-      return index;
-    }
-  }
-
-  return -1;
-}
-
-function shouldReplaceActiveSegment(active: TranscriptSegment | null, segment: RealtimeTranscriptSegment): boolean {
-  if (!segment.replaceActive) {
-    return false;
-  }
-
-  const expectedSource = segment.replaceActiveSourceText?.trim();
-  if (!expectedSource || !active?.sourceText.trim()) {
-    return true;
-  }
-
-  return sameNormalizedText(active.sourceText, expectedSource);
-}
-
-function sameNormalizedText(left: string, right: string): boolean {
-  return left.trim().replace(/\s+/g, " ") === right.trim().replace(/\s+/g, " ");
+      return left.index - right.index;
+    })
+    .map(({ segment }) => segment);
 }
 
 export function getDisplaySegments(state: TranscriptState, count = 3): TranscriptSegment[] {

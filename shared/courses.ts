@@ -1,3 +1,5 @@
+export type CourseSource = "canvas" | "daily" | "legacy";
+
 export interface CourseOption {
   id: string;
   code: string;
@@ -5,39 +7,34 @@ export interface CourseOption {
   term: string;
   folderName: string;
   label: string;
+  source: CourseSource;
+  workflowState: string | null;
+  startAt: string | null;
+  endAt: string | null;
+  isArchived: boolean;
+  lastSeenAt?: string;
+  archivedAt?: string | null;
 }
 
 export const DAILY_COURSE_ID = "daily";
 
-export const COURSES: CourseOption[] = [
-  {
-    id: DAILY_COURSE_ID,
-    code: "daily",
-    name: "日常 / 不选课程",
-    term: "",
-    folderName: "daily",
-    label: "日常 / 不选课程"
-  },
-  createCourse("202610HY20215", "아카데믹한국어듣기말하기"),
-  createCourse("202610HY20225", "아카데믹한국어읽기쓰기"),
-  createCourse("202610HY20235", "한국어듣기말하기"),
-  createCourse("202610HY20245", "한국어읽기쓰기"),
-  createCourse("202610HY24542", "미디어제작의이해"),
-  createCourse("202610HY25889", "커뮤니케이션학의이해")
-];
+// Daily is the only local option. Every academic course is supplied by the
+// authenticated Hanyang connection in Study Core.
+export const DAILY_COURSE: CourseOption = {
+  id: DAILY_COURSE_ID,
+  code: DAILY_COURSE_ID,
+  name: "日常 / 不选课程",
+  term: "",
+  folderName: DAILY_COURSE_ID,
+  label: "日常 / 不选课程",
+  source: "daily",
+  workflowState: null,
+  startAt: null,
+  endAt: null,
+  isArchived: false
+};
 
-export function findCourseById(courseId: string): CourseOption | undefined {
-  return COURSES.find((course) => course.id === courseId);
-}
-
-function createCourse(code: string, name: string): CourseOption {
-  const term = "2026년 1학기";
-  return {
-    id: code,
-    code,
-    name,
-    term,
-    folderName: `${code}_${name}`,
-    label: `${code}_${name}`
-  };
+export function courseFolderName(course: Pick<CourseOption, "id" | "code" | "name">): string {
+  const prefix = course.code.trim() || course.id;
+  return `${prefix}_${course.name}`;
 }

@@ -1,429 +1,280 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { RealtimeClientCallbacks } from "../types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RealtimeTranscriptSegment } from "../types";
 import { RealtimeTranscriptionTranslationClient } from "./realtimeTranscriptionTranslation";
 
-const mocks = vi.hoisted(() => ({
-  createMicrophoneInput: vi.fn(),
-  createRealtimeWebRtcTransport: vi.fn(),
-  translateKoreanText: vi.fn()
-}));
-
-vi.mock("./microphoneInput", () => ({
-  createMicrophoneInput: mocks.createMicrophoneInput
-}));
-
-vi.mock("./realtimeWebRtc", () => ({
-  createRealtimeWebRtcTransport: mocks.createRealtimeWebRtcTransport
-}));
-
-vi.mock("./api", () => ({
-  translateKoreanText: mocks.translateKoreanText
-}));
-
-describe("RealtimeTranscriptionTranslationClient", () => {
-  let callbacks: RealtimeClientCallbacks;
-  let sentEvents: unknown[];
-  let onMessage: ((data: unknown) => void) | null;
-  let stream: MediaStream;
-  let currentRms: number;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.clearAllMocks();
-    sentEvents = [];
-    onMessage = null;
-    currentRms = 0;
-    stream = createStream();
-    Object.defineProperty(window, "AudioContext", {
-      configurable: true,
-      value: class {
-        resume = vi.fn(() => Promise.resolve());
-        close = vi.fn(() => Promise.resolve());
-        createMediaStreamSource = vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() }));
-        createAnalyser = vi.fn(() => ({
-          fftSize: 0,
-          disconnect: vi.fn(),
-          getFloatTimeDomainData: (samples: Float32Array) => samples.fill(currentRms)
-        }));
-      }
-    });
-    callbacks = {
-      onOpen: vi.fn(),
-      onDelta: vi.fn(),
-      onSegment: vi.fn(),
-      onError: vi.fn(),
-      onClose: vi.fn(),
-      onDiagnostic: vi.fn()
-    };
-
-    mocks.createMicrophoneInput.mockResolvedValue({
-      stream,
-      boostApplied: true,
-      stop: vi.fn()
-    });
-    mocks.createRealtimeWebRtcTransport.mockImplementation(async (options) => {
-      onMessage = options.onMessage;
-      options.onOpen({
-        sendEvent: (event: unknown) => {
-          sentEvents.push(event);
-          return true;
-        },
-        close: vi.fn()
-      });
-      return {
-        sendEvent: (event: unknown) => {
-          sentEvents.push(event);
-          return true;
-        },
-        close: vi.fn()
-      };
-    });
-    mocks.translateKoreanText.mockResolvedValue("这里是上课内容。");
-  });
-
+describe("RealtimeTranscriptionTranslationClient stopAndFlush", () => {
   afterEach(() => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  it("commits Korean transcription before the text translation settles", async () => {
-    const translation = deferred<string>();
-    mocks.translateKoreanText.mockReturnValue(translation.promise);
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
-
-    await client.start();
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "여기",
-      elapsed_ms: 1200
+  it("aborts a deferred client-secret request and closes the microphone without a late open", async () => {
+    const secret = deferred<string>();
+    const track = { stop: vi.fn(), enabled: true };
+    const stream = {
+      getTracks: () => [track],
+      getAudioTracks: () => [track]
+    } as unknown as MediaStream;
+    let secretSignal: AbortSignal | undefined;
+    const getClientSecret = vi.fn((signal?: AbortSignal) => {
+      secretSignal = signal;
+      return secret.promise;
     });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "서",
-      elapsed_ms: 1300
+    const onOpen = vi.fn();
+    vi.stubGlobal("navigator", {
+      mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(stream) }
     });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "item_1",
-      transcript: "여기서",
-      elapsed_ms: 1400
-    });
-
-    expect(callbacks.onDelta).toHaveBeenNthCalledWith(1, { channel: "source", delta: "여기", elapsedMs: 1200 });
-    expect(callbacks.onDelta).toHaveBeenNthCalledWith(2, { channel: "source", delta: "서", elapsedMs: 1300 });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "여기서",
-      translatedText: "",
-      elapsedMs: 1400,
-      replaceActive: true,
-      replaceActiveSourceText: "여기서",
-      translationStatus: "queued"
-    });
-
-    await Promise.resolve();
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "여기서",
-      translatedText: "",
-      elapsedMs: 1400,
-      translationStatus: "translating"
-    });
-    expect(mocks.translateKoreanText).toHaveBeenCalledWith({
-      model: "txt-test",
-      text: "여기서",
-      context: []
-    });
-
-    translation.resolve("这里是上课内容。");
-    await flushPromises();
-
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "여기서",
-      translatedText: "这里是上课内容。",
-      elapsedMs: 1400,
-      translationStatus: "translated"
-    });
-  });
-
-  it("simulates streamed Korean and translates each completed sentence separately", async () => {
-    mocks.translateKoreanText.mockResolvedValueOnce("这是第一句。").mockResolvedValueOnce("这是第二句。");
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
-
-    await client.start();
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "첫 문장입니다. 두 번째 문장입니다.",
-      elapsed_ms: 1000
-    });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "item_1",
-      transcript: "첫 문장입니다. 두 번째 문장입니다.",
-      elapsed_ms: 1600
-    });
-    await flushPromises();
-
-    expect(callbacks.onSegment).toHaveBeenNthCalledWith(1, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      replaceActive: true,
-      replaceActiveSourceText: "첫 문장입니다. 두 번째 문장입니다.",
-      translationStatus: "queued"
-    });
-    expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
-      sourceText: "두 번째 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1040,
-      replaceActive: false,
-      replaceActiveSourceText: "",
-      translationStatus: "queued"
-    });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      translationStatus: "translating"
-    });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "두 번째 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1040,
-      translationStatus: "translating"
-    });
-    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(1, {
-      model: "txt-test",
-      text: "첫 문장입니다.",
-      context: []
-    });
-    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(2, {
-      model: "txt-test",
-      text: "두 번째 문장입니다.",
-      context: [{ sourceText: "첫 문장입니다.", translatedText: "这是第一句。" }]
-    });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "첫 문장입니다.",
-      translatedText: "这是第一句。",
-      elapsedMs: 1000,
-      translationStatus: "translated"
-    });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "두 번째 문장입니다.",
-      translatedText: "这是第二句。",
-      elapsedMs: 1040,
-      translationStatus: "translated"
-    });
-  });
-
-  it("sends completed streaming sentences to translation before a completed event arrives", async () => {
-    mocks.translateKoreanText.mockResolvedValueOnce("这是第一句。").mockResolvedValueOnce("这是第二句。");
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
-
-    await client.start();
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "첫 문장입니다. 두 번째 문장입니다.",
-      elapsed_ms: 1000
-    });
-    await flushPromises();
-
-    expect(callbacks.onSegment).toHaveBeenNthCalledWith(1, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      replaceActive: true,
-      replaceActiveSourceText: "첫 문장입니다. 두 번째 문장입니다.",
-      translationStatus: "queued"
-    });
-    expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
-      sourceText: "두 번째 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1040,
-      replaceActive: false,
-      replaceActiveSourceText: "",
-      translationStatus: "queued"
-    });
-    expect(mocks.translateKoreanText).toHaveBeenCalledTimes(2);
-    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(1, {
-      model: "txt-test",
-      text: "첫 문장입니다.",
-      context: []
-    });
-    expect(mocks.translateKoreanText).toHaveBeenNthCalledWith(2, {
-      model: "txt-test",
-      text: "두 번째 문장입니다.",
-      context: [{ sourceText: "첫 문장입니다.", translatedText: "这是第一句。" }]
-    });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "첫 문장입니다.",
-      translatedText: "这是第一句。",
-      elapsedMs: 1000,
-      translationStatus: "translated"
-    });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "두 번째 문장입니다.",
-      translatedText: "这是第二句。",
-      elapsedMs: 1040,
-      translationStatus: "translated"
-    });
-  });
-
-  it("keeps later Korean transcription items independent from unresolved translations", async () => {
-    const translation = deferred<string>();
-    mocks.translateKoreanText.mockReturnValue(translation.promise);
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
-
-    await client.start();
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "첫 문장",
-      elapsed_ms: 1000
-    });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "item_1",
-      transcript: "첫 문장입니다.",
-      elapsed_ms: 1300
-    });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_2",
-      delta: "두 번째",
-      elapsed_ms: 2200
-    });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "item_2",
-      transcript: "두 번째 문장입니다.",
-      elapsed_ms: 2500
-    });
-
-    expect(callbacks.onSegment).toHaveBeenNthCalledWith(1, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1300,
-      replaceActive: true,
-      replaceActiveSourceText: "첫 문장",
-      translationStatus: "queued"
-    });
-    expect(callbacks.onSegment).toHaveBeenNthCalledWith(2, {
-      sourceText: "두 번째 문장입니다.",
-      translatedText: "",
-      elapsedMs: 2500,
-      replaceActive: true,
-      replaceActiveSourceText: "두 번째",
-      translationStatus: "queued"
-    });
-  });
-
-  it("filters transient replacement glyphs from partial transcription deltas", async () => {
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
-
-    await client.start();
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "여\ufffd기",
-      elapsed_ms: 1200
-    });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "\u25a1서",
-      elapsed_ms: 1300
-    });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "item_1",
-      transcript: "여기서",
-      elapsed_ms: 1400
-    });
-
-    expect(callbacks.onDelta).toHaveBeenNthCalledWith(1, { channel: "source", delta: "여기", elapsedMs: 1200 });
-    expect(callbacks.onDelta).toHaveBeenNthCalledWith(2, { channel: "source", delta: "서", elapsedMs: 1300 });
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "여기서",
-      translatedText: "",
-      elapsedMs: 1400,
-      replaceActive: true,
-      replaceActiveSourceText: "여기서",
-      translationStatus: "queued"
-    });
-  });
-
-  it("marks a single sentence translation failure with the API error", async () => {
-    mocks.translateKoreanText.mockRejectedValue(new Error("OpenAI translation request failed: 500 upstream"));
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
-
-    await client.start();
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.delta",
-      item_id: "item_1",
-      delta: "첫 문장입니다.",
-      elapsed_ms: 1000
-    });
-    emitRealtimeEvent({
-      type: "conversation.item.input_audio_transcription.completed",
-      item_id: "item_1",
-      transcript: "첫 문장입니다.",
-      elapsed_ms: 1300
-    });
-    await flushPromises();
-
-    expect(callbacks.onSegment).toHaveBeenCalledWith({
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      translationStatus: "failed",
-      translationError: "OpenAI translation request failed: 500 upstream"
-    });
-    expect(callbacks.onError).toHaveBeenCalledWith("OpenAI translation request failed: 500 upstream");
-  });
-
-  it("uses the server-issued transcription session without browser session updates", async () => {
-    const client = new RealtimeTranscriptionTranslationClient(async () => "ek_test", "txt-test", callbacks);
-
-    await client.start();
-    currentRms = 0.002;
-    await vi.advanceTimersByTimeAsync(120);
-    currentRms = 0;
-    await vi.advanceTimersByTimeAsync(960);
-
-    expect(sentEvents).not.toContainEqual(
-      expect.objectContaining({
-        type: "session.update"
-      })
+    const client = new RealtimeTranscriptionTranslationClient(
+      getClientSecret,
+      "gpt-5.4-mini",
+      { onOpen, onDelta: vi.fn(), onSegment: vi.fn(), onError: vi.fn(), onClose: vi.fn() }
     );
-    expect(sentEvents).not.toContainEqual({ type: "input_audio_buffer.commit" });
+
+    const starting = client.start();
+    const startRejected = expect(starting).rejects.toMatchObject({ name: "AbortError" });
+    for (let index = 0; index < 20 && !secretSignal; index += 1) {
+      await Promise.resolve();
+    }
+    expect(secretSignal).toBeDefined();
+
+    await client.stopAndFlush();
+    expect(secretSignal?.aborted).toBe(true);
+    secret.resolve("late-secret");
+    await startRejected;
+    await Promise.resolve();
+
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
-  function emitRealtimeEvent(event: unknown): void {
-    onMessage?.(JSON.stringify(event));
-  }
+  it("waits for a committed tail transcription arriving after 700ms", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ translatedText: "最后的作业说明" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    })));
+    const onSegment = vi.fn<(segment: RealtimeTranscriptSegment) => void>();
+    const events: Array<{ type?: string }> = [];
+    const client = clientWithFakeTransport(onSegment, events);
+    const internals = client as unknown as {
+      hasAudioToCommit: boolean;
+      commitInputBuffer(): boolean;
+      handleMessage(raw: string): void;
+    };
+    internals.hasAudioToCommit = true;
+    expect(internals.commitInputBuffer()).toBe(true);
+
+    const stopping = client.stopAndFlush(2_500);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.some((event) => event.type === "session.close")).toBe(false);
+
+    internals.handleMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "마지막 과제 설명"
+    }));
+    await vi.advanceTimersByTimeAsync(150);
+    expect(events.some((event) => event.type === "session.close")).toBe(false);
+    await stopping;
+    expect(onSegment).toHaveBeenCalledWith(expect.objectContaining({ translatedText: "最后的作业说明" }));
+    expect(events.some((event) => event.type === "session.close")).toBe(false);
+  });
+
+  it("counts an empty completed transcription so flush does not hang", async () => {
+    vi.useFakeTimers();
+    const onSegment = vi.fn<(segment: RealtimeTranscriptSegment) => void>();
+    const events: Array<{ type?: string }> = [];
+    const client = clientWithFakeTransport(onSegment, events);
+    const internals = client as unknown as {
+      hasAudioToCommit: boolean;
+      commitInputBuffer(): boolean;
+      handleMessage(raw: string): void;
+    };
+    internals.hasAudioToCommit = true;
+    internals.commitInputBuffer();
+    const stopping = client.stopAndFlush(2_000);
+    await vi.advanceTimersByTimeAsync(900);
+    internals.handleMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed",
+      transcript: "   "
+    }));
+    await vi.advanceTimersByTimeAsync(100);
+    await stopping;
+    expect(onSegment).not.toHaveBeenCalled();
+  });
+
+  it("closes the microphone transport when Realtime reports an error", () => {
+    const close = vi.fn();
+    const onError = vi.fn();
+    const client = new RealtimeTranscriptionTranslationClient(
+      async () => "unused",
+      "gpt-5.4-mini",
+      { onOpen: vi.fn(), onDelta: vi.fn(), onSegment: vi.fn(), onError, onClose: vi.fn() }
+    );
+    Object.assign(client, {
+      transport: { peerConnection: {}, dataChannel: {}, sendEvent: vi.fn(), close }
+    });
+    (client as unknown as { handleMessage(raw: string): void }).handleMessage(
+      JSON.stringify({ type: "error", error: { message: "connection failed" } })
+    );
+    expect(onError).toHaveBeenCalledWith("connection failed");
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("latches a failed transcription and keeps retries failed until the UI explicitly accepts incompleteness", async () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    const events: Array<{ type?: string }> = [];
+    const client = new RealtimeTranscriptionTranslationClient(
+      async () => "unused", "gpt-5.4-mini",
+      { onOpen: vi.fn(), onDelta: vi.fn(), onSegment: vi.fn(), onError, onClose: vi.fn() }
+    );
+    Object.assign(client, {
+      transport: {
+        peerConnection: {}, dataChannel: {},
+        sendEvent: (event: { type?: string }) => { events.push(event); return true; },
+        close: vi.fn()
+      },
+      hasAudioToCommit: true
+    });
+    const internals = client as unknown as { commitInputBuffer(): boolean; handleMessage(raw: string): void };
+    internals.commitInputBuffer();
+    const stopping = client.stopAndFlush(2_000);
+    const failedStop = expect(stopping).rejects.toThrow("转录失败");
+    await vi.advanceTimersByTimeAsync(800);
+    internals.handleMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.failed",
+      error: { message: "tail failed" }
+    }));
+    await vi.advanceTimersByTimeAsync(700);
+    await failedStop;
+    expect(onError).toHaveBeenCalledWith("tail failed");
+
+    const timeoutClient = clientWithFakeTransport(vi.fn<(segment: RealtimeTranscriptSegment) => void>(), []);
+    const timeoutInternals = timeoutClient as unknown as { hasAudioToCommit: boolean; commitInputBuffer(): boolean };
+    timeoutInternals.hasAudioToCommit = true;
+    timeoutInternals.commitInputBuffer();
+    const timedOut = timeoutClient.stopAndFlush(600);
+    const rejection = expect(timedOut).rejects.toThrow("可能不完整");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejection;
+    await expect(timeoutClient.stopAndFlush(600)).rejects.toThrow("可能不完整");
+  });
+
+  it("emits completed transcriptions in audio commit order even when item results arrive out of order", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { text: string };
+      return new Response(JSON.stringify({ translatedText: `译:${body.text}` }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }));
+    const onSegment = vi.fn<(segment: RealtimeTranscriptSegment) => void>();
+    const events: Array<{ type?: string }> = [];
+    const client = clientWithFakeTransport(onSegment, events, 7);
+    const internals = client as unknown as {
+      hasAudioToCommit: boolean;
+      commitInputBuffer(): boolean;
+      handleMessage(raw: string): void;
+      translationQueue: Promise<void>;
+    };
+    internals.hasAudioToCommit = true;
+    internals.commitInputBuffer();
+    internals.hasAudioToCommit = true;
+    internals.commitInputBuffer();
+    internals.handleMessage(JSON.stringify({ type: "input_audio_buffer.committed", item_id: "item_1" }));
+    internals.handleMessage(JSON.stringify({ type: "input_audio_buffer.committed", item_id: "item_2" }));
+    internals.handleMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed", item_id: "item_2", transcript: "둘째"
+    }));
+    expect(onSegment).not.toHaveBeenCalled();
+    internals.handleMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed", item_id: "item_1", transcript: "첫째"
+    }));
+    await internals.translationQueue;
+
+    expect(onSegment.mock.calls.map(([segment]) => [segment.sourceText, segment.commitSequence])).toEqual([
+      ["첫째", 7],
+      ["둘째", 8]
+    ]);
+  });
+
+  it("uses pending commit order as a safe fallback when item_id is absent", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { text: string };
+      return new Response(JSON.stringify({ translatedText: body.text }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }));
+    const onSegment = vi.fn<(segment: RealtimeTranscriptSegment) => void>();
+    const client = clientWithFakeTransport(onSegment, []);
+    const internals = client as unknown as {
+      hasAudioToCommit: boolean;
+      commitInputBuffer(): boolean;
+      handleMessage(raw: string): void;
+      translationQueue: Promise<void>;
+    };
+    internals.hasAudioToCommit = true;
+    internals.commitInputBuffer();
+    internals.hasAudioToCommit = true;
+    internals.commitInputBuffer();
+    internals.handleMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed", transcript: "하나"
+    }));
+    internals.handleMessage(JSON.stringify({
+      type: "conversation.item.input_audio_transcription.completed", transcript: "둘"
+    }));
+    await internals.translationQueue;
+    expect(onSegment.mock.calls.map(([segment]) => segment.commitSequence)).toEqual([0, 1]);
+  });
+
+  it("rejects when buffered tail audio cannot be committed and never turns a retry into success", async () => {
+    const close = vi.fn();
+    const client = new RealtimeTranscriptionTranslationClient(
+      async () => "unused", "gpt-5.4-mini",
+      { onOpen: vi.fn(), onDelta: vi.fn(), onSegment: vi.fn(), onError: vi.fn(), onClose: vi.fn() }
+    );
+    Object.assign(client, {
+      transport: {
+        peerConnection: {}, dataChannel: {}, sendEvent: vi.fn(() => false), close
+      },
+      hasAudioToCommit: true
+    });
+    await expect(client.stopAndFlush()).rejects.toThrow("未能提交");
+    expect(close).toHaveBeenCalledOnce();
+    await expect(client.stopAndFlush()).rejects.toThrow("未能提交");
+  });
 });
 
-function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((resolver) => {
-    resolve = resolver;
+function clientWithFakeTransport(
+  onSegment: (segment: RealtimeTranscriptSegment) => void,
+  events: Array<{ type?: string }>,
+  initialCommitSequence = 0
+) {
+  const client = new RealtimeTranscriptionTranslationClient(
+    async () => "unused",
+    "gpt-5.4-mini",
+    { onOpen: vi.fn(), onDelta: vi.fn(), onSegment, onError: vi.fn(), onClose: vi.fn() },
+    initialCommitSequence
+  );
+  Object.assign(client, {
+    transport: {
+      peerConnection: {},
+      dataChannel: {},
+      sendEvent: (event: { type?: string }) => {
+        events.push(event);
+        return true;
+      },
+      close: vi.fn()
+    }
   });
+  return client;
+}
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
   return { promise, resolve };
-}
-
-async function flushPromises(count = 8): Promise<void> {
-  for (let index = 0; index < count; index += 1) {
-    await Promise.resolve();
-  }
-}
-
-function createStream(): MediaStream {
-  return {
-    getAudioTracks: vi.fn(() => [{ enabled: true }]),
-    getTracks: vi.fn(() => [{ stop: vi.fn() }])
-  } as unknown as MediaStream;
 }

@@ -62,124 +62,16 @@ describe("transcript reducer", () => {
     expect(state.segments[0].startedAtMs).toBe(1200);
   });
 
-  it("can replace an active streaming Korean line with the finalized bilingual segment", () => {
+  it("sorts finalized transcribe-then-translate segments by commit sequence", () => {
     let state = createTranscriptState();
-
-    state = applyTranscriptDelta(state, { channel: "source", delta: "여기서" });
     state = appendTranscriptSegment(state, {
-      sourceText: "여기서",
-      translatedText: "在这里",
-      elapsedMs: 900,
-      replaceActive: true
-    });
-
-    expect(state.activeSegment).toBeNull();
-    expect(state.segments).toHaveLength(1);
-    expect(state.segments[0].sourceText).toBe("여기서");
-    expect(state.segments[0].translatedText).toBe("在这里");
-  });
-
-  it("patches Chinese onto the latest finalized Korean source segment", () => {
-    let state = createTranscriptState();
-
-    state = appendTranscriptSegment(state, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      replaceActive: true,
-      translationStatus: "queued"
+      sourceText: "둘째", translatedText: "第二", elapsedMs: 2_000, commitSequence: 1
     });
     state = appendTranscriptSegment(state, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      translationStatus: "translating"
+      sourceText: "첫째", translatedText: "第一", elapsedMs: 0, commitSequence: 0
     });
-    state = appendTranscriptSegment(state, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "这是第一句。",
-      elapsedMs: 1000,
-      translationStatus: "translated"
-    });
-
-    expect(state.activeSegment).toBeNull();
-    expect(state.segments).toHaveLength(1);
-    expect(state.segments[0].sourceText).toBe("첫 문장입니다.");
-    expect(state.segments[0].translatedText).toBe("这是第一句。");
-    expect(state.segments[0].translationStatus).toBe("translated");
-  });
-
-  it("patches a translation failure onto the intended Korean source segment", () => {
-    let state = createTranscriptState();
-
-    state = appendTranscriptSegment(state, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      replaceActive: true,
-      translationStatus: "queued"
-    });
-    state = appendTranscriptSegment(state, {
-      sourceText: "첫 문장입니다.",
-      translatedText: "",
-      elapsedMs: 1000,
-      translationStatus: "failed",
-      translationError: "OpenAI translation request failed"
-    });
-
-    expect(state.segments).toHaveLength(1);
-    expect(state.segments[0].translatedText).toBe("");
-    expect(state.segments[0].translationStatus).toBe("failed");
-    expect(state.segments[0].translationError).toBe("OpenAI translation request failed");
-  });
-
-  it("does not collapse repeated Korean lines that already have translations", () => {
-    let state = createTranscriptState();
-
-    state = appendTranscriptSegment(state, {
-      sourceText: "네.",
-      translatedText: "",
-      elapsedMs: 1000,
-      replaceActive: true
-    });
-    state = appendTranscriptSegment(state, {
-      sourceText: "네.",
-      translatedText: "是的。"
-    });
-    state = appendTranscriptSegment(state, {
-      sourceText: "네.",
-      translatedText: "",
-      elapsedMs: 2200,
-      replaceActive: true
-    });
-
-    expect(state.segments).toHaveLength(2);
-    expect(state.segments.map((segment) => segment.sourceText)).toEqual(["네.", "네."]);
-  });
-
-  it("uses elapsed time to patch the intended repeated Korean source segment", () => {
-    let state = createTranscriptState();
-
-    state = appendTranscriptSegment(state, {
-      sourceText: "네.",
-      translatedText: "",
-      elapsedMs: 1000,
-      replaceActive: true
-    });
-    state = appendTranscriptSegment(state, {
-      sourceText: "네.",
-      translatedText: "",
-      elapsedMs: 2000,
-      replaceActive: true
-    });
-    state = appendTranscriptSegment(state, {
-      sourceText: "네.",
-      translatedText: "是的。",
-      elapsedMs: 1000
-    });
-
-    expect(state.segments).toHaveLength(2);
-    expect(state.segments[0].translatedText).toBe("是的。");
-    expect(state.segments[1].translatedText).toBe("");
+    expect(state.segments.map((segment) => [segment.translatedText, segment.commitSequence])).toEqual([
+      ["第一", 0], ["第二", 1]
+    ]);
   });
 });

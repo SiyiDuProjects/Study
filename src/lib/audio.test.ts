@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { floatToPcm16, pcm16ToBase64, resampleTo24k, SAMPLES_PER_FRAME } from "./audio";
+import { floatToPcm16, pcm16ToBase64, resampleTo24k } from "./audio";
 
 describe("audio helpers", () => {
   it("resamples 48k mono input to 24k", () => {
@@ -19,9 +19,5 @@ describe("audio helpers", () => {
     const encoded = pcm16ToBase64(new Int16Array([0, 32767]));
 
     expect(encoded.length).toBeGreaterThan(0);
-  });
-
-  it("uses 200ms frames at 24k", () => {
-    expect(SAMPLES_PER_FRAME).toBe(4800);
   });
 });

@@ -1,106 +1,88 @@
-# 中韩课堂字幕器
+# Study Lecture
 
-React + Vite + TypeScript PWA，用于韩语课堂实时中文字幕、韩文转录保存、按课程归档，以及复制/导出课堂上下文。
+Study Lecture 是仅面向一个 Hanyang HY-ON 学习身份的课堂字幕与文稿 PWA。课程由 Study Core 使用服务器端已绑定的 Canvas PAT 获取；本服务从不接触 PAT，也不保存原始课堂音频。
 
-## 功能
+## 能力
 
-- 默认使用实时转录 + 翻译模式：浏览器用服务端签发的短期 client secret 建立 OpenAI Realtime 转录会话，使用 Realtime transcription 默认 VAD 切分韩语，韩文先流式显示，再按韩文句末标点调用服务端文本翻译补中文副行。
-- 保留实时直译 WebSocket 模式和官方 WebRTC 翻译模式，用于网络兼容性 fallback 和质量对照。
-- 远距离收音增强保留为本机设置开关，默认关闭；只有课堂音量明显偏低时再手动开启，避免放大环境噪声影响转录。
-- API key 只放在服务器，浏览器通过 `/api/realtime/client-secret` 获取短期 Realtime client secret。
-- 录音前必须选择课程，也可以选择 `日常 / 不选课程`。
-- 课后记录保存到服务器 SQLite，同一个受保护网站下的不同设备都能看到同一批记录。
-- 资料库按课程整理历史课次，可一键复制单节课或整门课当前已保存的中韩转录给 AI。
-- 保存服务器失败时，记录会先进入本机 IndexedDB 待同步队列，服务器恢复后自动重试。
-- 不保存、不上传到本项目服务器持久化原始课堂音频；只保存文本 transcript 和课堂元数据。
+- Hanyang Canvas 动态课程选择；Canvas 返回 0 门课程是正常状态。
+- 韩语实时转录与简体中文字幕。
+- 服务端创建课堂 ID，录制中每 4 秒增量、幂等保存文稿。
+- 自动保存请求有 8 秒上限，同时最多保留一个执行中和一个合并待办；网络切换导致响应丢失时，会用同一 writer lease 读取最新 revision、自证后幂等重送，不会直接误判成其他设备接管。
+- 刷新、断线或 Realtime 错误后可恢复未完成记录；尾段无法确认时保持 `failed`，只有用户再次明确确认，才能以“字幕可能不完整”结束。
+- 连接中的结束或页面卸载会取消麦克风授权、临时凭据和 SDP；数据通道必须在限定时间内真正打开，迟到的音轨或连接会立即关闭。
+- 每条未完成记录使用内存中的 writer lease 和递增 `revision`。另一设备仅打开页面不会改动正在录制的记录；继续或结束前必须明确确认接管，接管后旧页面的保存请求会收到 `409` 并停止录音。
+- `recording`、`ready`、`failed`、`archived` 生命周期。
+- 旧 Jiahuan 数据原样保留，旧课程标记 `legacy_unmatched`，不会猜测 Canvas ID。
+- MCP 内部只读接口支持列表、详情与有界全文搜索。
+
+“录制”在当前版本指实时采集麦克风用于转录。音频会实时传给 OpenAI，但不会被本服务持久化，也没有音频回放功能。
+
+## 数据流
+
+```text
+浏览器 -> Study Lecture API -> Study Core -> Hanyang Canvas
+                         \-> SQLite 文稿
+
+Study MCP -> Study Lecture internal API -> SQLite 文稿
+```
+
+浏览器和 MCP 都不会获得 Canvas PAT、OpenAI 主密钥或内部 service token。浏览器开始转录时只会获得 OpenAI 签发的短期 ephemeral secret。
 
 ## 本地运行
 
+复制 `.env.example` 的变量到本机环境，并为本地 Study Core 设置：
+
 ```powershell
 npm.cmd install
-$env:OPENAI_API_KEY="sk-..."
 npm.cmd run dev
 ```
 
-打开 Vite 地址后，在首页选择课程或日常，点击“开始录音”，再允许麦克风权限。
+非 production 模式的 Vite 和浏览器 API 都只绑定 `127.0.0.1`，API 还会要求 Host 精确为 `127.0.0.1:<实际端口>` 或 `localhost:<实际端口>`，避免局域网代理和 DNS rebinding 冒充本机 owner。不要把本地开发服务改成无认证的 `0.0.0.0`。
 
-## 脚本
+production 使用用户明确批准的公开模式，必须精确配置 `LECTURE_AUTH_MODE=public`；缺失、拼错或未知值都会拒绝启动。公开模式没有网页登录，任何拿到 `lecture.gaid.studio` 地址的人都能按同一个 Hanyang owner 查看和操作录播数据，并共享服务端限速额度。服务仍强制精确 Host、所有写请求的同源 Origin、2 MB JSON 上限、OpenAI 端点限速和独立 internal service token。公开模式不会把 Canvas PAT、OpenAI 主密钥或 service token 下发到浏览器。
+
+## 命令
 
 ```powershell
-npm.cmd run dev          # 同时启动 Express API 和 Vite
-npm.cmd run test         # Vitest
-npm.cmd run build        # TypeScript + Vite 生产构建
-npm.cmd run server:start # 运行已构建的 Express 服务
-npm.cmd run smoke:openai # 手动验证 OpenAI client secret 和文本翻译配置
+npm.cmd run dev
+npm.cmd test
+npm.cmd run build
+npm.cmd run server:start
 ```
 
-## 服务端环境变量
+## API 边界
+
+浏览器同域 API：
 
 ```text
-OPENAI_API_KEY=服务器端 OpenAI API key
-PORT=3001
-JIAHUAN_DB_PATH=/data/jiahuan.sqlite
-JIAHUAN_STATIC_DIR=/app/dist
-OPENAI_REALTIME_TRANSLATION_MODEL=gpt-realtime-translate
-OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper
-OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.4-mini
-OPENAI_TEXT_TRANSLATION_MODELS=gpt-5.4-mini,gpt-5.4-nano
+GET  /api/courses
+POST /api/sessions
+POST /api/sessions/:id/checkpoint
+POST /api/sessions/:id/fail
+POST /api/sessions/:id/resume
+POST /api/sessions/:id/complete
+GET  /api/sessions
+GET  /api/sessions/:id
+DELETE /api/sessions/:id        # 逻辑归档
 ```
 
-生产环境通过 Cloudflare Access 保护站点入口；应用内不实现账号系统。
-模型名由服务端环境变量集中配置，浏览器 UI 从 `/api/config` 获取可选模型。浏览器不保存、不输入 OpenAI 主 API key。
-`OPENAI_API_KEY` 必须支持 OpenAI Realtime client secrets；只支持文字模型的中转 API 只能用于文本翻译，不能启动实时录音转录。
+创建与恢复接口会把一次性的 `writerLease.token` 返回给当前页面；checkpoint、fail、complete 必须同时提交该 token 和最新 `expectedRevision`。token 只保存在页面内存中，服务端只保存其 SHA-256 摘要。刷新后不会自动写回或自动判失败，必须基于页面看到的 revision 再次确认接管。只有 `ready` 记录可以归档。
 
-## Realtime 修改纪律
-
-- 默认课堂链路是 `transcribe-then-translate`：OpenAI Realtime 只负责韩文转录，服务器 `/api/translate` 在韩文段落已经出现后补中文。
-- 韩文转录、中文翻译、字幕渲染必须分层处理。中文翻译失败、延迟或未返回时，不能阻塞后续韩文字幕继续显示。
-- Realtime 模型名只能来自服务端配置和 `/api/config`，不能在浏览器代码或临时修复里偷换模型。
-- 修 Realtime 问题时先检查 client secret session、VAD/event、WebRTC/audio 输入链路。不要用 UI 定时器、localStorage 版本重置、强制 fallback 模式或翻译兜底来掩盖主链路故障。
-- `transcribe-then-translate` 的 transcription client-secret session 不显式设置 `turn_detection`；当前 `gpt-realtime-whisper` 真实 API 会拒绝该字段，Realtime transcription 默认 VAD 继续负责提交转录片段。
-- 临时诊断只能帮助定位问题，不能变成生产控制流；修复后要能明确删除或隔离。
-
-## VPS 部署
-
-这台 Mac 的共享 VPS SSH 入口、私钥路径、权限修复和保密规则见 `/Users/bytedance/.codex/AGENTS.md`。
-
-推荐在现有 VPS `/home/ubuntu/siyi/docker-compose.yml` 中使用一个 Node 容器同时服务静态前端和 `/api`：
-
-```yaml
-jiahuan_web:
-  image: node:22-bookworm-slim
-  container_name: jiahuan_web
-  restart: always
-  working_dir: /app
-  command: npm run server:start
-  ports:
-    - "127.0.0.1:8091:3000"
-  environment:
-    NODE_ENV: production
-    PORT: "3000"
-    JIAHUAN_DB_PATH: /data/jiahuan.sqlite
-    JIAHUAN_STATIC_DIR: /app/dist
-    OPENAI_REALTIME_TRANSCRIPTION_MODEL: gpt-realtime-whisper
-    OPENAI_TEXT_TRANSLATION_MODELS: gpt-5.4-mini,gpt-5.4-nano
-  env_file:
-    - /home/ubuntu/siyi/jiahuan.env
-  volumes:
-    - /opt/jiahuan/app:/app:ro
-    - /opt/jiahuan/data:/data
-```
-
-`/home/ubuntu/siyi/jiahuan.env` 只放在 VPS：
+Study MCP 使用独立 `LECTURE_SERVICE_TOKEN`：
 
 ```text
-OPENAI_API_KEY=sk-...
+GET /internal/mcp/lecture/sessions
+GET /internal/mcp/lecture/sessions/:id
+GET /internal/mcp/lecture/search?q=...
 ```
 
-这里需要放支持 OpenAI Realtime 的服务端 key。只支持 `gpt-5.4-mini`、`gpt-5.4-nano` 这类文字模型的 API 不能用于“开始录音”。
+## 数据兼容
 
-Cloudflare Tunnel public hostname 继续指向：
+- production 默认数据库仍为 `/data/jiahuan.sqlite`。
+- `JIAHUAN_DB_PATH` 和 `JIAHUAN_STATIC_DIR` 暂时作为旧变量回退。
+- 启动时原地增加新列、课程缓存和 FTS 索引；不删除旧记录。
+- 历史数据库即使已有多条未完成记录，启动迁移也不会静默归档或改写它们；必须逐条显式接管并结束后才能创建新记录。
+- `finalizationWarning` 会随浏览器记录、Markdown 和 MCP 结果保留，带警告的记录不得被解释为完整逐字稿。
+- CI 在迁移前自动生成经过 `integrity_check` 的 SQLite 在线备份和旧 app 快照；手工部署也必须执行同等备份。
 
-```text
-http://localhost:8091
-```
-
-GitHub remote: `https://github.com/SiyiDuProjects/Jiahuan.git`.
+部署细节见 `DEPLOY_CICD.md`。

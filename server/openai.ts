@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { TextTranslationModel, TranslationMode } from "../src/types.js";
-import { loadOpenAIModelConfig, type OpenAIModelConfig } from "./modelConfig.js";
 
 const OPENAI_REALTIME_CLIENT_SECRET_URL = "https://api.openai.com/v1/realtime/client_secrets";
 const OPENAI_TRANSLATION_CLIENT_SECRET_URL = "https://api.openai.com/v1/realtime/translations/client_secrets";
@@ -29,13 +28,11 @@ export interface RealtimeClientSecret {
 export async function createRealtimeClientSecret({
   apiKey,
   mode,
-  safetyIdentifier,
-  modelConfig = loadOpenAIModelConfig()
+  safetyIdentifier
 }: {
   apiKey: string;
   mode: TranslationMode;
   safetyIdentifier: string;
-  modelConfig?: OpenAIModelConfig;
 }): Promise<RealtimeClientSecret> {
   const response = await fetch(realtimeClientSecretUrlForMode(mode), {
     method: "POST",
@@ -49,16 +46,18 @@ export async function createRealtimeClientSecret({
         anchor: "created_at",
         seconds: 600
       },
-      session: realtimeSessionForMode(mode, modelConfig)
-    })
+      session: realtimeSessionForMode(mode)
+    }),
+    redirect: "error",
+    signal: AbortSignal.timeout(12_000)
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`OpenAI client secret request failed: ${response.status} ${detail}`);
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`OpenAI client secret request failed with status ${response.status}`);
   }
 
-  const data = (await response.json()) as OpenAIClientSecretResponse;
+  const data = await readJsonWithLimit<OpenAIClientSecretResponse>(response, 256_000);
   const clientSecret = data.value ?? data.client_secret?.value ?? data.session?.client_secret?.value;
   const expiresAt = data.expires_at ?? data.client_secret?.expires_at ?? data.session?.client_secret?.expires_at;
 
@@ -95,15 +94,17 @@ export async function translateKoreanToChinese({
         "You translate live Korean class transcripts into natural Simplified Chinese subtitles. Return only the Chinese translation. Preserve names, class terms, numbers, and quoted phrases. Do not add explanations.",
       input: buildTranslationInput(text, context),
       max_output_tokens: 700
-    })
+    }),
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000)
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`OpenAI translation request failed: ${response.status} ${detail}`);
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`OpenAI translation request failed with status ${response.status}`);
   }
 
-  const data = (await response.json()) as OpenAIResponse;
+  const data = await readJsonWithLimit<OpenAIResponse>(response, 1_000_000);
   const outputText = extractResponseText(data).trim();
   if (!outputText) {
     throw new Error("OpenAI translation response did not include text");
@@ -116,30 +117,29 @@ export function safetyIdentifierFromEmail(email: string | null): string {
   return createHash("sha256").update(email?.toLowerCase().trim() || "jiahuan-internal").digest("hex");
 }
 
-function realtimeSessionForMode(mode: TranslationMode, modelConfig: OpenAIModelConfig) {
+function realtimeSessionForMode(mode: TranslationMode) {
   if (mode === "transcribe-then-translate") {
     return {
       type: "transcription",
       audio: {
         input: {
-          noise_reduction: {
-            type: "far_field"
-          },
           transcription: {
-            model: modelConfig.realtimeTranscriptionModel,
-            language: "ko"
-          }
+            model: "gpt-realtime-whisper",
+            language: "ko",
+            delay: "low"
+          },
+          turn_detection: null
         }
       }
     };
   }
 
   return {
-    model: modelConfig.realtimeTranslationModel,
+    model: "gpt-realtime-translate",
     audio: {
       input: {
         transcription: {
-          model: modelConfig.realtimeTranscriptionModel
+          model: "gpt-realtime-whisper"
         },
         noise_reduction: {
           type: "far_field"
@@ -153,7 +153,7 @@ function realtimeSessionForMode(mode: TranslationMode, modelConfig: OpenAIModelC
 }
 
 function realtimeClientSecretUrlForMode(mode: TranslationMode): string {
-  return mode === "transcribe-then-translate" ? OPENAI_REALTIME_CLIENT_SECRET_URL : OPENAI_TRANSLATION_CLIENT_SECRET_URL;
+  return mode === "realtime-translate" ? OPENAI_TRANSLATION_CLIENT_SECRET_URL : OPENAI_REALTIME_CLIENT_SECRET_URL;
 }
 
 function buildTranslationInput(text: string, context?: Array<{ sourceText: string; translatedText: string }>): string {
@@ -187,4 +187,39 @@ function extractResponseText(data: OpenAIResponse): string {
       .map((content) => content.text ?? "")
       .join("") ?? ""
   );
+}
+
+async function readJsonWithLimit<T>(response: Response, maximumBytes: number): Promise<T> {
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("OpenAI response exceeded the allowed size");
+  }
+  if (!response.body) {
+    throw new Error("OpenAI response did not include a body");
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error("OpenAI response exceeded the allowed size");
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(merged)) as T;
+  } catch {
+    throw new Error("OpenAI response was not valid JSON");
+  }
 }

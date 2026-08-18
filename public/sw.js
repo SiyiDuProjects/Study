@@ -1,4 +1,4 @@
-const CACHE_NAME = "korean-class-subtitler-v2";
+const CACHE_NAME = "study-lecture-v4";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/subtitle-icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -20,15 +20,31 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (event.request.mode === "navigate") {
+  const url = new URL(event.request.url);
+  const isPrivateApi =
+    url.origin === self.location.origin &&
+    (url.pathname === "/api" || url.pathname.startsWith("/api/") ||
+      url.pathname === "/internal" || url.pathname.startsWith("/internal/"));
+  if (isPrivateApi) {
+    return;
+  }
+
+  if (event.request.mode === "navigate" && url.origin === self.location.origin) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("/", copy));
+          const contentType = response.headers.get("content-type") || "";
+          if (response.ok && response.type === "basic" && contentType.includes("text/html")) {
+            const copy = response.clone();
+            return caches
+              .open(CACHE_NAME)
+              .then((cache) => cache.put("/", copy))
+              .catch(() => undefined)
+              .then(() => response);
+          }
           return response;
         })
-        .catch(() => caches.match("/") || caches.match(event.request))
+        .catch(() => caches.match("/"))
     );
     return;
   }

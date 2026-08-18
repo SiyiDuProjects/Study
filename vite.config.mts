@@ -11,16 +11,17 @@ export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
     noDiscovery: true,
-    include: ["lucide-react", "react", "react-dom", "react-dom/client"]
+    include: []
   },
   server: {
+    host: "127.0.0.1",
     fs: {
       allow: [projectRoot]
     },
     proxy: {
       "/api": {
         target: "http://127.0.0.1:3001",
-        ws: true
+        changeOrigin: true
       }
     }
   }

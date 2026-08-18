@@ -1,86 +1,37 @@
-# CI/CD Deployment
+# Study Lecture deployment
 
-This repo deploys a Vite frontend plus a Node/Express API to the existing VPS used by the sibling `Interview` and `connection` projects.
+The existing VPS service remains `jiahuan_web` for the first compatible release. Branding changes do not rename the data directory or SQLite file.
 
-GitHub repository: `https://github.com/SiyiDuProjects/Jiahuan`.
+## Pre-deploy checklist
 
-## What It Does
+1. CI automatically creates a consistent SQLite online backup, verifies `PRAGMA integrity_check`, and snapshots the complete old app release before a container that may run migrations starts. A manual deployment must do the same before replacing the app.
+2. Confirm Study Core is reachable on the shared internal Docker network at `http://canvas:8794`.
+3. Confirm the existing Cloudflare Tunnel routes the exact `lecture.gaid.studio` hostname to this service; do not create a Zero Trust Access application for public mode.
+4. Confirm the operator has intentionally set `LECTURE_AUTH_MODE=public` for this single-owner deployment.
+5. Run `npm.cmd test` and `npm.cmd run build`.
 
-On every push to `main` that changes app, server, shared, or workflow files:
+## VPS environment
 
-```text
-GitHub Actions
--> Validate VPS build: npm ci -> npm test -> npm run build
--> package dist/, dist-server/, package.json, and package-lock.json
--> rsync release to VPS
--> npm ci --omit=dev inside a node:22-bookworm-slim container on the VPS
--> docker compose up -d jiahuan_web
--> SSH to VPS and curl local health URL
-```
-
-The workflow does not upload `.env` files or API keys. `OPENAI_API_KEY` must live in a VPS-side env file referenced by Docker Compose.
-That key must support OpenAI Realtime client secrets. Text-only API gateways can be used for translation models only, not for starting live recording.
-
-The VPS is the only deployment target:
+Keep the environment file outside the release directory at `/home/ubuntu/siyi/jiahuan.env`. The canonical Compose root is `/home/ubuntu/siyi`. Populate every value described by `.env.example`. Production intentionally refuses to start without:
 
 ```text
-push main -> test and build -> deploy jiahuan_web -> local VPS health check
+STUDY_API_URL
+STUDY_SERVICE_TOKEN
+LECTURE_SERVICE_TOKEN
+LECTURE_PUBLIC_ORIGIN
+LECTURE_AUTH_MODE=public
+OPENAI_API_KEY
 ```
 
-## Required GitHub Secrets
-
-Use the same shared secrets as `Interview` and `connection`:
+Keep:
 
 ```text
-SSH_HOST=49.51.38.235
-SSH_PORT=22
-SSH_USER=ubuntu
-SSH_KEY=<authorized private key contents>
-COMPOSE_PATH=/home/ubuntu/siyi
+LECTURE_DB_PATH=/data/jiahuan.sqlite
 ```
 
-On this Mac, the authorized shared key is stored at:
+`LECTURE_AUTH_MODE=public` is an explicit exposure switch, not a default. Missing, differently cased, misspelled, or unknown values make production startup fail. In this mode every browser maps to the same internal Hanyang owner and there is no browser login. Host/Origin checks, the 2 MB request limit, OpenAI endpoint rate limits, and both service-token boundaries remain active.
 
-```text
-/Users/bytedance/Projects/keys/connection-prod-20260526.pem
-```
-
-Use that file for local SSH/scp, but never commit it or paste its contents into docs/logs. The corresponding Tencent Cloud SSH key is `connection_prod_20260526` / `lhkp-41patbaz`.
-
-Project-specific secrets:
-
-```text
-JIAHUAN_APP_PATH=/opt/jiahuan/app
-JIAHUAN_DATA_PATH=/opt/jiahuan/data
-JIAHUAN_COMPOSE_SERVICE=jiahuan_web
-JIAHUAN_LOCAL_HEALTH_URL=http://127.0.0.1:8091/api/health
-```
-
-`JIAHUAN_LOCAL_HEALTH_URL` is optional; the workflow defaults to `http://127.0.0.1:8091/api/health`.
-
-## One-Time VPS Setup
-
-Connect from this Mac:
-
-```bash
-ssh -i /Users/bytedance/Projects/keys/connection-prod-20260526.pem ubuntu@49.51.38.235
-```
-
-Create app and data directories:
-
-```bash
-sudo mkdir -p /opt/jiahuan/app /opt/jiahuan/data
-```
-
-Create `/home/ubuntu/siyi/jiahuan.env` on the VPS:
-
-```text
-OPENAI_API_KEY=sk-...
-```
-
-Use a server-side key with OpenAI Realtime access here. A text-only API/gateway will make `/api/realtime/client-secret` fail and the app cannot start recording.
-
-Add this service to `/home/ubuntu/siyi/docker-compose.yml`:
+## Compose shape
 
 ```yaml
 jiahuan_web:
@@ -88,58 +39,74 @@ jiahuan_web:
   container_name: jiahuan_web
   restart: always
   working_dir: /app
-  command: npm run server:start
+  command: ["node", "dist-server/server/index.js"]
   ports:
     - "127.0.0.1:8091:3000"
   environment:
     NODE_ENV: production
     PORT: "3000"
-    JIAHUAN_DB_PATH: /data/jiahuan.sqlite
-    JIAHUAN_STATIC_DIR: /app/dist
-    OPENAI_REALTIME_TRANSCRIPTION_MODEL: gpt-realtime-whisper
-    OPENAI_TEXT_TRANSLATION_MODELS: gpt-5.4-mini,gpt-5.4-nano
+    LECTURE_DB_PATH: /data/jiahuan.sqlite
+    LECTURE_STATIC_DIR: /app/dist
+    STUDY_API_URL: http://canvas:8794
   env_file:
     - /home/ubuntu/siyi/jiahuan.env
   volumes:
     - /opt/jiahuan/app:/app:ro
     - /opt/jiahuan/data:/data
+  networks:
+    - default
+    - study_internal
 ```
 
-Start it after the first deploy:
+Attach both services to their Compose default network for outbound HTTPS and to the same explicitly named `study_internal` network for private service discovery. Create `study_internal` with Docker's internal-network flag so only the default networks provide outbound routing. Do not publish an extra Study API port and do not share the SQLite volume with Canvas.
 
-```bash
-cd /home/ubuntu/siyi
-sudo docker compose up -d jiahuan_web
-curl http://127.0.0.1:8091/api/health
-```
+## GitHub Actions secrets
 
-## Cloudflare Tunnel
-
-Add or keep a public hostname on the existing VPS tunnel:
+Production paths are not secrets or inputs. The workflow intentionally fixes and validates all of them and fails closed on a missing directory or symlink:
 
 ```text
-Hostname: jiahuan.gaid.studio
-Service: http://localhost:8091
+app=/opt/jiahuan/app
+data=/opt/jiahuan/data
+backups=/opt/jiahuan/backups
+compose=/home/ubuntu/siyi
+service=jiahuan_web
+local health=http://127.0.0.1:8091/api/health
+public health=https://lecture.gaid.studio/api/health
 ```
 
-The app uses the microphone, so it must be served over HTTPS. Cloudflare Tunnel provides HTTPS, and Cloudflare Access should protect the hostname because this is an internal app.
+Configure only these GitHub Actions secrets:
 
-GitHub Actions checks health over SSH against the local VPS URL, so Cloudflare Access can stay enabled on the public hostname without needing an Access service token in CI.
-
-## OpenAI Smoke Test
-
-After changing OpenAI model environment variables or account permissions, run a controlled smoke test from a trusted machine or inside the VPS container:
-
-```bash
-OPENAI_API_KEY=sk-... npm run smoke:openai
+```text
+SSH_HOST
+SSH_PORT
+SSH_USER
+SSH_KEY
+SSH_KNOWN_HOSTS=<pinned known_hosts line, not a runtime ssh-keyscan result>
 ```
 
-The script requests short-lived Realtime client secrets for all classroom modes and performs one small Korean-to-Chinese text translation. It prints model names and expiry times, but not client secret values.
+The workflow never accepts a secret-provided public URL. Its public health check is fixed to `https://lecture.gaid.studio` and sends no credentials.
 
-## Troubleshooting
+## Backup and rollback behavior
 
-- If `Configure SSH` fails, check `SSH_HOST`, `SSH_PORT`, `SSH_USER`, `SSH_KEY`, and repository access to organization secrets.
-- If dependency installation fails on the VPS, check Docker availability and that the VPS can pull `node:22-bookworm-slim`.
-- If `Refresh app container` fails, check that `/home/ubuntu/siyi/docker-compose.yml` contains `jiahuan_web`.
-- If `/api/health` works but Realtime fails, check `/home/ubuntu/siyi/jiahuan.env`, `OPENAI_API_KEY`, and the configured `OPENAI_*_MODEL` variables. The recording path requires a Realtime-capable key, not only text-model access.
-- If the public hostname fails but the local health check passes, check Cloudflare Tunnel routing and Cloudflare Access policy.
+- The release is installed in a staging directory before the active app is touched.
+- Each deploy creates a mode `0700` timestamped directory under `/opt/jiahuan/backups` containing the old app and a mode `0600` online SQLite backup. The live data directory is `0700`; the database and any WAL/SHM files are `0600`.
+- The new app replaces the active release only after the backup passes `integrity_check`.
+- If replacement, force-recreate, or the local health check fails, CI stops the service, restores the old app snapshot, and force-recreates the old service. The database backup is retained for controlled recovery and is not copied automatically over a database that may already contain new writes.
+- Migrations must therefore remain additive and readable by the immediately previous app release.
+- A public DNS or Cloudflare Tunnel health failure is reported separately after local health succeeds; it does not roll back an otherwise healthy app.
+- Do not delete the newest rollback snapshot during the same deployment. Apply a separate retention policy only after the new release is confirmed.
+
+## Verification
+
+Verify separately:
+
+```text
+container running
+http://127.0.0.1:8091/api/health
+public health without credentials
+public browser API accepted only on the exact hostname; cross-origin writes rejected
+internal MCP request without LECTURE_SERVICE_TOKEN rejected
+Hanyang course refresh succeeds through Study Core
+old lecture records remain visible
+records carrying finalizationWarning are visibly marked as possibly incomplete
+```

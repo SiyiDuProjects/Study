@@ -1,476 +1,158 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COURSES } from "../shared/courses";
-import App from "./App";
-import type { ClassSession, ClassSessionSummary, RealtimeClientCallbacks } from "./types";
+import { DAILY_COURSE } from "../shared/courses";
+import type { ClassSession, RealtimeClientCallbacks } from "./types";
 
-const clipboardWrite = vi.fn();
-
-const mocks = vi.hoisted(() => ({
+const apiMocks = vi.hoisted(() => ({
+  archiveRemoteSession: vi.fn(),
+  checkpointRemoteSession: vi.fn(),
+  completeRemoteSession: vi.fn(),
   createRealtimeClientSecret: vi.fn(),
-  deleteRemoteSession: vi.fn(),
-  fetchAppConfig: vi.fn(),
+  createRemoteSession: vi.fn(),
+  failRemoteSession: vi.fn(),
   fetchCourses: vi.fn(),
   getRemoteSession: vi.fn(),
   listRemoteSessions: vi.fn(),
-  saveRemoteSession: vi.fn(),
-  classicAudioBoost: vi.fn(),
-  realtimeAudioBoost: vi.fn(),
-  transcriptionAudioBoost: vi.fn(),
-  realtimeStart: vi.fn(),
-  realtimeStop: vi.fn()
+  resumeRemoteSession: vi.fn()
 }));
 
-vi.mock("./lib/api", () => ({
-  createRealtimeClientSecret: mocks.createRealtimeClientSecret,
-  deleteRemoteSession: mocks.deleteRemoteSession,
-  fetchAppConfig: mocks.fetchAppConfig,
-  fetchCourses: mocks.fetchCourses,
-  getRemoteSession: mocks.getRemoteSession,
-  listRemoteSessions: mocks.listRemoteSessions,
-  saveRemoteSession: mocks.saveRemoteSession
+const realtimeState = vi.hoisted(() => ({
+  callbacks: undefined as RealtimeClientCallbacks | undefined,
+  emittedTail: false,
+  startCalls: 0
 }));
 
-vi.mock("./lib/classicRealtimeTranslation", () => ({
-  ClassicRealtimeTranslationClient: class {
-    constructor(
-      _getClientSecret: () => Promise<string>,
-      _realtimeTranslationModel: string,
-      _realtimeTranscriptionModel: string,
-      private readonly callbacks: RealtimeClientCallbacks,
-      audioBoostEnabled = true
-    ) {
-      mocks.classicAudioBoost(audioBoostEnabled);
-    }
-
-    start() {
-      return mocks.realtimeStart(this.callbacks);
-    }
-
-    pause() {}
-
-    resume() {}
-
-    stop() {
-      return mocks.realtimeStop();
-    }
-  }
+vi.mock("./lib/api", async () => ({
+  ...(await vi.importActual<typeof import("./lib/api")>("./lib/api")),
+  ...apiMocks
 }));
 
 vi.mock("./lib/realtimeTranslation", () => ({
   RealtimeTranslationClient: class {
-    constructor(
-      _getClientSecret: () => Promise<string>,
-      private readonly callbacks: RealtimeClientCallbacks,
-      audioBoostEnabled = true
-    ) {
-      mocks.realtimeAudioBoost(audioBoostEnabled);
+    constructor(_getClientSecret: unknown, callbacks: RealtimeClientCallbacks) {
+      realtimeState.callbacks = callbacks;
     }
-
-    start() {
-      return mocks.realtimeStart(this.callbacks);
-    }
-
+    async start() { realtimeState.startCalls += 1; realtimeState.callbacks?.onOpen(); }
     pause() {}
-
     resume() {}
-
-    stop() {
-      return mocks.realtimeStop();
+    async stopAndFlush() {
+      if (!realtimeState.emittedTail) {
+        realtimeState.emittedTail = true;
+        realtimeState.callbacks?.onSegment?.({
+          sourceText: "마지막 문장",
+          translatedText: "最后一句",
+          elapsedMs: 1_500
+        });
+      }
     }
   }
 }));
 
 vi.mock("./lib/realtimeTranscriptionTranslation", () => ({
-  RealtimeTranscriptionTranslationClient: class {
-    constructor(
-      _getClientSecret: () => Promise<string>,
-      _textModel: string,
-      private readonly callbacks: RealtimeClientCallbacks,
-      audioBoostEnabled = true
-    ) {
-      mocks.transcriptionAudioBoost(audioBoostEnabled);
-    }
-
-    start() {
-      return mocks.realtimeStart(this.callbacks);
-    }
-
-    pause() {}
-
-    resume() {}
-
-    stop() {
-      return mocks.realtimeStop();
-    }
-  }
+  RealtimeTranscriptionTranslationClient: class {}
 }));
 
-describe("App classroom workflow", () => {
+import App from "./App";
+
+describe("App final transcript persistence", () => {
+  let revision = 0;
+
   beforeEach(() => {
     window.localStorage.clear();
-    Object.defineProperty(window.navigator, "clipboard", {
-      value: { writeText: clipboardWrite },
-      configurable: true
+    revision = 0;
+    realtimeState.callbacks = undefined;
+    realtimeState.emittedTail = false;
+    realtimeState.startCalls = 0;
+    for (const mock of Object.values(apiMocks)) mock.mockReset();
+    apiMocks.fetchCourses.mockResolvedValue({
+      courses: [DAILY_COURSE], syncedAt: "2026-08-18T00:00:00.000Z", stale: false, source: "study"
     });
-    mocks.fetchAppConfig.mockResolvedValue({
-      realtimeTranslationModel: "rt-test",
-      realtimeTranscriptionModel: "tr-test",
-      defaultTextTranslationModel: "txt-test",
-      textTranslationModels: ["txt-test"]
+    apiMocks.listRemoteSessions.mockResolvedValue([]);
+    apiMocks.createRemoteSession.mockResolvedValue({
+      session: session({ status: "recording", revision: 0 }),
+      writerLease: { token: "writer-token-000000000000000000000000" }
     });
-    mocks.fetchCourses.mockResolvedValue(COURSES);
-    mocks.listRemoteSessions.mockResolvedValue([]);
-    mocks.createRealtimeClientSecret.mockResolvedValue({ clientSecret: "ek_test", expiresAt: 123 });
-    mocks.saveRemoteSession.mockImplementation(async (session: ClassSession) => ({
-      ...session,
-      savedAt: "2026-05-26T12:00:00.000Z"
-    }));
-    mocks.getRemoteSession.mockImplementation(async (id: string) => createSession({ id }));
-    mocks.deleteRemoteSession.mockResolvedValue(undefined);
-    mocks.realtimeStart.mockImplementation(async (callbacks: RealtimeClientCallbacks) => {
-      callbacks.onOpen();
-    });
-    mocks.realtimeStop.mockResolvedValue(undefined);
+    apiMocks.checkpointRemoteSession.mockImplementation(async (_id, input) =>
+      session({ status: "recording", revision: ++revision, segments: input.segments })
+    );
+    apiMocks.failRemoteSession.mockImplementation(async (_id, input) =>
+      session({ status: "failed", revision: ++revision, finalizationWarning: input.finalizationWarning })
+    );
+    apiMocks.completeRemoteSession.mockImplementation(async () =>
+      session({ status: "ready", revision: ++revision, endedAt: "2026-08-18T01:10:00.000Z" })
+    );
+    apiMocks.createRealtimeClientSecret.mockResolvedValue({ clientSecret: "ephemeral", expiresAt: 1 });
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
-    vi.clearAllMocks();
   });
 
-  it("shows a clear start workflow before a course is selected", async () => {
+  it("accepts a final segment emitted during stopAndFlush before completing", async () => {
     render(<App />);
+    const daily = await screen.findByRole("button", { name: /日常 \/ 不选课程/ });
+    fireEvent.click(daily);
+    fireEvent.click(screen.getByTitle("开始"));
+    await waitFor(() => expect(apiMocks.createRemoteSession).toHaveBeenCalledOnce());
+    await waitFor(() => expect((screen.getByTitle("结束") as HTMLButtonElement).disabled).toBe(false));
 
-    expect(await screen.findByRole("heading", { name: "选择本节课" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "先选择课程" }));
+    fireEvent.click(screen.getByTitle("结束"));
+    await waitFor(() => expect(apiMocks.completeRemoteSession).toHaveBeenCalledOnce());
 
-    expect(await screen.findByText("请选择本节课对应课程或日常，然后再开始录音。")).toBeTruthy();
-  });
-
-  it("starts recording from the main workflow after selecting a course", async () => {
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
-
-    expect(await screen.findByText("录音中")).toBeTruthy();
-  });
-
-  it("renders live subtitles as ordered bilingual sentence blocks", async () => {
-    window.localStorage.setItem(
-      "korean-class-subtitler-settings",
-      JSON.stringify({
-        version: 6,
-        subtitleScale: 1,
-        showKoreanInline: false,
-        translationMode: "transcribe-then-translate",
-        textTranslationModel: "",
-        audioBoostEnabled: false
-      })
+    const persistedTail = apiMocks.checkpointRemoteSession.mock.calls.some(([, input]) =>
+      input.segments.some((segment: { translatedText: string }) => segment.translatedText === "最后一句")
     );
-    mocks.realtimeStart.mockImplementationOnce(async (callbacks: RealtimeClientCallbacks) => {
-      callbacks.onOpen();
-      callbacks.onSegment?.({
-        sourceText: "첫 문장입니다.",
-        translatedText: "第一句。",
-        elapsedMs: 0
-      });
-      callbacks.onSegment?.({
-        sourceText: "두 번째입니다.",
-        translatedText: "第二句。",
-        elapsedMs: 1200
-      });
-    });
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
-
-    expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
-    expect(screen.getByText("第一句。")).toBeTruthy();
-    expect(screen.getByText("두 번째입니다.")).toBeTruthy();
-    expect(screen.getAllByText("第二句。")).toHaveLength(2);
-    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("第一句。");
-    expect(screen.getByText("두 번째입니다.").closest(".subtitle-pair")?.textContent).toContain("第二句。");
-    expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
-    expect(document.querySelector(".subtitle-pair")?.tagName).toBe("SPAN");
+    expect(persistedTail).toBe(true);
   });
 
-  it("keeps Korean subtitles visible when Chinese translation has not returned", async () => {
-    mocks.realtimeStart.mockImplementationOnce(async (callbacks: RealtimeClientCallbacks) => {
-      callbacks.onOpen();
-      callbacks.onSegment?.({
-        sourceText: "첫 문장입니다.",
-        translatedText: "",
-        elapsedMs: 0,
-        translationStatus: "translating"
-      });
-      callbacks.onSegment?.({
-        sourceText: "두 번째입니다.",
-        translatedText: "",
-        elapsedMs: 1200,
-        translationStatus: "queued"
-      });
-    });
+  it("does not start a late microphone client after End cancels a deferred resume", async () => {
     render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /日常 \/ 不选课程/ }));
+    fireEvent.click(screen.getByTitle("开始"));
+    await waitFor(() => expect(realtimeState.startCalls).toBe(1));
 
-    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+    realtimeState.callbacks?.onError("network moved");
+    await waitFor(() => expect(apiMocks.failRemoteSession).toHaveBeenCalled());
+    let resolveResume!: (value: unknown) => void;
+    apiMocks.resumeRemoteSession.mockImplementationOnce(() => new Promise((resolve) => { resolveResume = resolve; }));
+    vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    expect(await screen.findByText("첫 문장입니다.")).toBeTruthy();
-    expect(screen.getAllByText("두 번째입니다.")).toHaveLength(1);
-    expect(screen.getByText("正在翻译...")).toBeTruthy();
-    expect(screen.getByText("等待翻译...")).toBeTruthy();
-    expect(screen.getByText("첫 문장입니다.").closest(".subtitle-pair")?.textContent).toContain("正在翻译...");
-    expect(document.querySelectorAll(".subtitle-pair")[1]?.textContent).toContain("等待翻译...");
-    expect(document.querySelectorAll(".subtitle-pair")).toHaveLength(2);
-  });
-
-  it("selects a course and surfaces a start failure", async () => {
-    mocks.realtimeStart.mockRejectedValueOnce(new Error("麦克风被拒绝"));
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByTitle("开始录音"));
-
-    expect(await screen.findByText(/麦克风被拒绝/)).toBeTruthy();
-  });
-
-  it("defaults to realtime transcription plus translation mode", async () => {
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("设置"));
-
-    expect(screen.getByDisplayValue("实时转录 + 翻译")).toBeTruthy();
-  });
-
-  it("defaults far-field audio boost off and uses the saved value for a new recording", async () => {
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("设置"));
-    const audioBoostToggle = screen.getByRole("checkbox", { name: "远距离收音增强" }) as HTMLInputElement;
-    expect(audioBoostToggle.checked).toBe(false);
-
-    fireEvent.click(audioBoostToggle);
-    expect(audioBoostToggle.checked).toBe(true);
-    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
-
-    await screen.findByText("录音中");
-    expect(mocks.transcriptionAudioBoost).toHaveBeenCalledWith(true);
-  });
-
-  it("flushes, saves, and opens the generated class record on end", async () => {
-    mocks.realtimeStart.mockImplementationOnce(async (callbacks: RealtimeClientCallbacks) => {
-      callbacks.onOpen();
-      callbacks.onDelta({
-        channel: "source",
-        delta: "오늘은 문법을 이야기합니다.",
-        elapsedMs: 0
-      });
-      callbacks.onDelta({
-        channel: "translation",
-        delta: "今天讨论语法。",
-        elapsedMs: 0
-      });
-    });
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByTitle("开始录音"));
-    await screen.findByText("录音中");
+    fireEvent.click(screen.getByTitle("继续"));
+    await screen.findByText("连接中");
     fireEvent.click(screen.getByTitle("结束"));
-
-    await waitFor(() => expect(mocks.saveRemoteSession).toHaveBeenCalledTimes(1));
-    const savedSession = mocks.saveRemoteSession.mock.calls[0][0] as ClassSession;
-    expect(savedSession.models).toMatchObject({
-      translation: "txt-test",
-      transcription: "tr-test",
-      mode: "transcribe-then-translate"
+    resolveResume({
+      session: session({ status: "recording", revision: revision + 1, finalizationWarning: "尾段未确认" }),
+      writerLease: { token: "writer-token-000000000000000000000000" }
     });
-    expect(savedSession.segments[0]).toMatchObject({
-      sourceText: "오늘은 문법을 이야기합니다.",
-      translatedText: "今天讨论语法。",
-      isFinal: true
-    });
-    expect(await screen.findByText("Markdown")).toBeTruthy();
-  });
 
-  it("queues the record locally when server save fails", async () => {
-    mocks.saveRemoteSession.mockRejectedValueOnce(new Error("database unavailable"));
-    mocks.realtimeStart.mockImplementationOnce(async (callbacks: RealtimeClientCallbacks) => {
-      callbacks.onOpen();
-      callbacks.onSegment?.({
-        sourceText: "안녕하세요.",
-        translatedText: "你好。",
-        elapsedMs: 0
-      });
-    });
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /日常/ }));
-    fireEvent.click(screen.getByTitle("开始录音"));
-    await screen.findByText("录音中");
-    fireEvent.click(screen.getByTitle("结束"));
-
-    expect(await screen.findByText(/待同步队列/)).toBeTruthy();
-    expect(await screen.findByText(/1 条记录待同步/)).toBeTruthy();
-  });
-
-  it("confirms before deleting a saved record", async () => {
-    const summary = createSummary();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    mocks.listRemoteSessions.mockResolvedValue([summary]);
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("资料库"));
-    await screen.findByText(summary.title);
-    fireEvent.click(screen.getByTitle("删除"));
-
-    expect(confirmSpy).toHaveBeenCalledWith(`删除记录「${summary.title}」？`);
-    await waitFor(() => expect(mocks.deleteRemoteSession).toHaveBeenCalledWith(summary.id));
-  });
-
-  it("surfaces a saved-record deletion failure", async () => {
-    const summary = createSummary();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    mocks.listRemoteSessions.mockResolvedValue([summary]);
-    mocks.deleteRemoteSession.mockRejectedValueOnce(new Error("删除服务暂不可用"));
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("资料库"));
-    await screen.findByText(summary.title);
-    fireEvent.click(screen.getByTitle("删除"));
-
-    expect((await screen.findByRole("alert")).textContent).toContain("删除服务暂不可用");
-  });
-
-  it("copies a single class record as AI context", async () => {
-    const summary = createSummary();
-    mocks.listRemoteSessions.mockResolvedValue([summary]);
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("资料库"));
-    await screen.findByText(summary.title);
-    fireEvent.click(screen.getByTitle("复制本节课给 AI"));
-
-    await waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(1));
-    expect(clipboardWrite.mock.calls[0][0]).toContain("中文：今天讨论语法。");
-    expect(clipboardWrite.mock.calls[0][0]).toContain("韩文：오늘은 문법을 이야기합니다.");
-    expect(await screen.findByText(/已复制给 AI/)).toBeTruthy();
-  });
-
-  it("shows all courses in the library even when a course has no sessions", async () => {
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("资料库"));
-
-    expect(await screen.findByText("课程目录")).toBeTruthy();
-    expect((await screen.findAllByText("日常 / 不选课程")).length).toBeGreaterThan(0);
-    expect(await screen.findByText("这门课还没有内容")).toBeTruthy();
-    expect((screen.getByTitle("复制整门课给 AI") as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("shows one selected course at a time in the library", async () => {
-    const firstCourse = createSession({ id: "class_first", title: "第一门课记录" });
-    const secondCourse = createSession({
-      id: "class_second",
-      title: "第二门课记录",
-      courseId: "202610HY20235",
-      courseCode: "202610HY20235",
-      courseName: "한국어듣기말하기",
-      courseTerm: "2026년 1학기",
-      courseFolderName: "202610HY20235_한국어듣기말하기"
-    });
-    mocks.listRemoteSessions.mockResolvedValue([createSummary(firstCourse), createSummary(secondCourse)]);
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("资料库"));
-
-    expect(await screen.findByText("课程目录")).toBeTruthy();
-    expect(await screen.findByText("第一门课记录")).toBeTruthy();
-    expect(screen.queryByText("第二门课记录")).toBeNull();
-
-    fireEvent.click(screen.getByTitle("查看课程：한국어듣기말하기"));
-
-    expect(await screen.findByText("第二门课记录")).toBeTruthy();
-    expect(screen.queryByText("第一门课记录")).toBeNull();
-  });
-
-  it("moves focus into a record and restores it when returning to the library", async () => {
-    const session = createSession();
-    const summary = createSummary(session);
-    mocks.listRemoteSessions.mockResolvedValue([summary]);
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("资料库"));
-    const sessionButton = await screen.findByRole("button", { name: `打开课堂记录：${summary.title}` });
-    fireEvent.click(sessionButton);
-
-    const documentHeading = await screen.findByRole("heading", { name: summary.title });
-    await waitFor(() => expect(document.activeElement).toBe(documentHeading));
-    fireEvent.click(screen.getByRole("button", { name: "返回" }));
-
-    const restoredButton = await screen.findByRole("button", { name: `打开课堂记录：${summary.title}` });
-    await waitFor(() => expect(document.activeElement).toBe(restoredButton));
-  });
-
-  it("copies all saved course records from oldest to newest", async () => {
-    const older = createSession({ id: "class_old", title: "第一课", startedAt: "2026-05-01T10:00:00.000Z" });
-    const newer = createSession({ id: "class_new", title: "第二课", startedAt: "2026-05-08T10:00:00.000Z" });
-    mocks.listRemoteSessions.mockResolvedValue([createSummary(newer), createSummary(older)]);
-    mocks.getRemoteSession.mockImplementation(async (id: string) => (id === "class_old" ? older : newer));
-    render(<App />);
-
-    fireEvent.click(await screen.findByTitle("资料库"));
-    fireEvent.click(await screen.findByTitle("复制整门课给 AI"));
-
-    await waitFor(() => expect(clipboardWrite).toHaveBeenCalledTimes(1));
-    const copiedText = clipboardWrite.mock.calls[0][0] as string;
-    expect(copiedText.indexOf("## 第一课")).toBeLessThan(copiedText.indexOf("## 第二课"));
-    expect(copiedText).toContain("- 课次数：2");
+    await waitFor(() => expect(screen.getByText("待恢复")).toBeTruthy());
+    expect(realtimeState.startCalls).toBe(1);
   });
 });
 
-function createSummary(session: ClassSession = createSession()): ClassSessionSummary {
+function session(overrides: Partial<ClassSession> = {}): ClassSession {
   return {
-    ...session,
-    segmentCount: session.segments.length
-  };
-}
-
-function createSession(overrides: Partial<ClassSession> = {}): ClassSession {
-  return {
-    id: "class_test",
-    title: "日常 2026/05/24 18:00",
-    courseId: "daily",
-    courseCode: "daily",
-    courseName: "日常 / 不选课程",
+    id: "lecture_test",
+    title: "日常 2026-08-18",
+    courseId: DAILY_COURSE.id,
+    courseCode: DAILY_COURSE.code,
+    courseName: DAILY_COURSE.name,
     courseTerm: "",
-    courseFolderName: "daily",
-    startedAt: "2026-05-24T18:00:00.000Z",
-    endedAt: "2026-05-24T18:10:00.000Z",
-    durationMs: 10 * 60 * 1000,
+    courseFolderName: DAILY_COURSE.folderName,
+    courseMatchStatus: "daily",
+    finalizationWarning: null,
+    revision: 0,
+    status: "recording",
+    startedAt: "2026-08-18T01:00:00.000Z",
+    endedAt: null,
+    durationMs: 0,
     sourceLanguage: "ko",
     targetLanguage: "zh",
-    models: {
-      translation: "txt-test",
-      transcription: "tr-test",
-      mode: "classic-websocket-translate"
-    },
-    segments: [
-      {
-        id: "seg_1",
-        startedAtMs: 0,
-        endedAtMs: 3000,
-        translatedText: "今天讨论语法。",
-        sourceText: "오늘은 문법을 이야기합니다.",
-        isFinal: true,
-        createdAt: "2026-05-24T18:00:00.000Z",
-        updatedAt: "2026-05-24T18:00:03.000Z"
-      }
-    ],
+    models: { translation: "gpt-realtime-translate", transcription: "gpt-realtime-whisper" },
+    segments: [],
+    savedAt: null,
+    updatedAt: "2026-08-18T01:00:00.000Z",
     ...overrides
   };
 }

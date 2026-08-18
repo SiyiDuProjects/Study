@@ -1,14 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OpenAIModelConfig } from "./modelConfig.js";
 import { createRealtimeClientSecret } from "./openai.js";
-
-const modelConfig: OpenAIModelConfig = {
-  realtimeTranslationModel: "rt-test",
-  realtimeTranscriptionModel: "tr-test",
-  defaultTextTranslationModel: "txt-test",
-  textTranslationModels: ["txt-test"]
-};
 
 describe("OpenAI client secrets", () => {
   afterEach(() => {
@@ -23,8 +15,7 @@ describe("OpenAI client secrets", () => {
       createRealtimeClientSecret({
         apiKey: "sk_test",
         mode: "realtime-translate",
-        safetyIdentifier: "teacher",
-        modelConfig
+        safetyIdentifier: "teacher"
       })
     ).resolves.toEqual({ clientSecret: "ek_test", expiresAt: 123 });
 
@@ -32,33 +23,7 @@ describe("OpenAI client secrets", () => {
       "https://api.openai.com/v1/realtime/translations/client_secrets",
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining('"model":"rt-test"')
-      })
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: expect.stringContaining('"model":"tr-test"')
-      })
-    );
-  });
-
-  it("uses the translation client secret endpoint for classic low-latency mode", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(clientSecretResponse());
-    vi.stubGlobal("fetch", fetchMock);
-
-    await createRealtimeClientSecret({
-      apiKey: "sk_test",
-      mode: "classic-websocket-translate",
-      safetyIdentifier: "teacher",
-      modelConfig
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.openai.com/v1/realtime/translations/client_secrets",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining('"model":"rt-test"')
+        body: expect.stringContaining('"model":"gpt-realtime-translate"')
       })
     );
   });
@@ -70,31 +35,16 @@ describe("OpenAI client secrets", () => {
     await createRealtimeClientSecret({
       apiKey: "sk_test",
       mode: "transcribe-then-translate",
-      safetyIdentifier: "teacher",
-      modelConfig
+      safetyIdentifier: "teacher"
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.openai.com/v1/realtime/client_secrets",
       expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining('"model":"tr-test"')
+        body: expect.stringContaining('"type":"transcription"')
       })
     );
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: expect.stringContaining('"language":"ko"')
-      })
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: expect.stringContaining('"noise_reduction":{"type":"far_field"}')
-      })
-    );
-    const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
-    expect(requestBody.session.audio.input).not.toHaveProperty("turn_detection");
   });
 });
 

@@ -1,16 +1,16 @@
 {
-  "name": "korean-class-subtitler",
+  "name": "study-lecture",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n api,web \"npm run server:dev\" \"npm run vite:dev\"",
-    "vite:dev": "vite --host 0.0.0.0 --configLoader runner",
+    "vite:dev": "vite --configLoader runner",
     "server:dev": "tsx watch server/index.ts",
     "server:start": "node dist-server/server/index.js",
+    "typecheck": "tsc -b --pretty false",
     "build": "tsc -b && vite build --configLoader runner",
     "preview": "npm run server:start",
-    "smoke:openai": "tsx scripts/openai-smoke-test.ts",
     "test": "vitest run --config vitest.config.mts --configLoader runner",
     "test:watch": "vitest --config vitest.config.mts --configLoader runner"
   },
@@ -30,7 +30,6 @@
     "concurrently": "^9.2.1",
     "jsdom": "^27.3.0",
     "lucide-react": "^0.561.0",
-    "node-mocks-http": "^1.17.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "tsx": "^4.22.3",
