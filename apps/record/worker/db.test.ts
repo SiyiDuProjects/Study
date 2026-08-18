@@ -1,138 +1,174 @@
-import { describe, expect, it, vi } from "vitest";
-import type { ClassSession } from "../src/types";
-import { createD1SessionRepository } from "./db";
+import Database from "better-sqlite3";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { DAILY_COURSE } from "../shared/courses";
+import {
+  createD1CourseRepository,
+  createD1SessionRepository,
+  UnfinishedLectureConflict,
+  WriterLeaseConflict
+} from "./db";
 
-interface FakeStatement {
-  query: string;
-  values: unknown[];
-  bind: (...values: unknown[]) => FakeStatement;
-  all: <T>() => Promise<{ results: T[] }>;
-  first: <T>() => Promise<T | null>;
-  run: () => Promise<{ meta: { changes: number } }>;
-}
-
-function createStatement(query: string, session: ClassSession): FakeStatement {
-  const statement: FakeStatement = {
-    query,
-    values: [],
-    bind(...values) {
-      statement.values = values;
-      return statement;
-    },
-    async all<T>() {
-      if (query.includes("FROM transcript_segments")) {
-        return {
-          results: session.segments.map((segment) => ({
-            id: segment.id,
-            started_at_ms: segment.startedAtMs,
-            ended_at_ms: segment.endedAtMs ?? null,
-            source_text: segment.sourceText,
-            translated_text: segment.translatedText,
-            is_final: segment.isFinal ? 1 : 0,
-            created_at: segment.createdAt,
-            updated_at: segment.updatedAt
-          })) as T[]
-        };
+describe("D1 Study Record repositories", () => {
+  it("caches Hanyang courses without inventing local academic courses", async () => {
+    const database = createTestD1();
+    const courses = createD1CourseRepository(database);
+    const syncedAt = "2026-08-18T12:00:00.000Z";
+    await courses.upsertCourses([
+      {
+        id: "101",
+        code: "CSE101",
+        name: "테스트 과목",
+        term: "2026-2",
+        folderName: "CSE101_테스트 과목",
+        label: "CSE101 · 테스트 과목",
+        source: "canvas",
+        workflowState: "active",
+        startAt: null,
+        endAt: null,
+        isArchived: false,
+        lastSeenAt: syncedAt,
+        archivedAt: null
       }
-      return { results: [] };
-    },
-    async first<T>() {
-      if (!query.includes("FROM sessions")) {
-        return null;
-      }
-      return {
-        id: session.id,
-        title: session.title,
-        course_id: session.courseId,
-        course_code: session.courseCode,
-        course_name: session.courseName,
-        course_term: session.courseTerm,
-        course_folder_name: session.courseFolderName,
-        started_at: session.startedAt,
-        ended_at: session.endedAt,
-        duration_ms: session.durationMs,
-        source_language: session.sourceLanguage,
-        target_language: session.targetLanguage,
-        translation_model: session.models.translation,
-        transcription_model: session.models.transcription,
-        created_by_email: "student@example.com",
-        saved_at: "2026-07-09T19:00:00.000Z"
-      } as T;
-    },
-    async run() {
-      return { meta: { changes: 1 } };
-    }
-  };
-  return statement;
-}
+    ], syncedAt);
 
-describe("D1 session repository", () => {
-  it("stores the session and its ordered transcript segments in one batch", async () => {
-    const session = createSession();
-    const prepared: FakeStatement[] = [];
-    const batch = vi.fn(async (_statements: D1PreparedStatement[]) => []);
-    const db = {
-      prepare(query: string) {
-        const statement = createStatement(query, session);
-        prepared.push(statement);
-        return statement;
+    expect(await courses.listCourses()).toMatchObject([{ id: "101", source: "canvas", isArchived: false }]);
+    expect(await courses.syncedAt()).toBe(syncedAt);
+  });
+
+  it("preserves writer lease and revision semantics through checkpoint and completion", async () => {
+    const database = createTestD1();
+    const sessions = createD1SessionRepository(database);
+    const token = "writer-lease-token-that-is-long-enough-for-tests";
+    const startedAt = "2026-08-18T01:00:00.000Z";
+    const created = await sessions.createSession({
+      id: "lecture_test",
+      course: DAILY_COURSE,
+      startedAt,
+      models: {
+        translation: "gpt-realtime-translate",
+        transcription: "gpt-realtime-whisper",
+        mode: "realtime-translate"
       },
-      batch
-    } as unknown as D1Database;
+      writerLeaseToken: token,
+      now: startedAt
+    });
+    expect(created).toMatchObject({ status: "recording", revision: 0, segments: [] });
 
-    const repository = createD1SessionRepository(db);
-    const saved = await repository.saveSession(session, "student@example.com");
+    const segment = {
+      id: "segment_1",
+      commitSequence: 0,
+      startedAtMs: 0,
+      endedAtMs: 900,
+      sourceText: "안녕하세요",
+      translatedText: "你好",
+      isFinal: true,
+      createdAt: startedAt,
+      updatedAt: "2026-08-18T01:00:01.000Z"
+    };
+    const checkpointed = await sessions.checkpointSession("lecture_test", {
+      durationMs: 1_000,
+      segments: [segment],
+      writerLeaseToken: token,
+      expectedRevision: 0
+    });
+    expect(checkpointed).toMatchObject({ revision: 1, status: "recording" });
+    expect(checkpointed?.segments).toEqual([segment]);
 
-    expect(batch).toHaveBeenCalledOnce();
-    expect(batch.mock.calls[0][0]).toHaveLength(3);
-    expect(prepared.some((statement) => statement.query.includes("ON CONFLICT(id) DO UPDATE"))).toBe(true);
-    const segmentInsert = prepared.find((statement) => statement.query.includes("FROM json_each(?)"));
-    expect(segmentInsert).toBeTruthy();
-    expect(JSON.parse(String(segmentInsert?.values[1]))).toHaveLength(session.segments.length);
-    expect(saved.segments.map((segment) => segment.id)).toEqual(["segment_1", "segment_2"]);
-    expect(saved.createdByEmail).toBe("student@example.com");
+    await expect(sessions.checkpointSession("lecture_test", {
+      durationMs: 2_000,
+      segments: [segment],
+      writerLeaseToken: token,
+      expectedRevision: 0
+    })).rejects.toBeInstanceOf(WriterLeaseConflict);
+
+    const completed = await sessions.completeSession("lecture_test", {
+      durationMs: 2_000,
+      endedAt: "2026-08-18T01:00:02.000Z",
+      segments: [segment],
+      writerLeaseToken: token,
+      expectedRevision: 1
+    });
+    expect(completed).toMatchObject({ revision: 2, status: "ready" });
+    expect(await sessions.searchSessions({ query: "你好" })).toHaveLength(1);
+    expect(await sessions.archiveSession("lecture_test")).toBe(true);
+  });
+
+  it("atomically rejects a second unfinished lecture", async () => {
+    const database = createTestD1();
+    const sessions = createD1SessionRepository(database);
+    const input = {
+      course: DAILY_COURSE,
+      startedAt: "2026-08-18T01:00:00.000Z",
+      models: {
+        translation: "gpt-realtime-translate" as const,
+        transcription: "gpt-realtime-whisper" as const,
+        mode: "realtime-translate" as const
+      },
+      writerLeaseToken: "writer-lease-token-that-is-long-enough-for-tests",
+      now: "2026-08-18T01:00:00.000Z"
+    };
+    await sessions.createSession({ ...input, id: "lecture_first" });
+    await expect(sessions.createSession({ ...input, id: "lecture_second" })).rejects.toBeInstanceOf(
+      UnfinishedLectureConflict
+    );
   });
 });
 
-function createSession(): ClassSession {
+class TestStatement {
+  private values: unknown[] = [];
+
+  constructor(
+    private readonly database: Database.Database,
+    private readonly query: string
+  ) {}
+
+  bind(...values: unknown[]): TestStatement {
+    this.values = values;
+    return this;
+  }
+
+  async all<T>(): Promise<D1Result<T>> {
+    const rows = this.database.prepare(this.query).all(...this.values) as T[];
+    return { results: rows, success: true, meta: {} } as D1Result<T>;
+  }
+
+  async first<T>(): Promise<T | null> {
+    return (this.database.prepare(this.query).get(...this.values) as T | undefined) ?? null;
+  }
+
+  async run<T = unknown>(): Promise<D1Result<T>> {
+    return this.runSync<T>();
+  }
+
+  runSync<T = unknown>(): D1Result<T> {
+    const result = this.database.prepare(this.query).run(...this.values);
+    return {
+      results: [],
+      success: true,
+      meta: { changes: result.changes, last_row_id: Number(result.lastInsertRowid) }
+    } as unknown as D1Result<T>;
+  }
+}
+
+function createTestD1(): D1Database {
+  const sqlite = new Database(":memory:");
+  sqlite.pragma("foreign_keys = ON");
+  for (const migration of ["0000_funny_rictor.sql", "0001_study_record.sql"]) {
+    const sql = readFileSync(join(process.cwd(), "drizzle", migration), "utf8");
+    for (const statement of sql.split("--> statement-breakpoint")) {
+      if (statement.trim()) sqlite.exec(statement);
+    }
+  }
   return {
-    id: "class_sites_test",
-    title: "Sites 测试课堂",
-    courseId: "daily",
-    courseCode: "DAILY",
-    courseName: "日常 / 不选课程",
-    courseTerm: "",
-    courseFolderName: "daily",
-    startedAt: "2026-07-09T18:00:00.000Z",
-    endedAt: "2026-07-09T18:30:00.000Z",
-    durationMs: 1_800_000,
-    sourceLanguage: "ko",
-    targetLanguage: "zh",
-    models: {
-      translation: "text-test",
-      transcription: "realtime-test"
+    prepare(query: string) {
+      return new TestStatement(sqlite, query) as unknown as D1PreparedStatement;
     },
-    segments: [
-      {
-        id: "segment_1",
-        startedAtMs: 0,
-        endedAtMs: 900,
-        sourceText: "안녕하세요.",
-        translatedText: "你好。",
-        isFinal: true,
-        createdAt: "2026-07-09T18:00:00.000Z",
-        updatedAt: "2026-07-09T18:00:01.000Z"
-      },
-      {
-        id: "segment_2",
-        startedAtMs: 1000,
-        endedAtMs: 1800,
-        sourceText: "수업을 시작합니다.",
-        translatedText: "开始上课。",
-        isFinal: true,
-        createdAt: "2026-07-09T18:00:01.000Z",
-        updatedAt: "2026-07-09T18:00:02.000Z"
-      }
-    ]
-  };
+    async batch<T = unknown>(statements: D1PreparedStatement[]) {
+      return sqlite.transaction(() =>
+        statements.map((statement) => (statement as unknown as TestStatement).runSync<T>())
+      )();
+    }
+  } as unknown as D1Database;
 }

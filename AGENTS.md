@@ -1,59 +1,47 @@
-# Study Lecture project instructions
+# Study repository instructions
 
 ## Product boundary
 
-- This is the Hanyang-only Study Lecture PWA and transcript service.
-- Academic courses come only from Study Core. Never add a production hardcoded course catalog.
-- The only local course option is `daily`.
-- Do not save or persist raw classroom audio.
-- Do not add Berkeley profiles or a profile switcher.
+- This is the single Hanyang Study monorepo. Do not add Berkeley profiles or a provider/profile switcher.
+- `apps/core` is the only service that receives or stores the Hanyang Canvas PAT.
+- Canvas and MCP release scope is read-only. Do not add assignment submission, messaging, enrollment changes, file upload, or other Canvas mutations without a separately reviewed release.
+- `apps/record` receives courses only from Study Core and stores transcript data in Sites D1. The only local course is `daily`.
+- Do not persist raw classroom audio.
 
-## Security
+## Secrets
 
-- This service must never receive or store a Canvas PAT.
-- The user explicitly approved a public browser product for this single-owner deployment. Production may run without browser login only when `LECTURE_AUTH_MODE=public` is set exactly; missing or unknown modes must fail closed.
-- Public browser requests map to one fixed internal owner. Do not add accounts, tenant selection, or trust identity headers supplied by the browser or proxy.
-- Development Vite and API listeners stay on `127.0.0.1`; never expose the loopback-trust development authenticator through a LAN-facing proxy.
-- Development browser APIs must also reject any Host other than `127.0.0.1:<localPort>` or `localhost:<localPort>`; loopback socket checks alone do not stop DNS rebinding.
-- MCP reads use the independent `LECTURE_SERVICE_TOKEN` and must not expose `created_by_email`.
-- `STUDY_API_URL` and the public origin are exact allowlisted hosts; do not add wildcard routing.
-- Keep the Canvas PAT, OpenAI master key, and both internal service tokens server-side. Public browsers may receive only the bounded, short-lived OpenAI ephemeral secret needed to start transcription.
-- Never commit `.env`, API keys, service tokens, or user email values.
-
-## Data compatibility
-
-- Keep the first migration on `/data/jiahuan.sqlite`; changing the product name must not change the production database filename.
-- Existing course metadata is historical evidence. Preserve it and mark old academic rows `legacy_unmatched` until explicitly mapped.
-- Archive records logically; do not physically delete transcript history.
-- Only `ready` sessions may be archived. Loading an unfinished session is read-only; taking over its writer lease requires explicit confirmation and the revision the browser actually observed.
-- Keep raw writer lease tokens only in browser memory and return them only from create/resume. Persist only their hash; every checkpoint/fail/complete write must compare both the lease and expected revision.
-- Never auto-archive duplicate unfinished rows during migration. Preserve them and require explicit user resolution.
-- Do not mount one writable SQLite database into multiple writer processes.
+- Never commit or print Canvas PATs, OpenAI keys, master keys, OAuth tokens, session cookies, passkey material, invite tokens, Sites bypass tokens, or either internal service token.
+- The two service-to-service directions use different random tokens.
+- VPS secrets live only in `/home/ubuntu/siyi/canvas/.env` with owner-only permissions.
+- Sites secrets are configured as secret environment variables.
 
 ## Commands
 
-- Install: `npm.cmd install`
-- Develop: `npm.cmd run dev`
-- Test: `npm.cmd test`
-- Build: `npm.cmd run build`
+- Core root: `apps/core`
+  - `npm.cmd run typecheck`
+  - `npm.cmd test`
+  - `npm.cmd run build`
+- Record root: `apps/record`
+  - `npm.cmd run typecheck`
+  - `npm.cmd test`
+  - `npm.cmd run build`
+  - `npm.cmd run sites:build`
 
-## Architecture
+## Deployments
 
-- `src/App.tsx`: recording lifecycle, course picker, recovery, autosave, records and document UI.
-- `src/lib/realtime*.ts`: WebRTC transcription/translation and bounded `stopAndFlush`.
-- Realtime startup must remain cancellable across microphone permission, client-secret, SDP and data-channel readiness. Autosave must retain bounded fetches and at most one in-flight plus one coalesced pending checkpoint.
-- `server/study.ts`: exact internal Study course client.
-- `server/auth.ts`: explicit browser auth-mode selection, fixed public-owner mapping, optional legacy Access verification, and service-token verification.
-- `server/db.ts`: course cache, legacy-compatible sessions, checkpoints and FTS search.
-- `server/app.ts`: browser API plus private MCP read API.
+- Core SSH: `ubuntu@49.51.38.235:22`
+- SSH identity: `C:\Users\Administrator\Desktop\Projects\Siyi.pem`
+- Core Compose root: `/home/ubuntu/siyi`
+- Core service directory: `/home/ubuntu/siyi/canvas`
+- Core public origin: `https://canvas.gaid.studio`
+- Core MCP: `https://canvas.gaid.studio/mcp`
+- Core readiness: `http://127.0.0.1:8794/readyz`
+- Record is deployed through OpenAI Sites and uses D1. Do not restore the old VPS `jiahuan_web` as the canonical Record service after cutover.
 
-## Deployment
+Before changing production, inspect the current state, make fresh data/config backups, validate the new build, verify local and public health separately, and retain a tested rollback path.
 
-- Existing service/container name: `jiahuan_web`.
-- Existing data directory: `/opt/jiahuan/data`.
-- Canonical Compose root: `/home/ubuntu/siyi`; env file: `/home/ubuntu/siyi/jiahuan.env`.
-- Existing local bind: `127.0.0.1:8091`.
-- Expected Study Core URL on the internal network: `http://canvas:8794`.
-- Public origin: `https://lecture.gaid.studio` after its Cloudflare Tunnel hostname route is configured.
-- Production deploy paths are fixed: app `/opt/jiahuan/app`, data `/opt/jiahuan/data`, backups `/opt/jiahuan/backups`, Compose `/home/ubuntu/siyi`, service `jiahuan_web`.
-- Before any migration-capable restart, create and integrity-check a SQLite online backup and snapshot the old app. A failed local health check must restore the old app release; never automatically overwrite a live database during rollback.
+## Plugin
+
+- Plugin root: `plugins/canvas`.
+- Keep `.codex-plugin/plugin.json`, `.app.json`, all skills, and `.agents/plugins/marketplace.json` valid.
+- Run plugin and skill validators after changes.

@@ -1,0 +1,10 @@
+{
+  "name": "study",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "typecheck": "npm --prefix apps/core run typecheck && npm --prefix apps/record run typecheck",
+    "test": "npm --prefix apps/core test && npm --prefix apps/record test",
+    "build": "npm --prefix apps/core run build && npm --prefix apps/record run build && npm --prefix apps/record run sites:build"
+  }
+}

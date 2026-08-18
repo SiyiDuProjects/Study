@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LectureClient } from "../src/lecture/index.js";
 
 const SERVICE_TOKEN = "lecture-service-token-for-tests-1234";
+const SITE_AUTH_TOKEN = "sites-bypass-token-for-tests-123456";
 
 function summary() {
   return {
@@ -48,6 +49,7 @@ describe("LectureClient", () => {
       expect(init?.method).toBe("GET");
       expect(init?.redirect).toBe("error");
       expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${SERVICE_TOKEN}`);
+      expect(new Headers(init?.headers).get("oai-sites-authorization")).toBe(`Bearer ${SITE_AUTH_TOKEN}`);
       if (url.pathname.endsWith("/search")) {
         expect(url.searchParams.get("q")).toBe("homework");
         expect(url.searchParams.get("course_id")).toBe("7");
@@ -97,6 +99,7 @@ describe("LectureClient", () => {
     const client = new LectureClient({
       baseUrl: "http://lecture:8091",
       serviceToken: SERVICE_TOKEN,
+      siteAuthToken: SITE_AUTH_TOKEN,
       fetch,
     });
 

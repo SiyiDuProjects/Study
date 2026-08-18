@@ -26,6 +26,7 @@ const envSchema = z.object({
   STUDY_SERVICE_TOKEN: z.string().trim().min(32),
   LECTURE_API_URL: optionalTrimmedString(1),
   LECTURE_SERVICE_TOKEN: optionalTrimmedString(32),
+  LECTURE_SITE_AUTH_TOKEN: optionalTrimmedString(32),
   COURSE_SYNC_MIN_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
   LEARNINGX_ENABLED: z
     .enum(["true", "false"])
@@ -62,6 +63,7 @@ export interface AppConfig {
   studyServiceToken: string;
   lectureApiUrl: string | null;
   lectureServiceToken: string | null;
+  lectureSiteAuthToken: string | null;
   courseSyncMinIntervalSeconds: number;
   learningXEnabled: boolean;
   oauthIssuer: string;
@@ -173,6 +175,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     studyServiceToken: parsed.STUDY_SERVICE_TOKEN,
     lectureApiUrl: parsed.LECTURE_API_URL ? normalizeServiceOrigin(parsed.LECTURE_API_URL) : null,
     lectureServiceToken: parsed.LECTURE_SERVICE_TOKEN ?? null,
+    lectureSiteAuthToken: parsed.LECTURE_SITE_AUTH_TOKEN ?? null,
     courseSyncMinIntervalSeconds: parsed.COURSE_SYNC_MIN_INTERVAL_SECONDS,
     learningXEnabled: parsed.LEARNINGX_ENABLED,
     oauthIssuer: publicOrigin,

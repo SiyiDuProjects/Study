@@ -28,7 +28,7 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "server" },
         config: {
-          name: "jiahuan-class-subtitles",
+          name: "study-record",
           main: "./worker/index.ts",
           compatibility_date: "2026-05-22",
           compatibility_flags: ["nodejs_compat"],
@@ -36,7 +36,7 @@ export default defineConfig(async () => {
             ? [
                 {
                   binding: hostingConfig.d1,
-                  database_name: "jiahuan-sites-local",
+                  database_name: "study-record-local",
                   database_id: placeholderDatabaseId
                 }
               ]

@@ -1,7 +1,11 @@
 node_modules
+**/node_modules/
 dist
+**/dist/
 dist-server
+**/dist-server/
 data
+**/data/
 .DS_Store
 *.local
 *.log
@@ -19,3 +23,8 @@ test-results
 .vscode
 *.tsbuildinfo
 .tsbuild
+.wrangler/
+.openai/*.zip
+*.sqlite
+*.sqlite-*
+*.db

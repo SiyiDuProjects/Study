@@ -15,6 +15,7 @@ const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 export interface LectureClientOptions {
   baseUrl: string;
   serviceToken: string;
+  siteAuthToken?: string;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
 }
@@ -99,6 +100,9 @@ export class LectureClient {
     if (options.serviceToken.trim().length < 32) {
       throw new CanvasApiError("configuration_error", "Lecture service token is invalid.");
     }
+    if (options.siteAuthToken !== undefined && options.siteAuthToken.trim().length < 32) {
+      throw new CanvasApiError("configuration_error", "Lecture Sites authorization token is invalid.");
+    }
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -139,13 +143,17 @@ export class LectureClient {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     timer.unref?.();
     try {
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+        Authorization: `Bearer ${this.options.serviceToken}`,
+        "User-Agent": "canvas-mcp-service/0.1 (lecture-readonly)",
+      };
+      if (this.options.siteAuthToken) {
+        headers["OAI-Sites-Authorization"] = `Bearer ${this.options.siteAuthToken}`;
+      }
       const response = await this.fetchImpl(url, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${this.options.serviceToken}`,
-          "User-Agent": "canvas-mcp-service/0.1 (lecture-readonly)",
-        },
+        headers,
         redirect: "error",
         signal: controller.signal,
       });

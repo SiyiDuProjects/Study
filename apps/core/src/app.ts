@@ -122,6 +122,7 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
     ? new LectureClient({
         baseUrl: config.lectureApiUrl,
         serviceToken: config.lectureServiceToken,
+        ...(config.lectureSiteAuthToken === null ? {} : { siteAuthToken: config.lectureSiteAuthToken }),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })
     : null;
