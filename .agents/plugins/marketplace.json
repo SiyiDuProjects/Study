@@ -8,7 +8,7 @@
       "name": "canvas",
       "source": {
         "source": "local",
-        "path": "./canvas"
+        "path": "./plugins/canvas"
       },
       "policy": {
         "installation": "AVAILABLE",

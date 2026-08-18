@@ -47,8 +47,9 @@ Configuration is read from environment variables. Secret values belong in a depl
 | `COOKIE_SECURE` | no | `true` | Keep `true` in production; localhost HTTP development may use `false`. |
 | `LOG_LEVEL` | no | `info` | One of `debug`, `info`, `warn`, or `error`. Debug logging still must redact secrets. |
 | `STUDY_SERVICE_TOKEN` | yes | none | Dedicated bearer secret accepted only by the internal Lecture course-catalog endpoint. Use at least 32 random characters. |
-| `LECTURE_API_URL` | no | empty | Credential-free internal origin for the Lecture service, `http://jiahuan_web:3000` in the current shared Docker network. Must be set together with `LECTURE_SERVICE_TOKEN`. |
+| `LECTURE_API_URL` | no | empty | Exact HTTPS origin for the private Study Record site, currently `https://lecture.gaid.studio`. Must be set together with `LECTURE_SERVICE_TOKEN`. |
 | `LECTURE_SERVICE_TOKEN` | no | empty | Separate bearer secret used only for Study-to-Lecture transcript reads. Use at least 32 random characters. |
+| `LECTURE_SITE_AUTH_TOKEN` | no | empty | Sites dispatch bypass token used only by Core for identity-less server-to-server calls to the private Record site. Required when `LECTURE_API_URL` is protected by Sites sign-in. |
 | `COURSE_SYNC_MIN_INTERVAL_SECONDS` | no | `300` | Minimum interval between live active+completed Hanyang course catalog refreshes. |
 | `LEARNINGX_ENABLED` | no | `false` | Registers the Hanyang-only LearningX attendance/module tools. Keep disabled until a real course passes the read-only integration checklist. |
 | `OAUTH_ADDITIONAL_REDIRECT_URIS` | no | empty | Comma/whitespace-separated exact redirect URIs for explicitly trusted non-ChatGPT clients. |
@@ -190,13 +191,13 @@ If an account-management endpoint is not implemented, remove or disable its UI c
 
 `GET /internal/lecture/courses` is a server-to-server endpoint for the Lecture container. It accepts only `Authorization: Bearer STUDY_SERVICE_TOKEN`, derives the owner from the sole Hanyang connection, refreshes active and completed courses subject to `COURSE_SYNC_MIN_INTERVAL_SECONDS`, and returns `{ courses, syncedAt, stale }`. The browser never receives either service token or the Canvas PAT.
 
-When `LECTURE_API_URL` and `LECTURE_SERVICE_TOKEN` are both configured, the MCP also registers `list_lecture_sessions`, `get_lecture_transcript`, and `search_lecture_transcripts`. Those tools call only the configured Lecture origin under `/internal/mcp/lecture/` and are annotated read-only. Because Canvas and Lecture share one MCP resource endpoint, every advertised tool requires the same `canvas.read lecture.read` scope set. Enabling this integration therefore requires existing MCP clients to authorize again for both scopes.
+When `LECTURE_API_URL` and `LECTURE_SERVICE_TOKEN` are both configured, the MCP also registers `list_lecture_sessions`, `get_lecture_transcript`, and `search_lecture_transcripts`. Those tools call only the configured Lecture origin under `/internal/mcp/lecture/` and are annotated read-only. Canvas tools require only `canvas.read`; Lecture tool calls additionally require `lecture.read`. Existing canvas-only grants continue to work, while using Lecture tools requires reconnecting once to grant the additional scope. If Record is private on Sites, Core also sends `LECTURE_SITE_AUTH_TOKEN` in `OAI-Sites-Authorization`; it never exposes that token to MCP clients.
 
 ## Container deployment
 
 The Docker image compiles TypeScript, copies static web assets into `dist/web`, prunes development dependencies, and runs as the unprivileged `node` user. The compose example additionally drops Linux capabilities, uses a read-only root filesystem, mounts only `/data`, and binds the app to loopback so a TLS reverse proxy is required.
 
-1. Create the shared private network once with `docker network create study_internal`, then copy `docker-compose.example.yml` to your private deployment configuration. The Lecture service must join the same external network under its fixed `jiahuan_web` service name.
+1. Copy `docker-compose.example.yml` to the private deployment configuration. The retained `study_internal` network is only needed for the Core-to-course-catalog compatibility endpoint; Record itself now runs on Sites.
 2. Create an untracked `.env` with `MASTER_KEY_BASE64` and any non-default settings. Limit it to the deployment account.
 3. Back up the SQLite volume and master key separately, with equivalent access controls.
 4. Start the service with `docker compose --env-file .env -f docker-compose.example.yml up -d --build canvas`.
