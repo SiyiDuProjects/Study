@@ -24,6 +24,23 @@ describe("Study course client", () => {
     const [url, init] = fetchImpl.mock.calls[0] as [URL, RequestInit];
     expect(url.href).toBe("http://canvas:8794/internal/lecture/courses?include_archived=true&refresh=true");
     expect(init.headers).toMatchObject({ Authorization: "Bearer study-token" });
-    expect(init.redirect).toBe("error");
+    expect(init.redirect).toBe("manual");
+  });
+
+  it("rejects redirects without following them", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, {
+      status: 302,
+      headers: { Location: "https://untrusted.example/courses" }
+    }));
+    const client = createStudyCourseClient({
+      baseUrl: "https://canvas.gaid.studio",
+      serviceToken: "study-token",
+      fetchImpl
+    });
+
+    await expect(client.listCourses({ includeArchived: false, refresh: true }))
+      .rejects.toThrow("Study course request failed with status 302");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
   });
 });

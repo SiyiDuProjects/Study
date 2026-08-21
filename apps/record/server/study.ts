@@ -60,7 +60,10 @@ export function createStudyCourseClient({
           Authorization: `Bearer ${serviceToken}`,
           Accept: "application/json"
         },
-        redirect: "error",
+        // Cloudflare Workers supports manual redirect handling but rejects
+        // redirect: "error" before issuing the request. Non-2xx responses,
+        // including every redirect, are rejected below.
+        redirect: "manual",
         signal: AbortSignal.timeout(12_000)
       });
 
