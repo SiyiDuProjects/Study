@@ -105,6 +105,7 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
           source: "study"
         });
       } catch (error) {
+        logError(request, error, "course_refresh_failed");
         const cached = await courses.listCourses(includeArchived);
         return json({
           courses: [DAILY_COURSE, ...cached],
