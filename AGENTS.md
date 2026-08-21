@@ -30,7 +30,7 @@
 ## Deployments
 
 - Core SSH: `ubuntu@49.51.38.235:22`
-- SSH identity: `C:\Users\Administrator\Desktop\Projects\Siyi.pem`
+- SSH identity: `D:\Projects\_private\Keys\Siyi.pem`
 - Core Compose root: `/home/ubuntu/siyi`
 - Core service directory: `/home/ubuntu/siyi/canvas`
 - Core public origin: `https://canvas.gaid.studio`
