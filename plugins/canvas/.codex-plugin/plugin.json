@@ -1,7 +1,7 @@
 {
   "name": "canvas",
-  "version": "0.1.0+codex.20260901141206",
-  "description": "Read-only Hanyang Study access across the official timetable, HY-ON, LearningX, Inbox, and saved lecture transcripts.",
+  "version": "0.1.0+codex.20260904065354",
+  "description": "Read-only Hanyang Study access across the official timetable, HY-ON, LearningX, Inbox, course files, and saved lecture transcripts.",
   "author": {
     "name": "GAID Studio",
     "url": "https://study.siyidu.com"
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Hanyang Study",
     "shortDescription": "Review the Hanyang timetable, HY-ON, LearningX, and lectures",
-    "longDescription": "Review the imported official Hanyang Portal timetable, connected HY-ON account, and saved Study Lecture transcripts through one deliberately read-only assistant. Combine weekly class times and rooms with live courses, assignments, Inbox messages, instructor feedback, posted grades, announcements, LearningX weekly modules and boards, pages, file metadata, calendars, and timestamped lecture evidence without exposing the Canvas PAT.",
+    "longDescription": "Review the imported official Hanyang Portal timetable, connected HY-ON account, and saved Study Lecture transcripts through one deliberately read-only assistant. Combine weekly class times and rooms with live courses, assignments, Inbox messages, instructor feedback, posted grades, announcements, LearningX weekly modules and boards, pages, readable course files, calendars, and timestamped lecture evidence without exposing the Canvas PAT or verifier URLs.",
     "developerName": "GAID Studio",
     "category": "Education",
     "capabilities": [

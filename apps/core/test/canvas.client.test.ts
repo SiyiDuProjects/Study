@@ -145,6 +145,68 @@ describe("CanvasRestClient", () => {
     });
   });
 
+  it("downloads a Canvas file while sending the PAT only to the metadata API", async () => {
+    const fetch = mockFetch((url, init) => {
+      if (url.pathname === "/api/v1/files/52") {
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer secret-pat");
+        return json({
+          id: 52,
+          display_name: "Course notes.pdf",
+          filename: "course-notes.pdf",
+          "content-type": "application/pdf",
+          size: 4,
+          url: "https://learning.hanyang.ac.kr/files/52/download?verifier=secret",
+        });
+      }
+      expect(url.pathname).toBe("/files/52/download");
+      expect(url.searchParams.get("verifier")).toBe("secret");
+      expect(new Headers(init?.headers).has("authorization")).toBe(false);
+      expect(init?.method).toBe("GET");
+      return new Response(Uint8Array.from([37, 80, 68, 70]), {
+        status: 200,
+        headers: { "content-type": "application/pdf", "content-length": "4" },
+      });
+    });
+    const client = new CanvasRestClient(connection, { fetch, maxFileBytes: 64 });
+
+    const download = await client.downloadFile(52);
+
+    expect(download.file).toMatchObject({ id: "52", filename: "course-notes.pdf" });
+    expect(download.contentType).toBe("application/pdf");
+    expect([...download.bytes]).toEqual([37, 80, 68, 70]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects foreign Canvas file URLs before making a download request", async () => {
+    const fetch = mockFetch(() =>
+      json({
+        id: 52,
+        filename: "course-notes.pdf",
+        size: 4,
+        url: "https://attacker.example/files/52/download",
+      }),
+    );
+    const client = new CanvasRestClient(connection, { fetch, maxFileBytes: 64 });
+
+    await expect(client.downloadFile(52)).rejects.toMatchObject({ code: "invalid_response" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects oversized Canvas files before downloading their bytes", async () => {
+    const fetch = mockFetch(() =>
+      json({
+        id: 52,
+        filename: "large.zip",
+        size: 65,
+        url: "https://learning.hanyang.ac.kr/files/52/download",
+      }),
+    );
+    const client = new CanvasRestClient(connection, { fetch, maxFileBytes: 64 });
+
+    await expect(client.downloadFile(52)).rejects.toMatchObject({ code: "invalid_response" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("normalizes self-submission semantics and never follows attachment URLs", async () => {
     const fetch = mockFetch((url) => {
       expect(url.pathname).toBe("/api/v1/courses/7/assignments/9/submissions/self");

@@ -1,4 +1,5 @@
 import { INSTITUTIONS, type CanvasConnection, type InstitutionKey } from "../domain.js";
+import { isIP } from "node:net";
 import { CanvasApiError } from "./errors.js";
 import type {
   CanvasAnnouncement,
@@ -14,6 +15,7 @@ import type {
   CanvasDiscussionEntry,
   CanvasDiscussionTopic,
   CanvasFile,
+  CanvasFileDownload,
   CanvasGrade,
   CanvasId,
   CanvasModule,
@@ -48,6 +50,7 @@ export interface CanvasRestClientOptions {
   timeoutMs?: number;
   maxPages?: number;
   maxResponseBytes?: number;
+  maxFileBytes?: number;
   now?: () => Date;
 }
 
@@ -60,12 +63,14 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_PAGES = 50;
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+const DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const DEFAULT_LIST_LIMIT = 500;
 const MAX_LIST_LIMIT = 2_000;
 const MAX_HTML_LENGTH = 50_000;
 const MAX_TEXT_LENGTH = 30_000;
 
-async function readResponseText(response: Response, maxBytes: number): Promise<string> {
+async function readResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
     throw new CanvasApiError(
@@ -74,7 +79,7 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
       { status: response.status },
     );
   }
-  if (!response.body) return "";
+  if (!response.body) return new Uint8Array();
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -105,7 +110,11 @@ async function readResponseText(response: Response, maxBytes: number): Promise<s
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(bytes);
+  return bytes;
+}
+
+async function readResponseText(response: Response, maxBytes: number): Promise<string> {
+  return new TextDecoder().decode(await readResponseBytes(response, maxBytes));
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -333,6 +342,39 @@ function errorCodeForStatus(status: number): {
   return { code: "canvas_error", retryable: false };
 }
 
+function isSafeFileRedirect(url: URL): boolean {
+  if (url.protocol !== "https:" || url.username !== "" || url.password !== "") return false;
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal")
+  ) {
+    return false;
+  }
+  const ipVersion = isIP(hostname);
+  if (ipVersion === 4) {
+    const parts = hostname.split(".").map(Number);
+    const first = parts[0] ?? -1;
+    const second = parts[1] ?? -1;
+    if (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168)
+    ) {
+      return false;
+    }
+  }
+  if (ipVersion === 6 && (hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:"))) {
+    return false;
+  }
+  return true;
+}
+
 function retryAfterSeconds(value: string | null, now: Date): number | null {
   if (!value) return null;
   const seconds = Number(value);
@@ -476,6 +518,7 @@ export class CanvasRestClient {
   private readonly timeoutMs: number;
   private readonly maxPages: number;
   private readonly maxResponseBytes: number;
+  private readonly maxFileBytes: number;
   private readonly now: () => Date;
   private readonly base: URL;
 
@@ -526,6 +569,13 @@ export class CanvasRestClient {
         `Canvas maxResponseBytes must be an integer between 64 and ${MAX_RESPONSE_BYTES}.`,
       );
     }
+    const maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+    if (!Number.isInteger(maxFileBytes) || maxFileBytes < 64 || maxFileBytes > MAX_FILE_BYTES) {
+      throw new CanvasApiError(
+        "configuration_error",
+        `Canvas maxFileBytes must be an integer between 64 and ${MAX_FILE_BYTES}.`,
+      );
+    }
 
     this.institution = connection.institution;
     this.base = canonical;
@@ -535,6 +585,7 @@ export class CanvasRestClient {
     this.timeoutMs = timeoutMs;
     this.maxPages = maxPages;
     this.maxResponseBytes = maxResponseBytes;
+    this.maxFileBytes = maxFileBytes;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -706,6 +757,57 @@ export class CanvasRestClient {
     if (options.contentTypes?.length) query["content_types[]"] = options.contentTypes.slice(0, 20);
     const rows = await this.getAllRecords(`/api/v1/courses/${id}/files`, query, options.limit);
     return rows.map((row) => this.normalizeFile(row));
+  }
+
+  async getFile(fileId: CanvasId): Promise<CanvasFile> {
+    const id = idArgument(fileId, "file_id");
+    const raw = await this.getRecord(`/api/v1/files/${id}`);
+    return this.normalizeFile(raw);
+  }
+
+  async downloadFile(fileId: CanvasId): Promise<CanvasFileDownload> {
+    const id = idArgument(fileId, "file_id");
+    const raw = await this.getRecord(`/api/v1/files/${id}`);
+    const file = this.normalizeFile(raw);
+    if (file.size !== null && file.size > this.maxFileBytes) {
+      throw new CanvasApiError(
+        "invalid_response",
+        `Canvas file exceeds the ${Math.floor(this.maxFileBytes / (1024 * 1024))} MiB download limit.`,
+      );
+    }
+    const rawUrl = stringValue(raw.url);
+    if (!rawUrl) {
+      throw new CanvasApiError("invalid_response", "Canvas did not return a download URL for this file.");
+    }
+    let downloadUrl: URL;
+    try {
+      downloadUrl = new URL(rawUrl);
+    } catch (error) {
+      throw new CanvasApiError(
+        "invalid_response",
+        "Canvas returned an invalid file download URL.",
+        {},
+        error instanceof Error ? { cause: error } : {},
+      );
+    }
+    if (
+      downloadUrl.protocol !== "https:" ||
+      downloadUrl.origin !== this.base.origin ||
+      !downloadUrl.pathname.startsWith("/files/") ||
+      downloadUrl.username !== "" ||
+      downloadUrl.password !== ""
+    ) {
+      throw new CanvasApiError(
+        "invalid_response",
+        "Canvas returned a file download URL outside the configured HTTPS origin.",
+      );
+    }
+    const downloaded = await this.fetchDownload(downloadUrl);
+    return {
+      file,
+      bytes: downloaded.bytes,
+      contentType: file.contentType || downloaded.contentType || "application/octet-stream",
+    };
   }
 
   async listConversations(
@@ -1343,6 +1445,107 @@ export class CanvasRestClient {
     }
 
     return output.slice(0, limit);
+  }
+
+  private async fetchDownload(initialUrl: URL): Promise<{ bytes: Uint8Array; contentType: string | null }> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, Math.max(this.timeoutMs, 30_000));
+    timer.unref?.();
+
+    let current = initialUrl;
+    try {
+      for (let redirects = 0; redirects <= 5; redirects += 1) {
+        let response: Response;
+        try {
+          response = await this.fetchImpl(current, {
+            method: "GET",
+            headers: {
+              Accept: "*/*",
+              "User-Agent": "canvas-mcp-service/0.1 (read-only file relay)",
+            },
+            redirect: "manual",
+            signal: controller.signal,
+          });
+        } catch (error) {
+          const name = error instanceof Error ? error.name : "";
+          if (timedOut || name === "AbortError") {
+            throw new CanvasApiError(
+              "timeout",
+              "Canvas file download did not finish within the safety timeout.",
+              { retryable: true },
+              error instanceof Error ? { cause: error } : {},
+            );
+          }
+          throw new CanvasApiError(
+            "network_error",
+            "Canvas file download failed before a response was received.",
+            { retryable: true },
+            error instanceof Error ? { cause: error } : {},
+          );
+        }
+
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          const location = response.headers.get("location");
+          if (!location || redirects === 5) {
+            throw new CanvasApiError("invalid_response", "Canvas file download used an invalid redirect chain.");
+          }
+          let candidate: URL;
+          try {
+            candidate = new URL(location, current);
+          } catch (error) {
+            throw new CanvasApiError(
+              "invalid_response",
+              "Canvas file download returned an invalid redirect URL.",
+              {},
+              error instanceof Error ? { cause: error } : {},
+            );
+          }
+          if (!isSafeFileRedirect(candidate)) {
+            throw new CanvasApiError("invalid_response", "Canvas file download redirected to an unsafe URL.");
+          }
+          current = candidate;
+          continue;
+        }
+
+        if (!response.ok) {
+          const mapped = errorCodeForStatus(response.status);
+          throw new CanvasApiError(
+            mapped.code,
+            `Canvas file download failed with HTTP ${response.status}.`,
+            {
+              status: response.status,
+              retryable: mapped.retryable,
+              requestId: response.headers.get("x-request-context-id"),
+              retryAfterSeconds: retryAfterSeconds(response.headers.get("retry-after"), this.now()),
+            },
+          );
+        }
+
+        const bytes = await readResponseBytes(response, this.maxFileBytes);
+        return {
+          bytes,
+          contentType: response.headers.get("content-type")?.split(";", 1)[0]?.trim() || null,
+        };
+      }
+      throw new CanvasApiError("invalid_response", "Canvas file download exceeded the redirect limit.");
+    } catch (error) {
+      const name = error instanceof Error ? error.name : "";
+      if (!(error instanceof CanvasApiError) && (timedOut || name === "AbortError")) {
+        throw new CanvasApiError(
+          "timeout",
+          "Canvas file download did not finish within the safety timeout.",
+          { retryable: true },
+          error instanceof Error ? { cause: error } : {},
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async fetchJson(url: URL): Promise<JsonPage> {

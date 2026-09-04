@@ -52,17 +52,17 @@
 
         <section>
           <h2>How information is used</h2>
-          <p>Information is used to authenticate you, maintain the Hanyang connection, save and retrieve authorized lecture records, execute the requests you initiate, prevent abuse, and operate the service. This service does not sell personal information or use coursework or transcripts to build advertising profiles.</p>
+          <p>Information is used to authenticate you, maintain the Hanyang connection, save and retrieve authorized lecture records, retrieve Canvas files you explicitly request, execute the requests you initiate, prevent abuse, and operate the service. This service does not sell personal information or use coursework or transcripts to build advertising profiles.</p>
         </section>
 
         <section>
           <h2>Where information goes</h2>
-          <p>The service sends authorized Canvas requests only to Hanyang HY-ON. Study Lecture sends live microphone audio directly to OpenAI for transcription or translation and stores only the resulting text and recording metadata on the private service. If the separately gated Hanyang LearningX pilot is enabled, a signed LTI launch form may also be sent to an allowlisted Hanyang or Xinics HTTPS origin; the Canvas PAT is never sent there. Results are returned to the MCP client you chose. ChatGPT, Codex, OpenAI, and other clients or processors handle data under their own terms and privacy notices.</p>
+          <p>The service sends authorized Canvas requests only to Hanyang HY-ON. When you request a Canvas file, Study retrieves its original bytes and relays them through a short-lived signed link to the MCP client without disclosing the Canvas PAT or verifier URL. Study Lecture sends live microphone audio directly to OpenAI for transcription or translation and stores only the resulting text and recording metadata on the private service. If the separately gated Hanyang LearningX pilot is enabled, a signed LTI launch form may also be sent to an allowlisted Hanyang or Xinics HTTPS origin; the Canvas PAT is never sent there. Results are returned to the MCP client you chose. ChatGPT, Codex, OpenAI, and other clients or processors handle data under their own terms and privacy notices.</p>
         </section>
 
         <section>
           <h2>Storage and retention</h2>
-          <p>Canvas access tokens are encrypted at rest and decrypted only for an authorized Canvas request. Authentication and connection metadata remain until the account is deleted or the connection is revoked. Saved lecture transcripts remain until they are archived or removed by the authorized user or operator. Short-lived WebAuthn challenges, invitation state, sessions, rate-limit records, and security logs are retained only as long as needed for their stated purpose. Backups follow the operator's limited retention schedule.</p>
+          <p>Canvas access tokens are encrypted at rest and decrypted only for an authorized Canvas request. Relayed Canvas file bytes are not stored by Study, and signed file links expire after a short period. Authentication and connection metadata remain until the account is deleted or the connection is revoked. Saved lecture transcripts remain until they are archived or removed by the authorized user or operator. Short-lived WebAuthn challenges, invitation state, sessions, rate-limit records, and security logs are retained only as long as needed for their stated purpose. Backups follow the operator's limited retention schedule.</p>
         </section>
 
         <section>

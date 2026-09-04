@@ -33,6 +33,7 @@ const TOOL_NAMES = [
   "list_pages",
   "get_page",
   "list_files",
+  "get_file",
   "list_conversations",
   "get_conversation",
   "list_course_submissions",
@@ -110,12 +111,19 @@ async function connectedClient(options: {
   getConnection: (userId: string) => CanvasConnection | null | Promise<CanvasConnection | null>;
   fetch?: typeof globalThis.fetch;
   learningXEnabled?: boolean;
+  createFileLink?: (fileId: string) => { uri: string; expiresAt: string };
 }) {
   const server = createCanvasMcpServer({
     userId: "bound-user",
     getConnection: options.getConnection,
     fetch: options.fetch ?? profileFetch(),
     learningXEnabled: options.learningXEnabled ?? false,
+    createFileLink:
+      options.createFileLink ??
+      ((fileId) => ({
+        uri: `https://study.siyidu.com/files/test-${fileId}`,
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      })),
   });
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -171,14 +179,14 @@ describe("Canvas MCP tools", () => {
     const tools = await advertisedTools(client);
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...TOOL_NAMES.slice(0, 18),
+      ...TOOL_NAMES.slice(0, 19),
       "list_learningx_attendance",
       "get_learningx_attendance_item",
       "list_learningx_modules",
       "list_learningx_boards",
       "list_learningx_board_posts",
       "get_learningx_board_post",
-      ...TOOL_NAMES.slice(18),
+      ...TOOL_NAMES.slice(19),
     ]);
     for (const name of [
       "list_learningx_attendance",
@@ -276,6 +284,67 @@ describe("Canvas MCP tools", () => {
         }),
       ]),
     );
+    const validate = new AjvJsonSchemaValidator().getValidator(
+      tool.outputSchema as JsonSchemaType,
+    );
+    expect(validate(result.structuredContent)).toMatchObject({ valid: true });
+  });
+
+  it("returns a short-lived MCP file reference without exposing the Canvas download URL", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/api/v1/files/52");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer hanyang-pat");
+      return new Response(
+        JSON.stringify({
+          id: 52,
+          display_name: "Course notes.pdf",
+          filename: "course-notes.pdf",
+          "content-type": "application/pdf",
+          size: 1234,
+          url: "https://learning.hanyang.ac.kr/files/52/download?verifier=do-not-expose",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof globalThis.fetch;
+    const createFileLink = vi.fn((fileId: string) => ({
+      uri: `https://study.siyidu.com/files/signed-${fileId}`,
+      expiresAt: "2030-01-01T00:00:00.000Z",
+    }));
+    const client = await connectedClient({
+      getConnection: () => connection,
+      fetch,
+      createFileLink,
+    });
+    const tool = (await advertisedTools(client)).find(
+      (candidate) => candidate.name === "get_file",
+    );
+    if (!tool) throw new Error("get_file tool was not advertised");
+
+    const result = await client.callTool({ name: "get_file", arguments: { file_id: 52 } });
+
+    expect(result.isError).not.toBe(true);
+    expect(createFileLink).toHaveBeenCalledWith("52");
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      result: {
+        id: "52",
+        filename: "course-notes.pdf",
+        displayName: "Course notes.pdf",
+        contentType: "application/pdf",
+        size: 1234,
+      },
+      error: null,
+    });
+    expect(result.content[1]).toMatchObject({
+      type: "resource_link",
+      uri: "https://study.siyidu.com/files/signed-52",
+      name: "course-notes.pdf",
+      title: "Course notes.pdf",
+      mimeType: "application/pdf",
+      size: 1234,
+    });
+    expect(JSON.stringify(result)).not.toContain("verifier");
     const validate = new AjvJsonSchemaValidator().getValidator(
       tool.outputSchema as JsonSchemaType,
     );

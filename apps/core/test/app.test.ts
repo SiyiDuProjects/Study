@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApplication, type ApplicationRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { createPatCipher, hashOpaqueToken } from "../src/crypto/index.js";
+import { createFileDownloadLink } from "../src/fileLinks.js";
 
 const runtimes: ApplicationRuntime[] = [];
 
@@ -99,6 +100,50 @@ describe("application HTTP boundary", () => {
       'resource_metadata="http://localhost:8794/.well-known/oauth-protected-resource"',
     );
     expect(denied.body.error).toBe("invalid_token");
+  });
+
+  it("relays bytes only for a valid short-lived file capability", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/files/52") {
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-pat");
+        return new Response(
+          JSON.stringify({
+            id: 52,
+            display_name: "Course notes.pdf",
+            filename: "course-notes.pdf",
+            "content-type": "application/pdf",
+            size: 4,
+            url: "https://learning.hanyang.ac.kr/files/52/download?verifier=secret",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      expect(url.pathname).toBe("/files/52/download");
+      expect(new Headers(init?.headers).has("authorization")).toBe(false);
+      return new Response(Uint8Array.from([37, 80, 68, 70]), {
+        status: 200,
+        headers: { "content-type": "application/pdf", "content-length": "4" },
+      });
+    }) as unknown as typeof globalThis.fetch;
+    const created = runtime({ fetch });
+    seedCanvasConnection(created);
+    const link = createFileDownloadLink({
+      publicOrigin: created.config.publicOrigin,
+      masterKey: created.config.masterKey,
+      userId: "owner",
+      fileId: "52",
+    });
+    const path = new URL(link.uri).pathname;
+
+    const accepted = await request(created.app).get(path).expect(200);
+
+    expect(accepted.headers["cache-control"]).toBe("private, no-store");
+    expect(accepted.headers["content-type"]).toContain("application/pdf");
+    expect(accepted.headers["content-disposition"]).toContain('attachment; filename="course-notes.pdf"');
+    expect([...accepted.body]).toEqual([37, 80, 68, 70]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await request(created.app).get("/files/not-a-valid-token").expect(404);
   });
 
   it("keeps the legacy gaid.studio MCP host only for the canonical Study origin", async () => {

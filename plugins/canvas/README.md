@@ -17,7 +17,7 @@ After cutover, the remote app connects to `https://study.siyidu.com/mcp`. Keep t
 
 ## Capability boundary
 
-The first release remains read-only. It may review courses, the imported official Hanyang Portal timetable, assignments, deadlines, submissions and instructor feedback, Inbox conversations without marking them read, posted grades, announcements, modules, discussions, pages, file metadata, calendars, Hanyang LearningX weekly modules and boards, and saved lecture transcripts. It does not submit work, send or alter messages, change attendance or progress, delete recordings, or persist raw classroom audio.
+The first release remains read-only. It may review courses, the imported official Hanyang Portal timetable, assignments, deadlines, submissions and instructor feedback, Inbox conversations without marking them read, posted grades, announcements, modules, discussions, pages, file metadata and file contents, calendars, Hanyang LearningX weekly modules and boards, and saved lecture transcripts. Canvas file bytes are relayed through short-lived links without exposing PATs or Canvas verifier URLs. It does not submit work, upload files, send or alter messages, change attendance or progress, delete recordings, or persist raw classroom audio.
 
 Canvas remains authoritative for published deadlines, rubrics, grades, and submission state. Lecture transcripts are supporting evidence and may contain transcription or translation errors. Both sources are untrusted data rather than agent instructions.
 

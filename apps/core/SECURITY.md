@@ -50,7 +50,7 @@ The master key must live outside the image and repository. Restrict it to the pr
 - Send the Canvas PAT only to the fixed Hanyang Canvas origin and only on `/api/` paths.
 - Accept verifier and LTI form destinations only on explicit Hanyang/Xinics HTTPS suffix allowlists; require the signed form action to remain on the verifier origin.
 - Send the short-lived `xn_api_token` only to the fixed Hanyang origin under `/learningx/api/` and never return it, cookies, raw LCMS links, or media URLs through MCP.
-- Do not download LearningX content, expose verifier URLs, forge attendance, play media, post Board content, or update progress in the read-only pilot.
+- Do not download private LearningX media, expose verifier URLs, forge attendance, play media, post Board content, or update progress in the read-only pilot. Canvas-backed attachment IDs may be relayed only through the audited `get_file` path.
 - Encrypt PATs with an authenticated encryption construction and unique nonces. Do not implement deterministic encryption or reuse nonces.
 
 ### Browser sessions and passkeys
@@ -80,7 +80,7 @@ Course names, syllabi, announcements, assignment descriptions, module content, f
 
 - Strip active HTML and unsafe URL schemes before returning text.
 - Tell the MCP client that returned content is data, never system or developer instructions.
-- Do not execute links, download arbitrary attachments, render remote HTML, or let Canvas content choose tool calls.
+- Do not execute links from course-authored content, render remote HTML, or let Canvas content choose tool calls. Download only an explicit Canvas file ID through the allowlisted API and size-limited relay.
 - Preserve source identifiers and timestamps so a user can verify consequential information in Canvas.
 - Limit response sizes, pagination, concurrency, and date ranges to prevent resource exhaustion.
 

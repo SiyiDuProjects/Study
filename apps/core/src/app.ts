@@ -19,6 +19,7 @@ import { CourseCatalogService } from "./course/index.js";
 import { createInternalRouter } from "./internal/http.js";
 import { LectureClient } from "./lecture/index.js";
 import { log } from "./logger.js";
+import { createFileDownloadLink, verifyFileDownloadToken } from "./fileLinks.js";
 
 const STUDY_CANONICAL_HOST = "study.siyidu.com";
 const STUDY_LEGACY_MCP_HOST = "canvas.gaid.studio";
@@ -220,6 +221,37 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
   app.use(createAuthRouter(auth, config));
   app.use(createInternalRouter(courseCatalog, config.studyServiceToken));
 
+  app.get("/files/:token", limiter(60_000, 120), async (request, response, next) => {
+    try {
+      const routeToken = Array.isArray(request.params.token)
+        ? request.params.token[0] ?? ""
+        : request.params.token ?? "";
+      const grant = verifyFileDownloadToken({
+        token: routeToken,
+        masterKey: config.masterKey,
+        ...(options.clock ? { now: options.clock() } : {}),
+      });
+      if (!grant) {
+        response.status(404).json({ error: { code: "not_found", message: "File link is invalid or expired." } });
+        return;
+      }
+      const connection = auth.getCanvasConnection(grant.userId);
+      const client = new CanvasRestClient(connection, {
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+        timeoutMs: 60_000,
+        maxFileBytes: 50 * 1024 * 1024,
+      });
+      const download = await client.downloadFile(grant.fileId);
+      response.set("Cache-Control", "private, no-store");
+      response.set("Pragma", "no-cache");
+      response.type(download.contentType);
+      response.attachment(download.file.filename || download.file.displayName || `canvas-file-${download.file.id}`);
+      response.send(Buffer.from(download.bytes));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   const mcpLimit = limiter(60_000, 240);
   const bearer = requireBearer(auth, ["canvas.read"]);
   const lectureBearer = requireBearer(auth, ["canvas.read", "lecture.read"]);
@@ -249,6 +281,14 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
     const mcp = createCanvasMcpServer({
       userId: authentication.userId,
       getConnection: (userId) => auth.getCanvasConnection(userId),
+      createFileLink: (fileId) =>
+        createFileDownloadLink({
+          publicOrigin: config.publicOrigin,
+          masterKey: config.masterKey,
+          userId: authentication.userId,
+          fileId,
+          ...(options.clock ? { now: options.clock() } : {}),
+        }),
       learningXEnabled: config.learningXEnabled,
       ...(lectureClient ? { lectureClient } : {}),
       ...(options.fetch ? { fetch: options.fetch } : {}),

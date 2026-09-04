@@ -705,6 +705,7 @@ export const canvasToolOutputSchemas = {
   list_pages: envelopeSchema(z.array(pageSummarySchema)),
   get_page: envelopeSchema(pageSchema),
   list_files: envelopeSchema(z.array(fileSchema)),
+  get_file: envelopeSchema(fileSchema),
   list_conversations: envelopeSchema(z.array(conversationSummarySchema)),
   get_conversation: envelopeSchema(conversationSchema),
   list_course_submissions: envelopeSchema(z.array(courseSubmissionSchema)),

@@ -286,6 +286,12 @@ export interface CanvasFile {
   hidden: boolean;
 }
 
+export interface CanvasFileDownload {
+  file: CanvasFile;
+  bytes: Uint8Array;
+  contentType: string;
+}
+
 export interface CanvasConversationParticipant {
   id: string;
   name: string;
