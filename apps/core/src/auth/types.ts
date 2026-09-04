@@ -40,6 +40,7 @@ export interface AccountSummary {
   };
   passkeys: Array<{
     id: string;
+    rpId: string;
     deviceName: string | null;
     createdAt: number;
     lastUsedAt: number | null;
@@ -62,6 +63,7 @@ export interface BearerAuthentication {
 }
 
 export type StepUpAction = "add_passkey" | "delete_account";
+export type WebAuthnLoginMode = "auto" | "canonical" | "legacy";
 
 export interface OAuthAuthorizationInput {
   clientId: string;
@@ -126,7 +128,7 @@ export interface AuthService {
     sessionToken: string;
     sessionExpiresAt: number;
   }>;
-  beginPasskeyLogin(): Promise<{
+  beginPasskeyLogin(mode?: WebAuthnLoginMode): Promise<{
     flowId: string;
     options: PublicKeyCredentialRequestOptionsJSON;
   }>;
@@ -137,6 +139,8 @@ export interface AuthService {
     user: AuthenticatedUser;
     sessionToken: string;
     sessionExpiresAt: number;
+    migrationStepUpToken?: string;
+    migrationStepUpExpiresAt?: number;
   }>;
   beginStepUp(userId: string, sessionId: string, action: StepUpAction): Promise<{
     flowId: string;

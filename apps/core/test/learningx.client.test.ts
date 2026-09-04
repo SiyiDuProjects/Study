@@ -102,6 +102,107 @@ describe("LearningXReadClient", () => {
     expect(learningXCall?.authorization).toBe("Bearer aaa.bbb.ccc");
   });
 
+  it("discovers Hanyang Weekly Learning and normalizes its module tree", async () => {
+    const fetch = mockFetch((url, init) => {
+      if (url.pathname.endsWith("/tabs")) {
+        return json([{ id: "context_external_tool_140", label: "Weekly Learning" }]);
+      }
+      if (url.pathname.endsWith("/external_tools/sessionless_launch")) {
+        return json({ url: "https://lti.xinics.com/verifier" });
+      }
+      if (url.href === "https://lti.xinics.com/verifier") {
+        return new Response(
+          '<form action="https://lti.xinics.com/launch"><input name="oauth" value="safe"></form>',
+        );
+      }
+      if (url.href === "https://lti.xinics.com/launch") {
+        expect(init?.method).toBe("POST");
+        return new Response("", {
+          status: 302,
+          headers: { "set-cookie": "xn_api_token=aaa.bbb.ccc; Secure" },
+        });
+      }
+      if (url.pathname.endsWith("/learningx/api/v1/courses/7/modules")) {
+        return json([{ module_id: 1, course_id: 7, title: "Week 1", module_items: [] }]);
+      }
+      return json({ message: "unexpected" }, { status: 404 });
+    });
+    const client = new LearningXReadClient(hanyangConnection, { fetch });
+
+    const modules = await client.listModules(7);
+
+    expect(modules).toEqual([
+      expect.objectContaining({ id: "1", courseId: "7", name: "Week 1" }),
+    ]);
+  });
+
+  it("reads LearningX boards through discovered Hanyang Board tabs without exposing download URLs", async () => {
+    const fetch = mockFetch((url) => {
+      if (url.pathname.endsWith("/tabs")) {
+        return json([{ id: "context_external_tool_132", label: "Board" }]);
+      }
+      if (url.pathname.endsWith("/external_tools/sessionless_launch")) {
+        return json({ url: "https://lti.xinics.com/verifier" });
+      }
+      if (url.href === "https://lti.xinics.com/verifier") {
+        return new Response(
+          '<form action="https://lti.xinics.com/launch"><input name="oauth" value="safe"></form>',
+        );
+      }
+      if (url.href === "https://lti.xinics.com/launch") {
+        return new Response("", {
+          status: 302,
+          headers: { "set-cookie": "xn_api_token=aaa.bbb.ccc; Secure" },
+        });
+      }
+      if (url.pathname.endsWith("/boards/8/posts/9")) {
+        return json({
+          id: 9,
+          board_id: 8,
+          title: "Details",
+          content: '<p onclick="steal()">Body</p><script>bad()</script>',
+          attachments: [{ id: 10, filename: "file.pdf", url: "https://attacker.example/file" }],
+          comments: [{ id: 11, content: "<p>Reply</p>", is_deleted: false }],
+        });
+      }
+      if (url.pathname.endsWith("/boards/8/posts")) {
+        expect(url.searchParams.get("page")).toBe("2");
+        expect(url.searchParams.get("filter")).toBe("title");
+        expect(url.searchParams.get("keyword")).toBe("exam");
+        return json({
+          items: [{ id: 9, board_id: 8, title: "Details", attachment_count: 1 }],
+          pagination: { current_page: 2, total_count: 1, total_pages: 1 },
+        });
+      }
+      if (url.pathname.endsWith("/learningx_board/courses/7/boards")) {
+        return json([
+          {
+            id: 8,
+            course_id: 7,
+            title: "Q&A",
+            description: '<p onmouseover="steal()">Questions</p>',
+            total_post_count: 1,
+            unread_post_count: 1,
+            use_attachment: true,
+          },
+        ]);
+      }
+      return json({ message: "unexpected" }, { status: 404 });
+    });
+    const client = new LearningXReadClient(hanyangConnection, { fetch });
+
+    const boards = await client.listBoards(7);
+    const page = await client.listBoardPosts(7, 8, { page: 2, keyword: "exam" });
+    const post = await client.getBoardPost(7, 8, 9);
+
+    expect(boards[0]).toMatchObject({ title: "Q&A", descriptionText: "Questions" });
+    expect(boards[0]?.descriptionHtml).not.toMatch(/onmouseover/i);
+    expect(page.posts[0]).toMatchObject({ id: "9", boardId: "8", attachmentCount: 1 });
+    expect(post).toMatchObject({ contentText: "Body", comments: [{ contentText: "Reply" }] });
+    expect(post.contentHtml).not.toMatch(/onclick|script/i);
+    expect(JSON.stringify(post)).not.toContain("attacker.example");
+  });
+
   it("rejects an untrusted verifier before sending LTI data", async () => {
     const fetch = mockFetch((url) => {
       if (url.pathname.endsWith("/tabs")) {

@@ -29,3 +29,4 @@ test-results
 *.sqlite
 *.sqlite-*
 *.db
+.deploy/

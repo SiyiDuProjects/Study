@@ -2,7 +2,7 @@
 
 ## Study Core
 
-Study Core remains on the existing VPS under `/home/ubuntu/siyi/canvas` and binds only to `127.0.0.1:8794`. Cloudflare Tunnel provides `https://canvas.gaid.studio`.
+Study Core remains on the existing VPS under `/home/ubuntu/siyi/canvas` and binds only to `127.0.0.1:8794`. Cloudflare Tunnel provides `https://study.siyidu.com`.
 
 Before a Core release:
 
@@ -24,7 +24,7 @@ Record is built from `apps/record` and deployed privately with OpenAI Sites. Its
 Required Sites secrets/environment:
 
 - `OPENAI_API_KEY` (secret)
-- `STUDY_API_URL=https://canvas.gaid.studio`
+- `STUDY_API_URL=https://study.siyidu.com`
 - `STUDY_SERVICE_TOKEN` (secret)
 - `LECTURE_SERVICE_TOKEN` (secret)
 

@@ -33,8 +33,8 @@
 - SSH identity: `D:\Projects\_private\Keys\Siyi.pem`
 - Core Compose root: `/home/ubuntu/siyi`
 - Core service directory: `/home/ubuntu/siyi/canvas`
-- Core public origin: `https://canvas.gaid.studio`
-- Core MCP: `https://canvas.gaid.studio/mcp`
+- Core public origin: `https://study.siyidu.com`
+- Core MCP: `https://study.siyidu.com/mcp`
 - Core readiness: `http://127.0.0.1:8794/readyz`
 - Record is deployed through OpenAI Sites and uses D1. Do not restore the old VPS `jiahuan_web` as the canonical Record service after cutover.
 

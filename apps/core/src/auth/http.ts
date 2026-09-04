@@ -21,6 +21,7 @@ import type {
   OAuthAuthorizationInput,
   SessionAuthentication,
   StepUpAction,
+  WebAuthnLoginMode,
 } from "./types.js";
 
 type AsyncHandler = (request: Request, response: Response, next: NextFunction) => Promise<void>;
@@ -112,6 +113,17 @@ function requiredStepUpAction(record: Record<string, unknown>): StepUpAction {
     throw new AuthError("invalid_step_up_action", "Unsupported step-up action", 400);
   }
   return action;
+}
+
+function optionalLoginMode(record: Record<string, unknown>): WebAuthnLoginMode | undefined {
+  const mode = record.mode;
+  if (mode === undefined) {
+    return undefined;
+  }
+  if (mode !== "auto" && mode !== "canonical" && mode !== "legacy") {
+    throw new AuthError("invalid_login_mode", "Unsupported passkey login mode", 400);
+  }
+  return mode;
 }
 
 function queryString(request: Request, key: string, required = true): string | undefined {
@@ -362,9 +374,10 @@ export function createAuthRouter(service: AuthService, config: AppConfig = servi
   router.post("/auth/setup/verify", setupVerify);
   router.post("/auth/register/verify", setupVerify);
 
-  const loginOptions = browserPost(config, async (_request, response) => {
+  const loginOptions = browserPost(config, async (request, response) => {
+    const body = request.body === undefined ? {} : asRecord(request.body);
     oauthNoStore(response);
-    response.json(await service.beginPasskeyLogin());
+    response.json(await service.beginPasskeyLogin(optionalLoginMode(body)));
   });
   router.post("/auth/passkey/options", loginOptions);
   router.post("/auth/login/options", loginOptions);
@@ -383,6 +396,12 @@ export function createAuthRouter(service: AuthService, config: AppConfig = servi
       expiresAt: result.sessionExpiresAt,
       returnTo: redirectTo,
       redirectTo,
+      ...(result.migrationStepUpToken === undefined
+        ? {}
+        : {
+            migrationStepUpToken: result.migrationStepUpToken,
+            migrationStepUpExpiresAt: result.migrationStepUpExpiresAt,
+          }),
     });
   });
   router.post("/auth/passkey/verify", loginVerify);
@@ -397,6 +416,7 @@ export function createAuthRouter(service: AuthService, config: AppConfig = servi
         authenticated: true,
         user: session.user,
         expiresAt: session.expiresAt,
+        legacyLoginEnabled: config.webauthnLegacyLoginEnabled,
         returnTo,
         redirectTo: returnTo,
       });
@@ -406,7 +426,12 @@ export function createAuthRouter(service: AuthService, config: AppConfig = servi
       }
       clearSessionCookie(response, config);
       oauthNoStore(response);
-      response.json({ authenticated: false, returnTo, redirectTo: "/login" });
+      response.json({
+        authenticated: false,
+        legacyLoginEnabled: config.webauthnLegacyLoginEnabled,
+        returnTo,
+        redirectTo: "/login",
+      });
     }
   });
 

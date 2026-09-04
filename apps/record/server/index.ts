@@ -64,7 +64,7 @@ function validateProductionEndpoints(studyApiUrl: string, publicOrigin: string):
     throw new Error("Production STUDY_API_URL must be exactly http://canvas:8794");
   }
   const lecture = new URL(publicOrigin);
-  if (lecture.protocol !== "https:" || lecture.hostname !== "lecture.gaid.studio" || lecture.pathname !== "/") {
-    throw new Error("Production LECTURE_PUBLIC_ORIGIN must be exactly https://lecture.gaid.studio");
+  if (lecture.protocol !== "https:" || lecture.hostname !== "lecture.siyidu.com" || lecture.pathname !== "/") {
+    throw new Error("Production LECTURE_PUBLIC_ORIGIN must be exactly https://lecture.siyidu.com");
   }
 }

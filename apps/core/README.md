@@ -37,9 +37,9 @@ Configuration is read from environment variables. Secret values belong in a depl
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `PUBLIC_ORIGIN` | yes | none | Bare public origin, such as `https://canvas.gaid.studio`; no path, query, or credentials. |
+| `PUBLIC_ORIGIN` | yes | none | Bare public origin, such as `https://study.siyidu.com`; no path, query, or credentials. |
 | `MASTER_KEY_BASE64` | yes | none | Canonical base64 for exactly 32 random bytes; encrypts stored Canvas PATs. |
-| `WEBAUTHN_RP_ID` | yes | none | WebAuthn relying-party domain, normally `canvas.gaid.studio`; v1 requires an exact match with the public host. |
+| `WEBAUTHN_RP_ID` | yes | none | WebAuthn relying-party domain, normally `study.siyidu.com`; v1 requires an exact match with the public host. |
 | `PORT` | no | `8794` | Internal HTTP listener. |
 | `DATABASE_PATH` | no | `./data/canvas.sqlite` | SQLite path; use `/data/canvas.sqlite` in the example container. |
 | `WEBAUTHN_RP_NAME` | no | `Study` | Human-readable name shown in passkey prompts. |
@@ -47,11 +47,11 @@ Configuration is read from environment variables. Secret values belong in a depl
 | `COOKIE_SECURE` | no | `true` | Keep `true` in production; localhost HTTP development may use `false`. |
 | `LOG_LEVEL` | no | `info` | One of `debug`, `info`, `warn`, or `error`. Debug logging still must redact secrets. |
 | `STUDY_SERVICE_TOKEN` | yes | none | Dedicated bearer secret accepted only by the internal Lecture course-catalog endpoint. Use at least 32 random characters. |
-| `LECTURE_API_URL` | no | empty | Exact HTTPS origin for the private Study Record site, currently `https://lecture.gaid.studio`. Must be set together with `LECTURE_SERVICE_TOKEN`. |
+| `LECTURE_API_URL` | no | empty | Exact HTTPS origin for the private Study Record site, currently `https://lecture.siyidu.com`. Must be set together with `LECTURE_SERVICE_TOKEN`. |
 | `LECTURE_SERVICE_TOKEN` | no | empty | Separate bearer secret used only for Study-to-Lecture transcript reads. Use at least 32 random characters. |
 | `LECTURE_SITE_AUTH_TOKEN` | no | empty | Sites dispatch bypass token used only by Core for identity-less server-to-server calls to the private Record site. Required when `LECTURE_API_URL` is protected by Sites sign-in. |
 | `COURSE_SYNC_MIN_INTERVAL_SECONDS` | no | `300` | Minimum interval between live active+completed Hanyang course catalog refreshes. |
-| `LEARNINGX_ENABLED` | no | `false` | Registers the Hanyang-only LearningX attendance/module tools. Keep disabled until a real course passes the read-only integration checklist. |
+| `LEARNINGX_ENABLED` | no | `false` | Registers the Hanyang-only LearningX attendance, weekly-module, and Board tools. Enable only after the target deployment passes the read-only integration checklist. |
 | `OAUTH_ADDITIONAL_REDIRECT_URIS` | no | empty | Comma/whitespace-separated exact redirect URIs for explicitly trusted non-ChatGPT clients. |
 | `OAUTH_DCR_ENABLED` | no | `true` | Exposes dynamic client registration. Disable it after the intended private ChatGPT/Codex connections have registered. |
 | `OAUTH_MAX_CLIENTS` | no | `8` | Maximum distinct, strictly allowlisted OAuth client registrations for the private pilot. |
@@ -136,7 +136,7 @@ The invitation—not a client-supplied field—selects the institution and Canva
   "flowId": "opaque-flow-id",
   "options": {
     "challenge": "base64url",
-    "rp": { "id": "canvas.gaid.studio", "name": "Canvas" },
+    "rp": { "id": "study.siyidu.com", "name": "Canvas" },
     "user": { "id": "base64url", "name": "user", "displayName": "User" },
     "pubKeyCredParams": [{ "type": "public-key", "alg": -7 }]
   }
@@ -210,9 +210,9 @@ SQLite needs write access to the directory containing the database for WAL and s
 
 ## Read-only tool surface
 
-The standard Canvas surface covers connection status, courses, assignments, submissions, posted grades, announcements, modules, course tabs, quizzes, discussions, pages, file metadata, calendar events, planner work, and a bounded weekly summary. File tools deliberately omit download and verifier URLs; rich text is sanitized and marked as untrusted data.
+The standard Canvas surface covers connection status, courses, the authenticated student's imported Hanyang Portal timetable, assignments, course-wide submissions and instructor feedback, Inbox conversations, posted grades, announcements, modules, course tabs, quizzes, discussions, pages, file metadata, calendar events, planner work, and a bounded weekly summary. `get_timetable` returns the official recurring 2026-semester-2 class times, rooms, and stable Canvas course mappings; date-specific notices remain separate overlays for the matching course and stated date range. Inbox detail reads explicitly disable Canvas's default automatic mark-as-read behavior. File and attachment tools deliberately omit download and verifier URLs; rich text is sanitized and marked as untrusted data.
 
-The codebase also contains a Hanyang-only LearningX pilot for attendance items, watched-seconds metadata, and the LearningX module tree. It is feature-gated by `LEARNINGX_ENABLED=false`. The pilot derives an external-tool ID from the student's visible course tabs, confines the Canvas PAT to the configured Canvas origin, permits the signed LTI form only on allowlisted Hanyang/Xinics HTTPS origins, and confines the resulting short-lived JWT to same-origin `/learningx/api/` reads. Do not enable it until a Hanyang course confirms its exact tab labels, launch origins, response shapes, and applicable institution terms.
+The codebase also contains a Hanyang-only LearningX pilot for attendance items, watched-seconds metadata, Weekly Learning modules, and Board lists/posts. It is feature-gated by `LEARNINGX_ENABLED=false`. The pilot derives an external-tool ID from the student's visible course tabs, confines the Canvas PAT to the configured Canvas origin, permits the signed LTI form only on allowlisted Hanyang/Xinics HTTPS origins, and confines the resulting short-lived JWT to same-origin `/learningx/api/` reads. A 2026-08-30 read-only production audit confirmed the live `Lecture/Attendance`, `Weekly Learning`, and `Board` labels, module response shape, and course-scoped Board path; the deployment must still remain private and comply with applicable Canvas, Hanyang, and course policies.
 
 ## Connecting clients
 
@@ -224,7 +224,7 @@ The sibling `canvas` plugin maps its app name through `.app.json` to the registe
 
 ChatGPT uses the registered remote MCP connection:
 
-1. Deploy the public HTTPS server and verify OAuth discovery from `https://canvas.gaid.studio/mcp`.
+1. Deploy the public HTTPS server and verify OAuth discovery from `https://study.siyidu.com/mcp`.
 2. Enable Developer mode under ChatGPT **Settings → Security and login**.
 3. In **ChatGPT Plugins**, add the MCP server URL and complete its connection details.
 4. Copy the generated application ID. ChatGPT URLs may show it with a `plugin_` compatibility prefix; `.app.json` stores the underlying `asdk_app_...` value.

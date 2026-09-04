@@ -21,6 +21,7 @@ import type {
   OAuthAuthorizationRequest,
   OAuthTokenResponse,
   StepUpAction,
+  WebAuthnLoginMode,
 } from "./types.js";
 
 interface InviteRow {
@@ -45,6 +46,8 @@ interface SetupFlowRow {
   pat_hash: string;
   device_name: string | null;
   challenge: string;
+  rp_id: string;
+  expected_origin: string;
   expires_at: number;
   used_at: number | null;
 }
@@ -52,6 +55,8 @@ interface SetupFlowRow {
 interface LoginFlowRow {
   flow_hash: string;
   challenge: string;
+  rp_id: string;
+  expected_origin: string;
   expires_at: number;
   used_at: number | null;
 }
@@ -62,6 +67,8 @@ interface PasskeyRegistrationFlowRow {
   session_hash: string;
   device_name: string | null;
   challenge: string;
+  rp_id: string;
+  expected_origin: string;
   expires_at: number;
   used_at: number | null;
 }
@@ -72,12 +79,15 @@ interface StepUpFlowRow {
   session_hash: string;
   action: StepUpAction;
   challenge: string;
+  rp_id: string;
+  expected_origin: string;
   expires_at: number;
 }
 
 interface CredentialRow {
   credential_id: string;
   user_id: string;
+  rp_id: string;
   public_key: Buffer;
   counter: number;
   transports_json: string;
@@ -260,6 +270,10 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
   const clock = options.clock ?? Date.now;
   const patCipher = createPatCipher(config.masterKey);
 
+  function acceptsOAuthResource(resource: string): boolean {
+    return resource === config.oauthResource || config.oauthResourceAliases.has(resource);
+  }
+
   function now(): number {
     return clock();
   }
@@ -296,6 +310,63 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
     const at = now();
     cleanup(at);
     return at;
+  }
+
+  function credentialExistsForRp(rpId: string, userId?: string): boolean {
+    const row = userId === undefined
+      ? db.prepare("SELECT 1 FROM webauthn_credentials WHERE rp_id = ? LIMIT 1").get(rpId)
+      : db
+          .prepare("SELECT 1 FROM webauthn_credentials WHERE user_id = ? AND rp_id = ? LIMIT 1")
+          .get(userId, rpId);
+    return row !== undefined;
+  }
+
+  function requireEnabledAuthenticationRp(rpId: string): void {
+    if (rpId === config.webauthnRpId) {
+      return;
+    }
+    if (
+      config.webauthnLegacyLoginEnabled &&
+      config.webauthnLegacyRpId !== null &&
+      rpId === config.webauthnLegacyRpId
+    ) {
+      return;
+    }
+    throw new AuthError("passkey_rp_disabled", "This passkey sign-in route is disabled", 401);
+  }
+
+  function selectLoginRp(rawMode: WebAuthnLoginMode | undefined): string {
+    const mode = rawMode ?? "auto";
+    if (mode !== "auto" && mode !== "canonical" && mode !== "legacy") {
+      throw new AuthError("invalid_login_mode", "Unsupported passkey login mode", 400);
+    }
+    const canonicalAvailable = credentialExistsForRp(config.webauthnRpId);
+    if (mode === "canonical" || (mode === "auto" && canonicalAvailable)) {
+      return config.webauthnRpId;
+    }
+    const legacyRpId = config.webauthnLegacyRpId;
+    const legacyAvailable = legacyRpId !== null && credentialExistsForRp(legacyRpId);
+    if ((mode === "legacy" || mode === "auto") && legacyRpId !== null && legacyAvailable) {
+      return legacyRpId;
+    }
+    if (mode === "auto") {
+      // Preserve the pre-cutover discoverable-credential contract. Once the
+      // fallback switch is closed, an account with only legacy credentials is
+      // offered a canonical ceremony rather than silently re-enabling legacy.
+      return config.webauthnRpId;
+    }
+    throw new AuthError("passkey_missing", "No passkey is registered for this sign-in route", 409);
+  }
+
+  function selectUserAuthenticationRp(userId: string): string {
+    if (credentialExistsForRp(config.webauthnRpId, userId)) {
+      return config.webauthnRpId;
+    }
+    const legacyRpId = config.webauthnLegacyRpId;
+    if (legacyRpId !== null && credentialExistsForRp(legacyRpId, userId)) {
+      return legacyRpId;
+    }
+    throw new AuthError("passkey_missing", "No passkey is registered for this account", 409);
   }
 
   function requireActiveSession(userId: string, sessionId: string, at: number): void {
@@ -350,13 +421,14 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       .prepare(
         `UPDATE webauthn_credentials
          SET counter = ?, version = version + 1, last_used_at = ?
-         WHERE credential_id = ? AND user_id = ? AND counter = ? AND version = ?`,
+         WHERE credential_id = ? AND user_id = ? AND rp_id = ? AND counter = ? AND version = ?`,
       )
       .run(
         newCounter,
         at,
         credential.credential_id,
         credential.user_id,
+        credential.rp_id,
         credential.counter,
         credential.version,
       );
@@ -432,11 +504,12 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
     const institution = requireInstitution(row.institution);
     const passkeys = db
       .prepare(
-        `SELECT credential_id, device_name, created_at, last_used_at
+        `SELECT credential_id, rp_id, device_name, created_at, last_used_at
          FROM webauthn_credentials WHERE user_id = ? ORDER BY created_at ASC`,
       )
       .all(userId) as Array<{
       credential_id: string;
+      rp_id: string;
       device_name: string | null;
       created_at: number;
       last_used_at: number | null;
@@ -456,6 +529,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       },
       passkeys: passkeys.map((passkey) => ({
         id: passkey.credential_id,
+        rpId: passkey.rp_id,
         deviceName: passkey.device_name,
         createdAt: passkey.created_at,
         lastUsedAt: passkey.last_used_at,
@@ -592,8 +666,8 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
         `INSERT INTO setup_flows(
           flow_hash, invite_id, pending_user_id, institution, base_url, canvas_user_id, canvas_name,
           pat_version, pat_iv, pat_ciphertext, pat_auth_tag, pat_hash, device_name, challenge,
-          expires_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          rp_id, expected_origin, expires_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         flowHash,
         invite.id,
@@ -609,6 +683,8 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
         hashPat(pat, config.masterKey),
         deviceName,
         optionsJson.challenge,
+        config.webauthnRpId,
+        config.publicOrigin,
         at + config.setupFlowTtlSeconds * 1000,
         at,
       );
@@ -632,8 +708,8 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       const verification = await verifyRegistrationResponse({
         response: input.response,
         expectedChallenge: flow.challenge,
-        expectedOrigin: config.publicOrigin,
-        expectedRPID: config.webauthnRpId,
+        expectedOrigin: flow.expected_origin,
+        expectedRPID: flow.rp_id,
         requireUserPresence: true,
         requireUserVerification: true,
       }).catch(() => {
@@ -670,12 +746,13 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
         );
         db.prepare(
           `INSERT INTO webauthn_credentials(
-            credential_id, user_id, public_key, counter, transports_json, device_type, backed_up,
+            credential_id, user_id, rp_id, public_key, counter, transports_json, device_type, backed_up,
             device_name, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           credential.id,
           flow.pending_user_id,
+          flow.rp_id,
           Buffer.from(credential.publicKey),
           credential.counter,
           JSON.stringify(credential.transports ?? []),
@@ -713,19 +790,23 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       };
     },
 
-    async beginPasskeyLogin() {
+    async beginPasskeyLogin(mode) {
       const at = operationTime();
+      const rpId = selectLoginRp(mode);
       const optionsJson = await generateAuthenticationOptions({
-        rpID: config.webauthnRpId,
+        rpID: rpId,
         userVerification: "required",
       });
       const flowId = randomOpaqueToken("clogin_");
       db.prepare(
-        `INSERT INTO login_flows(flow_hash, challenge, expires_at, created_at)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO login_flows(
+          flow_hash, challenge, rp_id, expected_origin, expires_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
         hashOpaqueToken(flowId),
         optionsJson.challenge,
+        rpId,
+        config.publicOrigin,
         at + config.webauthnFlowTtlSeconds * 1000,
         at,
       );
@@ -745,12 +826,13 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       if (!flow) {
         throw new AuthError("invalid_login_flow", "The login flow is invalid, expired, or already used", 401);
       }
+      requireEnabledAuthenticationRp(flow.rp_id);
       const credentialRow = db
         .prepare(
-          `SELECT credential_id, user_id, public_key, counter, transports_json, version
-           FROM webauthn_credentials WHERE credential_id = ?`,
+          `SELECT credential_id, user_id, rp_id, public_key, counter, transports_json, version
+           FROM webauthn_credentials WHERE credential_id = ? AND rp_id = ?`,
         )
-        .get(input.response.id) as CredentialRow | undefined;
+        .get(input.response.id, flow.rp_id) as CredentialRow | undefined;
       if (!credentialRow) {
         throw new AuthError("unknown_passkey", "The passkey is not registered", 401);
       }
@@ -758,8 +840,8 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       const verification = await verifyAuthenticationResponse({
         response: input.response,
         expectedChallenge: flow.challenge,
-        expectedOrigin: config.publicOrigin,
-        expectedRPID: config.webauthnRpId,
+        expectedOrigin: flow.expected_origin,
+        expectedRPID: flow.rp_id,
         credential: {
           id: credentialRow.credential_id,
           publicKey: new Uint8Array(credentialRow.public_key),
@@ -781,19 +863,42 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       }
       const institution = requireInstitution(userRow.institution);
       const sessionToken = randomOpaqueToken("csess_");
+      const sessionHash = hashOpaqueToken(sessionToken);
       const sessionExpiresAt = at + config.sessionTtlSeconds * 1000;
-      const finish = db.transaction(() => {
+      const finish = db.transaction((): { token: string; expiresAt: number } | null => {
         updateCredentialCounter(credentialRow, verification.authenticationInfo.newCounter, at);
         db.prepare(
           `INSERT INTO sessions(token_hash, user_id, expires_at, created_at, last_seen_at)
            VALUES (?, ?, ?, ?, ?)`,
-        ).run(hashOpaqueToken(sessionToken), userRow.id, sessionExpiresAt, at, at);
+        ).run(sessionHash, userRow.id, sessionExpiresAt, at, at);
+        if (
+          config.webauthnLegacyLoginEnabled &&
+          config.webauthnLegacyRpId !== null &&
+          credentialRow.rp_id === config.webauthnLegacyRpId &&
+          !credentialExistsForRp(config.webauthnRpId, userRow.id)
+        ) {
+          const token = randomOpaqueToken("cstep_");
+          const expiresAt = at + config.stepUpTokenTtlSeconds * 1000;
+          db.prepare(
+            `INSERT INTO step_up_tokens(
+              token_hash, user_id, session_hash, action, expires_at, created_at
+            ) VALUES (?, ?, ?, 'add_passkey', ?, ?)`,
+          ).run(hashOpaqueToken(token), userRow.id, sessionHash, expiresAt, at);
+          return { token, expiresAt };
+        }
+        return null;
       });
-      finish();
+      const migrationGrant = finish();
       return {
         user: { id: userRow.id, displayName: userRow.display_name, institution },
         sessionToken,
         sessionExpiresAt,
+        ...(migrationGrant === null
+          ? {}
+          : {
+              migrationStepUpToken: migrationGrant.token,
+              migrationStepUpExpiresAt: migrationGrant.expiresAt,
+            }),
       };
     },
 
@@ -805,17 +910,16 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       if (!user) {
         throw new AuthError("account_missing", "The account no longer exists", 404);
       }
+      const rpId = selectUserAuthenticationRp(userId);
       const credentials = db
         .prepare(
           `SELECT credential_id, transports_json
-           FROM webauthn_credentials WHERE user_id = ? ORDER BY created_at ASC`,
+           FROM webauthn_credentials
+           WHERE user_id = ? AND rp_id = ? ORDER BY created_at ASC`,
         )
-        .all(userId) as Array<{ credential_id: string; transports_json: string }>;
-      if (credentials.length === 0) {
-        throw new AuthError("passkey_missing", "No passkey is registered for this account", 409);
-      }
+        .all(userId, rpId) as Array<{ credential_id: string; transports_json: string }>;
       const optionsJson = await generateAuthenticationOptions({
-        rpID: config.webauthnRpId,
+        rpID: rpId,
         userVerification: "required",
         allowCredentials: credentials.map((credential) => ({
           id: credential.credential_id,
@@ -827,14 +931,17 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       const flowId = randomOpaqueToken("cstepflow_");
       db.prepare(
         `INSERT INTO step_up_flows(
-          flow_hash, user_id, session_hash, action, challenge, expires_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          flow_hash, user_id, session_hash, action, challenge, rp_id, expected_origin,
+          expires_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         hashOpaqueToken(flowId),
         userId,
         sessionId,
         action,
         optionsJson.challenge,
+        rpId,
+        config.publicOrigin,
         createdAt + config.stepUpFlowTtlSeconds * 1000,
         createdAt,
       );
@@ -862,22 +969,24 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
           401,
         );
       }
+      requireEnabledAuthenticationRp(flow.rp_id);
       requireActiveSession(input.userId, input.sessionId, at);
       const action = requireStepUpAction(flow.action);
       const credential = db
         .prepare(
-          `SELECT credential_id, user_id, public_key, counter, transports_json, version
-           FROM webauthn_credentials WHERE credential_id = ? AND user_id = ?`,
+          `SELECT credential_id, user_id, rp_id, public_key, counter, transports_json, version
+           FROM webauthn_credentials
+           WHERE credential_id = ? AND user_id = ? AND rp_id = ?`,
         )
-        .get(input.response.id, input.userId) as CredentialRow | undefined;
+        .get(input.response.id, input.userId, flow.rp_id) as CredentialRow | undefined;
       if (!credential) {
         throw new AuthError("unknown_passkey", "The passkey is not registered to this account", 401);
       }
       const verification = await verifyAuthenticationResponse({
         response: input.response,
         expectedChallenge: flow.challenge,
-        expectedOrigin: config.publicOrigin,
-        expectedRPID: config.webauthnRpId,
+        expectedOrigin: flow.expected_origin,
+        expectedRPID: flow.rp_id,
         credential: {
           id: credential.credential_id,
           publicKey: new Uint8Array(credential.public_key),
@@ -927,8 +1036,14 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
         throw new AuthError("account_missing", "The account no longer exists", 404);
       }
       const existingCredentials = db
-        .prepare("SELECT credential_id, transports_json FROM webauthn_credentials WHERE user_id = ?")
-        .all(userId) as Array<{ credential_id: string; transports_json: string }>;
+        .prepare(
+          `SELECT credential_id, transports_json FROM webauthn_credentials
+           WHERE user_id = ? AND rp_id = ?`,
+        )
+        .all(userId, config.webauthnRpId) as Array<{
+          credential_id: string;
+          transports_json: string;
+        }>;
       const optionsJson = await generateRegistrationOptions({
         rpName: config.webauthnRpName,
         rpID: config.webauthnRpId,
@@ -951,14 +1066,17 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       const flowId = randomOpaqueToken("creg_");
       db.prepare(
         `INSERT INTO passkey_registration_flows(
-          flow_hash, user_id, session_hash, device_name, challenge, expires_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          flow_hash, user_id, session_hash, device_name, challenge, rp_id, expected_origin,
+          expires_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         hashOpaqueToken(flowId),
         userId,
         sessionId,
         normalizeDeviceName(deviceName),
         optionsJson.challenge,
+        config.webauthnRpId,
+        config.publicOrigin,
         createdAt + config.webauthnFlowTtlSeconds * 1000,
         createdAt,
       );
@@ -990,8 +1108,8 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       const verification = await verifyRegistrationResponse({
         response: input.response,
         expectedChallenge: flow.challenge,
-        expectedOrigin: config.publicOrigin,
-        expectedRPID: config.webauthnRpId,
+        expectedOrigin: flow.expected_origin,
+        expectedRPID: flow.rp_id,
         requireUserPresence: true,
         requireUserVerification: true,
       }).catch(() => {
@@ -1006,12 +1124,13 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
         requireActiveSession(input.userId, input.sessionId, completedAt);
         db.prepare(
           `INSERT INTO webauthn_credentials(
-            credential_id, user_id, public_key, counter, transports_json, device_type, backed_up,
+            credential_id, user_id, rp_id, public_key, counter, transports_json, device_type, backed_up,
             device_name, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           credential.id,
           input.userId,
+          flow.rp_id,
           Buffer.from(credential.publicKey),
           credential.counter,
           JSON.stringify(credential.transports ?? []),
@@ -1311,7 +1430,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       if (input.responseType !== "code") {
         throw new AuthError("unsupported_response_type", "Only response_type=code is supported", 400, "unsupported_response_type");
       }
-      if (input.resource !== config.oauthResource) {
+      if (!acceptsOAuthResource(input.resource)) {
         throw invalidRequest("The resource parameter must exactly match this MCP resource");
       }
       if (input.codeChallengeMethod !== "S256" || !PKCE_CHALLENGE_RE.test(input.codeChallenge)) {
@@ -1395,7 +1514,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
           row.client_id !== input.clientId ||
           row.redirect_uri !== input.redirectUri ||
           row.resource !== input.resource ||
-          row.resource !== config.oauthResource ||
+          !acceptsOAuthResource(row.resource) ||
           !safeEqualText(pkceS256(input.codeVerifier), row.code_challenge)
         ) {
           throw invalidGrant();
@@ -1434,7 +1553,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
         const row = db.prepare("SELECT * FROM oauth_tokens WHERE token_hash = ? AND token_type = 'refresh'").get(
           hashOpaqueToken(input.refreshToken),
         ) as OAuthTokenRow | undefined;
-        if (!row || row.client_id !== input.clientId || row.resource !== input.resource || row.resource !== config.oauthResource) {
+        if (!row || row.client_id !== input.clientId || row.resource !== input.resource || !acceptsOAuthResource(row.resource)) {
           throw invalidGrant();
         }
         if (row.rotated_at !== null) {
@@ -1512,7 +1631,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       const row = db.prepare("SELECT * FROM oauth_tokens WHERE token_hash = ? AND token_type = 'access'").get(
         hashOpaqueToken(token),
       ) as OAuthTokenRow | undefined;
-      if (!row || row.revoked_at !== null || row.expires_at <= at || row.resource !== config.oauthResource) {
+      if (!row || row.revoked_at !== null || row.expires_at <= at || !acceptsOAuthResource(row.resource)) {
         throw new AuthError("invalid_token", "The bearer token is invalid or expired", 401, "invalid_token");
       }
       const scopes = row.scope.split(" ").filter(Boolean);

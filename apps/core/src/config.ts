@@ -3,6 +3,10 @@ import { z } from "zod";
 const DEFAULT_CHATGPT_LEGACY_REDIRECT_URI =
   "https://chatgpt.com/connector_platform_oauth_redirect";
 const CHATGPT_CALLBACK_PATH = /^\/connector\/oauth\/[A-Za-z0-9_-]{1,200}$/;
+const STUDY_ROR_CANDIDATE_ORIGIN = "https://study.siyidu.com";
+const STUDY_ROR_CANDIDATE_RP_ID = "study.siyidu.com";
+const STUDY_LEGACY_MCP_RESOURCE = "https://canvas.gaid.studio/mcp";
+export const STUDY_LEGACY_WEBAUTHN_RP_ID = "canvas.gaid.studio";
 
 const optionalTrimmedString = (minimumLength: number) =>
   z.preprocess(
@@ -17,6 +21,10 @@ const envSchema = z.object({
   MASTER_KEY_BASE64: z.string().min(1),
   WEBAUTHN_RP_ID: z.string().min(1),
   WEBAUTHN_RP_NAME: z.string().min(1).default("Study"),
+  WEBAUTHN_LEGACY_LOGIN_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   TRUST_PROXY: z.coerce.number().int().min(0).max(2).default(1),
   COOKIE_SECURE: z
     .enum(["true", "false"])
@@ -56,6 +64,8 @@ export interface AppConfig {
   masterKey: Buffer;
   webauthnRpId: string;
   webauthnRpName: string;
+  webauthnLegacyLoginEnabled: boolean;
+  webauthnLegacyRpId: string | null;
   trustProxy: number;
   cookieSecure: boolean;
   sessionCookieName: string;
@@ -68,6 +78,7 @@ export interface AppConfig {
   learningXEnabled: boolean;
   oauthIssuer: string;
   oauthResource: string;
+  oauthResourceAliases: ReadonlySet<string>;
   oauthScopes: readonly string[];
   additionalRedirectUris: ReadonlySet<string>;
   oauthDcrEnabled: boolean;
@@ -153,6 +164,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (parsed.WEBAUTHN_RP_ID !== rpHost) {
     throw new Error("WEBAUTHN_RP_ID must exactly equal the PUBLIC_ORIGIN hostname for v1");
   }
+  if (
+    parsed.WEBAUTHN_LEGACY_LOGIN_ENABLED &&
+    (publicOrigin !== STUDY_ROR_CANDIDATE_ORIGIN || parsed.WEBAUTHN_RP_ID !== STUDY_ROR_CANDIDATE_RP_ID)
+  ) {
+    throw new Error(
+      "WEBAUTHN_LEGACY_LOGIN_ENABLED is allowlisted only for https://study.siyidu.com",
+    );
+  }
   const secureOrigin = new URL(publicOrigin).protocol === "https:";
   if (secureOrigin && !parsed.COOKIE_SECURE) {
     throw new Error("COOKIE_SECURE must be true for HTTPS origins");
@@ -168,6 +187,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     masterKey: decodeMasterKey(parsed.MASTER_KEY_BASE64),
     webauthnRpId: parsed.WEBAUTHN_RP_ID,
     webauthnRpName: parsed.WEBAUTHN_RP_NAME,
+    webauthnLegacyLoginEnabled: parsed.WEBAUTHN_LEGACY_LOGIN_ENABLED,
+    webauthnLegacyRpId: parsed.WEBAUTHN_LEGACY_LOGIN_ENABLED
+      ? STUDY_LEGACY_WEBAUTHN_RP_ID
+      : null,
     trustProxy: parsed.TRUST_PROXY,
     cookieSecure: parsed.COOKIE_SECURE,
     sessionCookieName: parsed.COOKIE_SECURE ? "__Host-canvas_session" : "canvas_session",
@@ -180,6 +203,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     learningXEnabled: parsed.LEARNINGX_ENABLED,
     oauthIssuer: publicOrigin,
     oauthResource: `${publicOrigin}/mcp`,
+    oauthResourceAliases: publicOrigin === STUDY_ROR_CANDIDATE_ORIGIN
+      ? new Set([STUDY_LEGACY_MCP_RESOURCE])
+      : new Set(),
     oauthScopes: lectureConfigured
       ? ["canvas.read", "lecture.read", "offline_access"]
       : ["canvas.read", "offline_access"],

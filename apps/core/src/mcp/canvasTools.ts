@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import type { CanvasConnection } from "../domain.js";
 import { LearningXReadClient } from "../learningx/index.js";
+import { getHanyangTimetable } from "../timetable.js";
 import {
   CanvasApiError,
   CanvasRestClient,
@@ -420,6 +421,19 @@ export function registerCanvasTools(
 
   registerReadOnlyTool(
     server,
+    "get_timetable",
+    {
+      title: "Get Hanyang timetable",
+      description:
+        "Read the authenticated student's imported official Hanyang Portal timetable for 2026 semester 2, including weekly class times, rooms, and matching Canvas course IDs. This is the recurring baseline: apply date-specific announcements or LearningX notices only to the same course and stated date range.",
+      inputSchema: z.object({}).strict(),
+    },
+    async () => getHanyangTimetable(),
+    dependencies,
+  );
+
+  registerReadOnlyTool(
+    server,
     "get_course",
     {
       title: "Get Canvas course",
@@ -667,6 +681,60 @@ export function registerCanvasTools(
     dependencies,
   );
 
+  registerReadOnlyTool(
+    server,
+    "list_conversations",
+    {
+      title: "List Canvas Inbox conversations",
+      description:
+        "Read the authenticated user's Canvas Inbox summaries, including unread state, context, participants, and latest-message preview. Does not mark, archive, star, or send messages.",
+      inputSchema: z
+        .object({
+          scope: z.enum(["inbox", "unread", "starred", "archived", "sent"]).default("inbox"),
+          limit: limitSchema.default(100),
+        })
+        .strict(),
+    },
+    async (args, client) => client.listConversations({ scope: args.scope, limit: args.limit }),
+    dependencies,
+  );
+
+  registerReadOnlyTool(
+    server,
+    "get_conversation",
+    {
+      title: "Get Canvas Inbox conversation",
+      description:
+        "Read one Canvas Inbox conversation with sanitized message bodies and attachment metadata. Explicitly disables Canvas's automatic mark-as-read behavior.",
+      inputSchema: z.object({ conversation_id: canvasIdSchema }).strict(),
+    },
+    async (args, client) => client.getConversation(args.conversation_id),
+    dependencies,
+  );
+
+  registerReadOnlyTool(
+    server,
+    "list_course_submissions",
+    {
+      title: "List own Canvas course submissions",
+      description:
+        "Read the authenticated student's submission state and sanitized instructor feedback across all assignments in one course. Never returns another student's submissions.",
+      inputSchema: z
+        .object({
+          course_id: canvasIdSchema,
+          include_history: z.boolean().default(false),
+          limit: limitSchema.default(100),
+        })
+        .strict(),
+    },
+    async (args, client) =>
+      client.listCourseSubmissions(args.course_id, {
+        includeHistory: args.include_history,
+        limit: args.limit,
+      }),
+    dependencies,
+  );
+
   if (dependencies.learningXEnabled) {
     registerLearningXReadOnlyTool(
       server,
@@ -724,6 +792,77 @@ export function registerCanvasTools(
       async (args, client) => client.listModules(args.course_id, args.external_tool_id),
       dependencies,
     );
+
+    registerLearningXReadOnlyTool(
+      server,
+      "list_learningx_boards",
+      {
+        title: "List LearningX course boards",
+        description:
+          "Read Hanyang LearningX Board metadata and unread counts through the course's Board LTI tab. Does not create, edit, delete, or mark posts read.",
+        inputSchema: z
+          .object({
+            course_id: canvasIdSchema,
+            external_tool_id: canvasIdSchema.optional(),
+          })
+          .strict(),
+      },
+      async (args, client) => client.listBoards(args.course_id, args.external_tool_id),
+      dependencies,
+    );
+
+    registerLearningXReadOnlyTool(
+      server,
+      "list_learningx_board_posts",
+      {
+        title: "List LearningX board posts",
+        description:
+          "Read a page of Hanyang LearningX Board post summaries, optionally filtered by title. Does not create, edit, delete, or mark posts read.",
+        inputSchema: z
+          .object({
+            course_id: canvasIdSchema,
+            board_id: canvasIdSchema,
+            page: z.number().int().min(1).max(1000).default(1),
+            keyword: z.string().trim().max(200).default(""),
+            external_tool_id: canvasIdSchema.optional(),
+          })
+          .strict(),
+      },
+      async (args, client) =>
+        client.listBoardPosts(
+          args.course_id,
+          args.board_id,
+          { page: args.page, keyword: args.keyword },
+          args.external_tool_id,
+        ),
+      dependencies,
+    );
+
+    registerLearningXReadOnlyTool(
+      server,
+      "get_learningx_board_post",
+      {
+        title: "Get LearningX board post",
+        description:
+          "Read one sanitized Hanyang LearningX Board post with comments and attachment metadata. Download and verifier URLs are excluded.",
+        inputSchema: z
+          .object({
+            course_id: canvasIdSchema,
+            board_id: canvasIdSchema,
+            post_id: canvasIdSchema,
+            external_tool_id: canvasIdSchema.optional(),
+          })
+          .strict(),
+      },
+      async (args, client) =>
+        client.getBoardPost(
+          args.course_id,
+          args.board_id,
+          args.post_id,
+          args.external_tool_id,
+        ),
+      dependencies,
+    );
   }
 
   registerReadOnlyTool(
@@ -732,7 +871,7 @@ export function registerCanvasTools(
     {
       title: "List Canvas calendar events",
       description:
-        "Read calendar events for a date window, optionally restricted to selected courses. Defaults to the next seven days.",
+        "Read calendar events with Canvas creation and update timestamps for a date window, optionally restricted to selected courses. Defaults to the next seven days.",
       inputSchema: z
         .object({
           start_at: dateTimeSchema.optional(),

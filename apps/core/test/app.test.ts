@@ -101,6 +101,30 @@ describe("application HTTP boundary", () => {
     expect(denied.body.error).toBe("invalid_token");
   });
 
+  it("keeps the legacy gaid.studio MCP host only for the canonical Study origin", async () => {
+    const canonical = runtime({
+      env: {
+        PUBLIC_ORIGIN: "https://study.siyidu.com",
+        WEBAUTHN_RP_ID: "study.siyidu.com",
+        COOKIE_SECURE: "true",
+      },
+    }).app;
+
+    await request(canonical)
+      .get("/readyz")
+      .set("Host", "canvas.gaid.studio")
+      .expect(200);
+    await request(canonical)
+      .get("/readyz")
+      .set("Host", "untrusted.example")
+      .expect(403);
+
+    await request(runtime().app)
+      .get("/readyz")
+      .set("Host", "canvas.gaid.studio")
+      .expect(403);
+  });
+
   it("sends an unauthenticated account page to login instead of looping", async () => {
     const app = runtime().app;
     const session = await request(app).get("/auth/session").expect(200);

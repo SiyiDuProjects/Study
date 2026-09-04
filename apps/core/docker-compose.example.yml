@@ -13,9 +13,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8794"
-      PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:-https://canvas.gaid.studio}"
+      PUBLIC_ORIGIN: "${PUBLIC_ORIGIN:-https://study.siyidu.com}"
       DATABASE_PATH: /data/canvas.sqlite
-      WEBAUTHN_RP_ID: "${WEBAUTHN_RP_ID:-canvas.gaid.studio}"
+      WEBAUTHN_RP_ID: "${WEBAUTHN_RP_ID:-study.siyidu.com}"
       WEBAUTHN_RP_NAME: "${WEBAUTHN_RP_NAME:-Study}"
       TRUST_PROXY: "${TRUST_PROXY:-1}"
       COOKIE_SECURE: "${COOKIE_SECURE:-true}"

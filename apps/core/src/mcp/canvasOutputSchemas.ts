@@ -76,6 +76,57 @@ const courseSchema = z
   })
   .strict();
 
+const timetableMeetingSchema = z
+  .object({
+    canvasCourseId: z.string(),
+    canvasCourseCode: z.string(),
+    courseNameKo: z.string(),
+    courseNameZh: z.string(),
+    weekday: z.enum(["monday", "tuesday", "wednesday", "thursday", "friday"]),
+    weekdayIso: z.number().int().min(1).max(5),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/),
+    endTime: z.string().regex(/^\d{2}:\d{2}$/),
+    locationCode: z.string(),
+    locationName: nullableString,
+  })
+  .strict();
+
+const timetableSchema = z
+  .object({
+    institution: z.literal("hanyang"),
+    term: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        academicYear: z.number().int(),
+        semester: z.number().int().positive(),
+      })
+      .strict(),
+    timezone: z.literal("Asia/Seoul"),
+    totalCredits: z.number().int().nonnegative(),
+    source: z
+      .object({
+        kind: z.literal("official_portal_timetable"),
+        label: z.string(),
+        asOf: z.string().date(),
+      })
+      .strict(),
+    meetings: z.array(timetableMeetingSchema),
+    interpretation: z
+      .object({
+        recurringBaseline: z.literal(true),
+        matchCourseBy: z.tuple([
+          z.literal("canvasCourseId"),
+          z.literal("canvasCourseCode"),
+          z.literal("courseNameKo"),
+        ]),
+        temporaryNoticeRule: z.string(),
+        missingNoticeRule: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+
 const submissionStatusSchema = z.enum([
   "unsubmitted",
   "submitted",
@@ -126,6 +177,33 @@ const submissionSchema = z
   .object({
     ...submissionShape,
     history: z.array(submissionHistoryItemSchema),
+  })
+  .strict();
+
+const submissionCommentSchema = z
+  .object({
+    id: z.string(),
+    authorId: nullableString,
+    authorName: nullableString,
+    commentHtml: nullableString,
+    commentText: nullableString,
+    createdAt: nullableString,
+    attachments: z.array(attachmentSchema),
+  })
+  .strict();
+
+const courseSubmissionSchema = submissionSchema
+  .extend({
+    assignment: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        dueAt: nullableString,
+        pointsPossible: nullableNumber,
+        htmlUrl: nullableString,
+      })
+      .strict(),
+    comments: z.array(submissionCommentSchema),
   })
   .strict();
 
@@ -322,6 +400,52 @@ const fileSchema = z
   })
   .strict();
 
+const conversationParticipantSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    fullName: nullableString,
+  })
+  .strict();
+
+const conversationSummaryShape = {
+  id: z.string(),
+  subject: z.string(),
+  workflowState: nullableString,
+  lastMessage: nullableString,
+  lastMessageAt: nullableString,
+  messageCount: z.number().int().nonnegative(),
+  subscribed: z.boolean(),
+  private: z.boolean(),
+  starred: z.boolean(),
+  contextCode: nullableString,
+  contextName: nullableString,
+  participants: z.array(conversationParticipantSchema),
+} as const;
+
+const conversationMessageSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
+  z
+    .object({
+      id: z.string(),
+      createdAt: nullableString,
+      authorId: nullableString,
+      generated: z.boolean(),
+      bodyHtml: nullableString,
+      bodyText: nullableString,
+      attachments: z.array(attachmentSchema),
+      forwardedMessages: z.array(conversationMessageSchema),
+    })
+    .strict(),
+);
+
+const conversationSummarySchema = z.object(conversationSummaryShape).strict();
+const conversationSchema = z
+  .object({
+    ...conversationSummaryShape,
+    messages: z.array(conversationMessageSchema),
+  })
+  .strict();
+
 const learningXAttendanceSchema = z
   .object({
     id: z.string(),
@@ -356,11 +480,91 @@ const learningXModuleSchema = z
   })
   .strict();
 
+const learningXBoardSchema = z
+  .object({
+    id: z.string(),
+    courseId: z.string(),
+    title: z.string(),
+    descriptionHtml: nullableString,
+    descriptionText: nullableString,
+    type: nullableString,
+    slug: nullableString,
+    position: nullableNumber,
+    totalPostCount: z.number().int().nonnegative(),
+    totalCommentCount: z.number().int().nonnegative(),
+    unreadPostCount: z.number().int().nonnegative(),
+    latestPostCreatedAt: nullableString,
+    useAttachment: z.boolean(),
+    useComment: z.boolean(),
+    useNotice: z.boolean(),
+    useReply: z.boolean(),
+  })
+  .strict();
+
+const learningXBoardAttachmentSchema = z
+  .object({
+    id: z.string(),
+    filename: z.string(),
+    size: nullableNumber,
+    canvasFileId: nullableString,
+  })
+  .strict();
+
+const learningXBoardPostSummaryShape = {
+  id: z.string(),
+  courseId: z.string(),
+  boardId: z.string(),
+  index: nullableNumber,
+  title: z.string(),
+  userName: nullableString,
+  attachmentCount: z.number().int().nonnegative(),
+  commentCount: z.number().int().nonnegative(),
+  viewCount: z.number().int().nonnegative(),
+  notice: z.boolean(),
+  createdAt: nullableString,
+} as const;
+
+const learningXBoardPostSummarySchema = z.object(learningXBoardPostSummaryShape).strict();
+const learningXBoardPostPageSchema = z
+  .object({
+    page: z.number().int().positive(),
+    perPage: nullableNumber,
+    totalCount: nullableNumber,
+    totalPages: nullableNumber,
+    posts: z.array(learningXBoardPostSummarySchema),
+  })
+  .strict();
+
+const learningXBoardCommentSchema = z
+  .object({
+    id: z.string(),
+    userName: nullableString,
+    contentHtml: nullableString,
+    contentText: nullableString,
+    createdAt: nullableString,
+    secret: z.boolean(),
+    attachments: z.array(learningXBoardAttachmentSchema),
+  })
+  .strict();
+
+const learningXBoardPostSchema = z
+  .object({
+    ...learningXBoardPostSummaryShape,
+    contentHtml: nullableString,
+    contentText: nullableString,
+    updatedAt: nullableString,
+    attachments: z.array(learningXBoardAttachmentSchema),
+    comments: z.array(learningXBoardCommentSchema),
+  })
+  .strict();
+
 const calendarEventSchema = z
   .object({
     id: z.string(),
     type: z.string(),
     title: z.string(),
+    createdAt: nullableString,
+    updatedAt: nullableString,
     descriptionHtml: nullableString,
     descriptionText: nullableString,
     startAt: nullableString,
@@ -488,6 +692,7 @@ const connectionStatusSchema = z
 export const canvasToolOutputSchemas = {
   connection_status: envelopeSchema(connectionStatusSchema),
   list_courses: envelopeSchema(z.array(courseSchema)),
+  get_timetable: envelopeSchema(timetableSchema),
   get_course: envelopeSchema(courseSchema),
   list_assignments: envelopeSchema(z.array(assignmentSchema)),
   get_assignment: envelopeSchema(assignmentSchema),
@@ -500,9 +705,15 @@ export const canvasToolOutputSchemas = {
   list_pages: envelopeSchema(z.array(pageSummarySchema)),
   get_page: envelopeSchema(pageSchema),
   list_files: envelopeSchema(z.array(fileSchema)),
+  list_conversations: envelopeSchema(z.array(conversationSummarySchema)),
+  get_conversation: envelopeSchema(conversationSchema),
+  list_course_submissions: envelopeSchema(z.array(courseSubmissionSchema)),
   list_learningx_attendance: envelopeSchema(z.array(learningXAttendanceSchema)),
   get_learningx_attendance_item: envelopeSchema(learningXAttendanceSchema),
   list_learningx_modules: envelopeSchema(z.array(learningXModuleSchema)),
+  list_learningx_boards: envelopeSchema(z.array(learningXBoardSchema)),
+  list_learningx_board_posts: envelopeSchema(learningXBoardPostPageSchema),
+  get_learningx_board_post: envelopeSchema(learningXBoardPostSchema),
   list_calendar_events: envelopeSchema(z.array(calendarEventSchema)),
   get_upcoming_work: envelopeSchema(z.array(upcomingWorkSchema)),
   get_submission_status: envelopeSchema(submissionSchema),

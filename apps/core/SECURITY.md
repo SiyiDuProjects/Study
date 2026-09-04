@@ -46,11 +46,11 @@ The master key must live outside the image and repository. Restrict it to the pr
 
 ### LearningX pilot isolation
 
-- Keep `LEARNINGX_ENABLED=false` until a Hanyang course and institution terms have been reviewed.
+- Keep `LEARNINGX_ENABLED=false` until a real Hanyang course has passed the read-only label, origin, response-shape, and policy checklist; record the verification before enabling a private deployment.
 - Send the Canvas PAT only to the fixed Hanyang Canvas origin and only on `/api/` paths.
 - Accept verifier and LTI form destinations only on explicit Hanyang/Xinics HTTPS suffix allowlists; require the signed form action to remain on the verifier origin.
 - Send the short-lived `xn_api_token` only to the fixed Hanyang origin under `/learningx/api/` and never return it, cookies, raw LCMS links, or media URLs through MCP.
-- Do not download LearningX content, forge attendance, play media, or update progress in the read-only pilot.
+- Do not download LearningX content, expose verifier URLs, forge attendance, play media, post Board content, or update progress in the read-only pilot.
 - Encrypt PATs with an authenticated encryption construction and unique nonces. Do not implement deterministic encryption or reuse nonces.
 
 ### Browser sessions and passkeys

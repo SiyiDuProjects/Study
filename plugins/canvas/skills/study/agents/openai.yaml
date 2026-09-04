@@ -9,7 +9,7 @@ dependencies:
       value: "canvas"
       description: "Read-only Hanyang Canvas and Study Lecture tools"
       transport: "streamable_http"
-      url: "https://canvas.gaid.studio/mcp"
+      url: "https://study.siyidu.com/mcp"
 
 policy:
   allow_implicit_invocation: true

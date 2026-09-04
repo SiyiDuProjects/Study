@@ -3,6 +3,11 @@ import { CanvasApiError } from "../canvas/errors.js";
 import type { CanvasId } from "../canvas/types.js";
 import type {
   LearningXAttendanceItem,
+  LearningXBoard,
+  LearningXBoardAttachment,
+  LearningXBoardPost,
+  LearningXBoardPostPage,
+  LearningXBoardPostSummary,
   LearningXFeature,
   LearningXModule,
 } from "./types.js";
@@ -20,6 +25,8 @@ const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_FORM_FIELDS = 100;
 const MAX_FORM_BYTES = 256 * 1024;
 const MAX_JWT_LENGTH = 16 * 1024;
+const MAX_HTML_LENGTH = 50_000;
+const MAX_TEXT_LENGTH = 30_000;
 
 const FEATURE_LABELS: Record<LearningXFeature, readonly RegExp[]> = {
   attendance: [
@@ -30,11 +37,17 @@ const FEATURE_LABELS: Record<LearningXFeature, readonly RegExp[]> = {
   ],
   modules: [
     /learning\s*x/i,
+    /weekly\s*learning/i,
     /course\s*contents?/i,
     /modules?/i,
     /강의\s*콘텐츠/u,
     /온라인\s*강의/u,
     /주차\s*학습/u,
+  ],
+  board: [
+    /board/i,
+    /게시판/u,
+    /公告板|讨论区|留言板/u,
   ],
 };
 
@@ -85,6 +98,67 @@ function decodeHtml(value: string): string {
     .replace(/&#x([0-9a-f]+);/gi, (_match, raw: string) =>
       String.fromCodePoint(Number.parseInt(raw, 16)),
     );
+}
+
+function sanitizeLearningXHtml(value: unknown): string | null {
+  const input = stringValue(value);
+  if (input === null) return null;
+  return input
+    .slice(0, MAX_HTML_LENGTH)
+    .replace(/<(script|style|iframe|object|embed|form|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
+    .replace(/<(script|style|iframe|object|embed|form|meta|base)\b[^>]*\/?\s*>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(style|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(
+      /\s+(href|src|xlink:href|action|formaction)\s*=\s*(["'])\s*(?:javascript|data):[\s\S]*?\2/gi,
+      "",
+    )
+    .replace(
+      /\s+(href|src|xlink:href|action|formaction)\s*=\s*(?:javascript|data):[^\s>]*/gi,
+      "",
+    )
+    .slice(0, MAX_HTML_LENGTH);
+}
+
+function learningXPlainText(html: string | null): string | null {
+  if (html === null) return null;
+  return decodeHtml(
+    html
+      .replace(/<(br|\/p|\/div|\/li|\/tr|h[1-6])\b[^>]*>/gi, "\n")
+      .replace(/<[^>]+>/g, " "),
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, MAX_TEXT_LENGTH);
+}
+
+function pageArgument(value: number): number {
+  if (!Number.isInteger(value) || value < 1 || value > 1000) {
+    throw new CanvasApiError("invalid_argument", "page must be an integer between 1 and 1000.");
+  }
+  return value;
+}
+
+function keywordArgument(value: string): string {
+  const keyword = value.trim();
+  if (keyword.length > 200) {
+    throw new CanvasApiError("invalid_argument", "keyword must be at most 200 characters.");
+  }
+  return keyword;
+}
+
+function normalizeBoardAttachment(raw: JsonRecord): LearningXBoardAttachment {
+  return {
+    id: idValue(raw.id),
+    filename: stringValue(raw.filename) ?? stringValue(raw.display_name) ?? "",
+    size: numberValue(raw.filesize ?? raw.size),
+    canvasFileId:
+      raw.canvas_file_id === undefined || raw.canvas_file_id === null
+        ? null
+        : idValue(raw.canvas_file_id),
+  };
 }
 
 function htmlAttribute(tag: string, name: string): string | null {
@@ -257,6 +331,142 @@ export class LearningXReadClient {
         } satisfies LearningXModule;
       })
       .filter((module) => module.id !== "");
+  }
+
+  async listBoards(courseId: CanvasId, externalToolId?: CanvasId): Promise<LearningXBoard[]> {
+    const course = idArgument(courseId, "course_id");
+    const launch = await this.launch(course, "board", externalToolId);
+    const raw = await this.learningXJson(
+      `/learningx/api/v1/learningx_board/courses/${course}/boards`,
+      launch.jwt,
+      "LearningX boards",
+    );
+    return records(raw)
+      .map((board) => this.normalizeBoard(board, course))
+      .filter((board) => board.id !== "");
+  }
+
+  async listBoardPosts(
+    courseId: CanvasId,
+    boardId: CanvasId,
+    options: { page?: number; keyword?: string } = {},
+    externalToolId?: CanvasId,
+  ): Promise<LearningXBoardPostPage> {
+    const course = idArgument(courseId, "course_id");
+    const board = idArgument(boardId, "board_id");
+    const page = pageArgument(options.page ?? 1);
+    const keyword = keywordArgument(options.keyword ?? "");
+    const launch = await this.launch(course, "board", externalToolId);
+    const query = new URLSearchParams({
+      page: String(page),
+      filter: "title",
+      keyword,
+    });
+    const raw = await this.learningXJson(
+      `/learningx/api/v1/learningx_board/courses/${course}/boards/${board}/posts?${query.toString()}`,
+      launch.jwt,
+      "LearningX board posts",
+    );
+    if (!isRecord(raw)) {
+      throw new CanvasApiError("invalid_response", "LearningX board posts had an unexpected shape.");
+    }
+    const pagination = record(raw.pagination) ?? {};
+    const items = records(raw.items);
+    return {
+      page: numberValue(pagination.current_page ?? pagination.page) ?? page,
+      perPage: numberValue(pagination.per_page ?? pagination.page_size),
+      totalCount: numberValue(pagination.total_count ?? pagination.total),
+      totalPages: numberValue(pagination.total_pages ?? pagination.last_page),
+      posts: items
+        .map((post) => this.normalizeBoardPostSummary(post, course, board))
+        .filter((post) => post.id !== ""),
+    };
+  }
+
+  async getBoardPost(
+    courseId: CanvasId,
+    boardId: CanvasId,
+    postId: CanvasId,
+    externalToolId?: CanvasId,
+  ): Promise<LearningXBoardPost> {
+    const course = idArgument(courseId, "course_id");
+    const board = idArgument(boardId, "board_id");
+    const post = idArgument(postId, "post_id");
+    const launch = await this.launch(course, "board", externalToolId);
+    const rawResponse = await this.learningXJson(
+      `/learningx/api/v1/learningx_board/courses/${course}/boards/${board}/posts/${post}`,
+      launch.jwt,
+      "LearningX board post",
+    );
+    if (!isRecord(rawResponse)) {
+      throw new CanvasApiError("invalid_response", "LearningX board post had an unexpected shape.");
+    }
+    const raw = record(rawResponse.post) ?? rawResponse;
+    const summary = this.normalizeBoardPostSummary(raw, course, board);
+    const contentHtml = sanitizeLearningXHtml(raw.content);
+    return {
+      ...summary,
+      contentHtml,
+      contentText: learningXPlainText(contentHtml),
+      updatedAt: stringValue(raw.updated_at),
+      attachments: records(raw.attachments).map(normalizeBoardAttachment),
+      comments: records(raw.comments)
+        .filter((comment) => !booleanValue(comment.is_deleted))
+        .map((comment) => {
+          const commentHtml = sanitizeLearningXHtml(comment.content);
+          return {
+            id: idValue(comment.id),
+            userName: stringValue(comment.user_name),
+            contentHtml: commentHtml,
+            contentText: learningXPlainText(commentHtml),
+            createdAt: stringValue(comment.created_at),
+            secret: booleanValue(comment.is_secret),
+            attachments: records(comment.attachments).map(normalizeBoardAttachment),
+          };
+        }),
+    };
+  }
+
+  private normalizeBoard(raw: JsonRecord, courseId: string): LearningXBoard {
+    const descriptionHtml = sanitizeLearningXHtml(raw.description);
+    return {
+      id: idValue(raw.id),
+      courseId: idValue(raw.course_id) || courseId,
+      title: stringValue(raw.title) ?? "",
+      descriptionHtml,
+      descriptionText: learningXPlainText(descriptionHtml),
+      type: stringValue(raw.type ?? raw.board_type),
+      slug: stringValue(raw.slug),
+      position: numberValue(raw.position),
+      totalPostCount: numberValue(raw.total_post_count ?? raw.post_count) ?? 0,
+      totalCommentCount: numberValue(raw.total_comment_count) ?? 0,
+      unreadPostCount: numberValue(raw.unread_post_count) ?? 0,
+      latestPostCreatedAt: stringValue(raw.latest_post_created_at ?? raw.last_post_at),
+      useAttachment: booleanValue(raw.use_attachment),
+      useComment: booleanValue(raw.use_comment),
+      useNotice: booleanValue(raw.use_notice),
+      useReply: booleanValue(raw.use_reply),
+    };
+  }
+
+  private normalizeBoardPostSummary(
+    raw: JsonRecord,
+    courseId: string,
+    boardId: string,
+  ): LearningXBoardPostSummary {
+    return {
+      id: idValue(raw.id),
+      courseId: idValue(raw.course_id) || courseId,
+      boardId: idValue(raw.board_id) || boardId,
+      index: numberValue(raw.idx ?? raw.index),
+      title: stringValue(raw.title) ?? "",
+      userName: stringValue(raw.user_name),
+      attachmentCount: numberValue(raw.attachment_count) ?? records(raw.attachments).length,
+      commentCount: numberValue(raw.comment_count) ?? records(raw.comments).length,
+      viewCount: numberValue(raw.view_count) ?? 0,
+      notice: booleanValue(raw.is_notice),
+      createdAt: stringValue(raw.created_at),
+    };
   }
 
   private normalizeAttendance(

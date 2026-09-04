@@ -1,12 +1,12 @@
 {
   "name": "canvas",
-  "version": "0.1.0+codex.20260818203329",
-  "description": "Read-only Hanyang study access across live Canvas coursework and saved lecture transcripts.",
+  "version": "0.1.0+codex.20260901141206",
+  "description": "Read-only Hanyang Study access across the official timetable, HY-ON, LearningX, Inbox, and saved lecture transcripts.",
   "author": {
     "name": "GAID Studio",
-    "url": "https://canvas.gaid.studio"
+    "url": "https://study.siyidu.com"
   },
-  "homepage": "https://canvas.gaid.studio",
+  "homepage": "https://study.siyidu.com",
   "license": "UNLICENSED",
   "keywords": [
     "study",
@@ -19,21 +19,21 @@
   "skills": "./skills/",
   "apps": "./.app.json",
   "interface": {
-    "displayName": "Study",
-    "shortDescription": "Review Hanyang coursework and saved lectures",
-    "longDescription": "Review the connected Hanyang HY-ON account and saved Study Lecture transcripts through one deliberately read-only assistant. Combine live courses, assignments, deadlines, submission state, posted grades, announcements, modules, pages, file metadata, calendars, and timestamped lecture evidence without exposing the Canvas PAT.",
+    "displayName": "Hanyang Study",
+    "shortDescription": "Review the Hanyang timetable, HY-ON, LearningX, and lectures",
+    "longDescription": "Review the imported official Hanyang Portal timetable, connected HY-ON account, and saved Study Lecture transcripts through one deliberately read-only assistant. Combine weekly class times and rooms with live courses, assignments, Inbox messages, instructor feedback, posted grades, announcements, LearningX weekly modules and boards, pages, file metadata, calendars, and timestamped lecture evidence without exposing the Canvas PAT.",
     "developerName": "GAID Studio",
     "category": "Education",
     "capabilities": [
       "Read"
     ],
-    "websiteURL": "https://canvas.gaid.studio",
-    "privacyPolicyURL": "https://canvas.gaid.studio/privacy",
-    "termsOfServiceURL": "https://canvas.gaid.studio/terms",
+    "websiteURL": "https://study.siyidu.com",
+    "privacyPolicyURL": "https://study.siyidu.com/privacy",
+    "termsOfServiceURL": "https://study.siyidu.com/terms",
     "defaultPrompt": [
       "Review my upcoming Hanyang work and flag anything missing or late.",
-      "Summarize this week's deadlines with relevant lecture context.",
-      "Find what my instructor said about an assignment in recent lectures."
+      "Summarize my unread Hanyang Inbox messages without marking them read.",
+      "Summarize this week's deadlines with relevant lecture context."
     ],
     "brandColor": "#1F6B45",
     "composerIcon": "./assets/icon.svg",

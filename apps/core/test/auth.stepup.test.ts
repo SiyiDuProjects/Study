@@ -73,13 +73,14 @@ function seedUserAndCredential(harness: Harness): void {
   harness.db
     .prepare(
       `INSERT INTO webauthn_credentials(
-        credential_id, user_id, public_key, counter, transports_json, device_type, backed_up,
+        credential_id, user_id, rp_id, public_key, counter, transports_json, device_type, backed_up,
         device_name, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       "credential-1",
       "user-1",
+      harness.config.webauthnRpId,
       Buffer.from([1, 2, 3]),
       0,
       "[]",

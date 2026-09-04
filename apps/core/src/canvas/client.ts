@@ -5,7 +5,11 @@ import type {
   CanvasAssignment,
   CanvasCalendarEvent,
   CanvasConnectionStatus,
+  CanvasConversation,
+  CanvasConversationMessage,
+  CanvasConversationSummary,
   CanvasCourse,
+  CanvasCourseSubmission,
   CanvasCourseTab,
   CanvasDiscussionEntry,
   CanvasDiscussionTopic,
@@ -24,6 +28,8 @@ import type {
   ListAnnouncementsOptions,
   ListAssignmentsOptions,
   ListCalendarEventsOptions,
+  ListConversationsOptions,
+  ListCourseSubmissionsOptions,
   ListCoursesOptions,
   ListDiscussionTopicsOptions,
   ListFilesOptions,
@@ -364,19 +370,23 @@ function submissionStatus(raw: JsonRecord): NormalizedSubmissionStatus {
   return "unsubmitted";
 }
 
+function normalizeAttachment(raw: JsonRecord) {
+  return {
+    id: idValue(raw.id),
+    filename: stringValue(raw.filename) ?? stringValue(raw.display_name) ?? "",
+    displayName: stringValue(raw.display_name),
+    contentType: stringValue(raw["content-type"]) ?? stringValue(raw.content_type),
+    size: numberValue(raw.size) ?? numberValue(raw.filesize),
+  };
+}
+
 function normalizeSubmission(
   raw: JsonRecord,
   courseId: string,
   assignmentId: string,
   includeHistory = true,
 ): CanvasSubmission {
-  const attachments = records(raw.attachments).map((item) => ({
-    id: idValue(item.id),
-    filename: stringValue(item.filename) ?? stringValue(item.display_name) ?? "",
-    displayName: stringValue(item.display_name),
-    contentType: stringValue(item["content-type"]) ?? stringValue(item.content_type),
-    size: numberValue(item.size),
-  }));
+  const attachments = records(raw.attachments).map(normalizeAttachment);
   const history = includeHistory
     ? records(raw.submission_history).map((item) =>
         normalizeSubmission(item, courseId, assignmentId, false),
@@ -401,6 +411,44 @@ function normalizeSubmission(
     submissionType: stringValue(raw.submission_type),
     attachments,
     history,
+  };
+}
+
+function normalizeConversationSummary(raw: JsonRecord): CanvasConversationSummary {
+  const lastMessageHtml = sanitizeCanvasHtml(raw.last_message);
+  return {
+    id: idValue(raw.id),
+    subject: stringValue(raw.subject) ?? "",
+    workflowState: stringValue(raw.workflow_state),
+    lastMessage: canvasPlainText(lastMessageHtml),
+    lastMessageAt: stringValue(raw.last_message_at) ?? stringValue(raw.start_at),
+    messageCount: numberValue(raw.message_count) ?? 0,
+    subscribed: booleanValue(raw.subscribed),
+    private: booleanValue(raw.private),
+    starred: booleanValue(raw.starred),
+    contextCode: stringValue(raw.context_code),
+    contextName: stringValue(raw.context_name),
+    participants: records(raw.participants).map((participant) => ({
+      id: idValue(participant.id),
+      name: stringValue(participant.name) ?? stringValue(participant.full_name) ?? "",
+      fullName: stringValue(participant.full_name),
+    })),
+  };
+}
+
+function normalizeConversationMessage(raw: JsonRecord, depth = 0): CanvasConversationMessage {
+  const bodyHtml = sanitizeCanvasHtml(raw.body);
+  const forwarded = depth >= 3 ? [] : records(raw.forwarded_messages);
+  return {
+    id: idValue(raw.id),
+    createdAt: stringValue(raw.created_at),
+    authorId:
+      raw.author_id === undefined || raw.author_id === null ? null : idValue(raw.author_id),
+    generated: booleanValue(raw.generated),
+    bodyHtml,
+    bodyText: canvasPlainText(bodyHtml),
+    attachments: records(raw.attachments).map(normalizeAttachment),
+    forwardedMessages: forwarded.map((message) => normalizeConversationMessage(message, depth + 1)),
   };
 }
 
@@ -658,6 +706,77 @@ export class CanvasRestClient {
     if (options.contentTypes?.length) query["content_types[]"] = options.contentTypes.slice(0, 20);
     const rows = await this.getAllRecords(`/api/v1/courses/${id}/files`, query, options.limit);
     return rows.map((row) => this.normalizeFile(row));
+  }
+
+  async listConversations(
+    options: ListConversationsOptions = {},
+  ): Promise<CanvasConversationSummary[]> {
+    const rows = await this.getAllRecords(
+      "/api/v1/conversations",
+      { scope: options.scope ?? "inbox" },
+      options.limit,
+    );
+    return rows.map(normalizeConversationSummary);
+  }
+
+  async getConversation(conversationId: CanvasId): Promise<CanvasConversation> {
+    const id = idArgument(conversationId, "conversation_id");
+    const raw = await this.getRecord(`/api/v1/conversations/${id}`, {
+      // Canvas defaults this GET to a write-like read-state transition. Keep it
+      // explicitly false so MCP reads never mark Inbox messages as read.
+      auto_mark_as_read: false,
+    });
+    return {
+      ...normalizeConversationSummary(raw),
+      messages: records(raw.messages).map((message) => normalizeConversationMessage(message)),
+    };
+  }
+
+  async listCourseSubmissions(
+    courseId: CanvasId,
+    options: ListCourseSubmissionsOptions = {},
+  ): Promise<CanvasCourseSubmission[]> {
+    const course = idArgument(courseId, "course_id");
+    const includes = ["assignment", "submission_comments"];
+    if (options.includeHistory) includes.push("submission_history");
+    const rows = await this.getAllRecords(
+      `/api/v1/courses/${course}/students/submissions`,
+      {
+        "student_ids[]": ["self"],
+        "include[]": includes,
+      },
+      options.limit,
+    );
+    return rows.map((raw) => {
+      const assignment = record(raw.assignment) ?? {};
+      const assignmentId = idValue(raw.assignment_id) || idValue(assignment.id);
+      const submission = normalizeSubmission(raw, course, assignmentId, options.includeHistory === true);
+      return {
+        ...submission,
+        assignment: {
+          id: assignmentId,
+          name: stringValue(assignment.name) ?? "",
+          dueAt: stringValue(assignment.due_at),
+          pointsPossible: numberValue(assignment.points_possible),
+          htmlUrl: stringValue(assignment.html_url),
+        },
+        comments: records(raw.submission_comments).map((comment) => {
+          const commentHtml = sanitizeCanvasHtml(comment.comment);
+          return {
+            id: idValue(comment.id),
+            authorId:
+              comment.author_id === undefined || comment.author_id === null
+                ? null
+                : idValue(comment.author_id),
+            authorName: stringValue(comment.author_name),
+            commentHtml,
+            commentText: canvasPlainText(commentHtml),
+            createdAt: stringValue(comment.created_at),
+            attachments: records(comment.attachments).map(normalizeAttachment),
+          };
+        }),
+      };
+    });
   }
 
   async listCalendarEvents(
@@ -1034,6 +1153,8 @@ export class CanvasRestClient {
       id: idValue(raw.id),
       type: stringValue(raw.type) ?? (assignment ? "assignment" : "event"),
       title: stringValue(raw.title) ?? stringValue(assignment?.name) ?? "",
+      createdAt: stringValue(raw.created_at) ?? stringValue(assignment?.created_at),
+      updatedAt: stringValue(raw.updated_at) ?? stringValue(assignment?.updated_at),
       descriptionHtml,
       descriptionText: canvasPlainText(descriptionHtml),
       startAt: stringValue(raw.start_at) ?? stringValue(assignment?.due_at),

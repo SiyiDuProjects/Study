@@ -1,0 +1,159 @@
+export type HanyangWeekday =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday";
+
+export interface HanyangTimetableMeeting {
+  canvasCourseId: string;
+  canvasCourseCode: string;
+  courseNameKo: string;
+  courseNameZh: string;
+  weekday: HanyangWeekday;
+  weekdayIso: number;
+  startTime: string;
+  endTime: string;
+  locationCode: string;
+  locationName: string | null;
+}
+
+export interface HanyangTimetable {
+  institution: "hanyang";
+  term: {
+    id: string;
+    name: string;
+    academicYear: number;
+    semester: number;
+  };
+  timezone: "Asia/Seoul";
+  totalCredits: number;
+  source: {
+    kind: "official_portal_timetable";
+    label: string;
+    asOf: string;
+  };
+  meetings: HanyangTimetableMeeting[];
+  interpretation: {
+    recurringBaseline: true;
+    matchCourseBy: ["canvasCourseId", "canvasCourseCode", "courseNameKo"];
+    temporaryNoticeRule: string;
+    missingNoticeRule: string;
+  };
+}
+
+const HANYANG_2026_FALL_TIMETABLE: HanyangTimetable = {
+  institution: "hanyang",
+  term: {
+    id: "94",
+    name: "2026년 2학기",
+    academicYear: 2026,
+    semester: 2,
+  },
+  timezone: "Asia/Seoul",
+  totalCredits: 16,
+  source: {
+    kind: "official_portal_timetable",
+    label: "Hanyang Portal > 수업 > 수강신청 > 신청과목시간표확인",
+    asOf: "2026-08-30",
+  },
+  meetings: [
+    {
+      canvasCourseId: "214446",
+      canvasCourseCode: "202620HY25113_파이썬과데이터분석",
+      courseNameKo: "파이썬과데이터분석",
+      courseNameZh: "Python与数据分析",
+      weekday: "monday",
+      weekdayIso: 1,
+      startTime: "11:00",
+      endTime: "13:00",
+      locationCode: "Y202-0410",
+      locationName: null,
+    },
+    {
+      canvasCourseId: "215704",
+      canvasCourseCode: "202620HY20316_한국어듣기말하기2",
+      courseNameKo: "한국어듣기말하기2",
+      courseNameZh: "韩语听说2",
+      weekday: "monday",
+      weekdayIso: 1,
+      startTime: "17:00",
+      endTime: "19:00",
+      locationCode: "Y206-0104",
+      locationName: "Conference Hall 104",
+    },
+    {
+      canvasCourseId: "214375",
+      canvasCourseCode: "202620HY24372_ESG와SDGs이해",
+      courseNameKo: "ESG와SDGs이해",
+      courseNameZh: "ESG与SDGs理解",
+      weekday: "tuesday",
+      weekdayIso: 2,
+      startTime: "11:00",
+      endTime: "13:00",
+      locationCode: "Y-317-F-06-03",
+      locationName: null,
+    },
+    {
+      canvasCourseId: "215729",
+      canvasCourseCode: "202620HY20340_디지털리터러시와한국어",
+      courseNameKo: "디지털리터러시와한국어",
+      courseNameZh: "数字素养与韩国语",
+      weekday: "tuesday",
+      weekdayIso: 2,
+      startTime: "17:00",
+      endTime: "19:00",
+      locationCode: "Y206-0104",
+      locationName: "Conference Hall 104",
+    },
+    {
+      canvasCourseId: "215714",
+      canvasCourseCode: "202620HY20326_한국어읽기쓰기2",
+      courseNameKo: "한국어읽기쓰기2",
+      courseNameZh: "韩语读写2",
+      weekday: "wednesday",
+      weekdayIso: 3,
+      startTime: "17:00",
+      endTime: "19:00",
+      locationCode: "Y206-0104",
+      locationName: "Conference Hall 104",
+    },
+    {
+      canvasCourseId: "216115",
+      canvasCourseCode: "202620HY24465_디지털미디어사회의이해",
+      courseNameKo: "디지털미디어사회의이해",
+      courseNameZh: "数字媒体社会理解",
+      weekday: "thursday",
+      weekdayIso: 4,
+      startTime: "14:00",
+      endTime: "17:00",
+      locationCode: "Y202-0413",
+      locationName: "솔성관 413",
+    },
+    {
+      canvasCourseId: "215739",
+      canvasCourseCode: "202620HY20350_유학생을위한합리적사고와토의",
+      courseNameKo: "유학생을위한합리적사고와토의",
+      courseNameZh: "外国留学生合理思考与讨论",
+      weekday: "friday",
+      weekdayIso: 5,
+      startTime: "17:00",
+      endTime: "19:00",
+      locationCode: "Y206-0104",
+      locationName: "Conference Hall 104",
+    },
+  ],
+  interpretation: {
+    recurringBaseline: true,
+    matchCourseBy: ["canvasCourseId", "canvasCourseCode", "courseNameKo"],
+    temporaryNoticeRule:
+      "A date-specific instructor notice may override only the matching course and the exact stated date or date range; preserve both the normal timetable and the temporary arrangement in the answer.",
+    missingNoticeRule:
+      "The absence of a notice does not prove that a class is in person, online, cancelled, or moved.",
+  },
+};
+
+/** Return an isolated copy so no caller can mutate the imported timetable. */
+export function getHanyangTimetable(): HanyangTimetable {
+  return structuredClone(HANYANG_2026_FALL_TIMETABLE);
+}

@@ -184,6 +184,89 @@ describe("CanvasRestClient", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("reads Inbox without marking messages read and sanitizes conversation bodies", async () => {
+    const fetch = mockFetch((url, init) => {
+      expect(init?.method).toBe("GET");
+      if (url.pathname === "/api/v1/conversations") {
+        expect(url.searchParams.get("scope")).toBe("unread");
+        return json([
+          {
+            id: 12,
+            subject: "Office hours",
+            workflow_state: "unread",
+            last_message: "<b>See you</b><script>steal()</script>",
+            last_message_at: "2026-08-30T01:00:00Z",
+            message_count: 1,
+            participants: [{ id: 3, name: "Teacher", full_name: "Teacher Name" }],
+          },
+        ]);
+      }
+      expect(url.pathname).toBe("/api/v1/conversations/12");
+      expect(url.searchParams.get("auto_mark_as_read")).toBe("false");
+      return json({
+        id: 12,
+        subject: "Office hours",
+        workflow_state: "unread",
+        messages: [
+          {
+            id: 13,
+            author_id: 3,
+            body: '<p onclick="steal()">Message</p><iframe src="https://attacker.example"></iframe>',
+            attachments: [{ id: 14, filename: "notes.pdf", url: "https://attacker.example/file" }],
+          },
+        ],
+      });
+    });
+    const client = new CanvasRestClient(connection, { fetch });
+
+    const summaries = await client.listConversations({ scope: "unread", limit: 10 });
+    const conversation = await client.getConversation(12);
+
+    expect(summaries[0]).toMatchObject({ id: "12", lastMessage: "See you" });
+    expect(conversation.messages[0]).toMatchObject({ bodyText: "Message" });
+    expect(conversation.messages[0]?.bodyHtml).not.toMatch(/onclick|iframe/i);
+    expect(JSON.stringify(conversation)).not.toMatch(/attacker\.example/i);
+  });
+
+  it("lists only the authenticated student's course submissions with sanitized feedback", async () => {
+    const fetch = mockFetch((url) => {
+      expect(url.pathname).toBe("/api/v1/courses/7/students/submissions");
+      expect(url.searchParams.getAll("student_ids[]")).toEqual(["self"]);
+      expect(url.searchParams.getAll("include[]")).toEqual([
+        "assignment",
+        "submission_comments",
+        "submission_history",
+      ]);
+      return json([
+        {
+          id: 50,
+          assignment_id: 9,
+          workflow_state: "graded",
+          assignment: { id: 9, name: "Essay", due_at: "2026-09-01T00:00:00Z" },
+          submission_comments: [
+            {
+              id: 51,
+              author_name: "Teacher",
+              comment: '<p onmouseover="steal()">Good work</p>',
+              attachments: [{ id: 52, filename: "rubric.pdf", url: "https://attacker.example" }],
+            },
+          ],
+          submission_history: [{ id: 49, assignment_id: 9, workflow_state: "submitted" }],
+        },
+      ]);
+    });
+    const client = new CanvasRestClient(connection, { fetch });
+
+    const submissions = await client.listCourseSubmissions(7, { includeHistory: true });
+
+    expect(submissions[0]).toMatchObject({
+      assignment: { id: "9", name: "Essay" },
+      comments: [{ authorName: "Teacher", commentText: "Good work" }],
+    });
+    expect(submissions[0]?.comments[0]?.commentHtml).not.toMatch(/onmouseover/i);
+    expect(JSON.stringify(submissions)).not.toMatch(/attacker\.example/i);
+  });
+
   it("returns posted grades only and omits unposted grade fields", async () => {
     const fetch = mockFetch(() =>
       json([
@@ -299,6 +382,12 @@ describe("CanvasRestClient", () => {
         return json({ url: "week-1", title: "Week 1", body: "<p>Welcome</p>" });
       }
       if (url.pathname === "/api/v1/courses/7/files") return json([]);
+      if (url.pathname === "/api/v1/conversations") return json([]);
+      if (url.pathname === "/api/v1/conversations/12") {
+        expect(url.searchParams.get("auto_mark_as_read")).toBe("false");
+        return json({ id: 12, messages: [] });
+      }
+      if (url.pathname === "/api/v1/courses/7/students/submissions") return json([]);
       if (url.pathname === "/api/v1/calendar_events") return json([]);
       if (url.pathname === "/api/v1/planner/items") return json([]);
       if (url.pathname === "/api/v1/courses/7/assignments/9/submissions/self") {
@@ -326,6 +415,9 @@ describe("CanvasRestClient", () => {
     await client.listPages(7);
     await client.getPage(7, "week-1");
     await client.listFiles(7);
+    await client.listConversations();
+    await client.getConversation(12);
+    await client.listCourseSubmissions(7);
     await client.listCalendarEvents();
     await client.getUpcomingWork();
     await client.getSubmissionStatus(7, 9);
@@ -348,6 +440,9 @@ describe("CanvasRestClient", () => {
         "/api/v1/courses/7/pages",
         "/api/v1/courses/7/pages/week-1",
         "/api/v1/courses/7/files",
+        "/api/v1/conversations",
+        "/api/v1/conversations/12",
+        "/api/v1/courses/7/students/submissions",
         "/api/v1/calendar_events",
         "/api/v1/planner/items",
         "/api/v1/courses/7/assignments/9/submissions/self",
@@ -374,7 +469,15 @@ describe("CanvasRestClient", () => {
         ]);
       }
       if (url.pathname === "/api/v1/calendar_events") {
-        return json([{ id: 3, title: "Lecture", context_code: "course_7" }]);
+        return json([
+          {
+            id: 3,
+            title: "Lecture",
+            context_code: "course_7",
+            created_at: "2026-08-10T09:00:00Z",
+            updated_at: "2026-08-17T11:30:00Z",
+          },
+        ]);
       }
       if (url.pathname === "/api/v1/announcements") {
         expect(url.searchParams.getAll("context_codes[]")).toEqual(["course_7"]);
@@ -407,6 +510,10 @@ describe("CanvasRestClient", () => {
       incompleteWork: 1,
       calendarEvents: 1,
       announcements: 1,
+    });
+    expect(summary.calendarEvents[0]).toMatchObject({
+      createdAt: "2026-08-10T09:00:00Z",
+      updatedAt: "2026-08-17T11:30:00Z",
     });
     expect(summary.announcements[0]?.messageText).toBe("Hello");
   });

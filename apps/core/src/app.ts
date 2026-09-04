@@ -20,6 +20,9 @@ import { createInternalRouter } from "./internal/http.js";
 import { LectureClient } from "./lecture/index.js";
 import { log } from "./logger.js";
 
+const STUDY_CANONICAL_HOST = "study.siyidu.com";
+const STUDY_LEGACY_MCP_HOST = "canvas.gaid.studio";
+
 export interface CreateApplicationOptions {
   config: AppConfig;
   database?: AppDatabase;
@@ -127,9 +130,21 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
       })
     : null;
   const publicHost = new URL(config.publicOrigin).hostname;
+  const compatiblePublicHosts = publicHost === STUDY_CANONICAL_HOST
+    ? [STUDY_LEGACY_MCP_HOST]
+    : [];
   const app = createMcpExpressApp({
     host: "0.0.0.0",
-    allowedHosts: [...new Set([publicHost, "canvas", "localhost", "127.0.0.1", "[::1]"])],
+    allowedHosts: [
+      ...new Set([
+        publicHost,
+        ...compatiblePublicHosts,
+        "canvas",
+        "localhost",
+        "127.0.0.1",
+        "[::1]",
+      ]),
+    ],
   });
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy);

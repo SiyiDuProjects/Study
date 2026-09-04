@@ -33,7 +33,7 @@ describe("Study course client", () => {
       headers: { Location: "https://untrusted.example/courses" }
     }));
     const client = createStudyCourseClient({
-      baseUrl: "https://canvas.gaid.studio",
+      baseUrl: "https://study.siyidu.com",
       serviceToken: "study-token",
       fetchImpl
     });

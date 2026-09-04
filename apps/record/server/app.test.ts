@@ -396,7 +396,7 @@ describe("Study Lecture server", () => {
   it("rejects the public hostname on internal routes even with the service token", async () => {
     const status = await requestStatusWithHost(
       `${baseUrl}/internal/mcp/lecture/sessions`,
-      "lecture.gaid.studio",
+      "lecture.siyidu.com",
       "lecture-test-token"
     );
     expect(status).toBe(421);
@@ -436,7 +436,7 @@ describe("browser authentication", () => {
     const publicServer = await startTestServer(
       createPublicOwnerAuthenticator(),
       [course()],
-      "https://lecture.gaid.studio"
+      "https://lecture.siyidu.com"
     );
     try {
       const wrongHost = await rawRequest(`${publicServer.baseUrl}/api/sessions`, {
@@ -445,21 +445,21 @@ describe("browser authentication", () => {
       expect(wrongHost.status).toBe(421);
 
       const allowedRead = await rawRequest(`${publicServer.baseUrl}/api/sessions`, {
-        host: "lecture.gaid.studio"
+        host: "lecture.siyidu.com"
       });
       expect(allowedRead.status).toBe(200);
 
       const missingOrigin = await rawRequest(`${publicServer.baseUrl}/api/realtime/client-secret`, {
         method: "POST",
-        host: "lecture.gaid.studio",
+        host: "lecture.siyidu.com",
         body: JSON.stringify({ mode: "realtime-translate" })
       });
       expect(missingOrigin.status).toBe(403);
 
       const allowedSecret = await rawRequest(`${publicServer.baseUrl}/api/realtime/client-secret`, {
         method: "POST",
-        host: "lecture.gaid.studio",
-        origin: "https://lecture.gaid.studio",
+        host: "lecture.siyidu.com",
+        origin: "https://lecture.siyidu.com",
         body: JSON.stringify({ mode: "realtime-translate" })
       });
       expect(allowedSecret.status).toBe(200);

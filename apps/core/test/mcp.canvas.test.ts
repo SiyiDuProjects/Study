@@ -20,6 +20,7 @@ const connection: CanvasConnection = {
 const TOOL_NAMES = [
   "connection_status",
   "list_courses",
+  "get_timetable",
   "get_course",
   "list_assignments",
   "get_assignment",
@@ -32,6 +33,9 @@ const TOOL_NAMES = [
   "list_pages",
   "get_page",
   "list_files",
+  "list_conversations",
+  "get_conversation",
+  "list_course_submissions",
   "list_calendar_events",
   "get_upcoming_work",
   "get_submission_status",
@@ -167,16 +171,22 @@ describe("Canvas MCP tools", () => {
     const tools = await advertisedTools(client);
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...TOOL_NAMES.slice(0, 14),
+      ...TOOL_NAMES.slice(0, 18),
       "list_learningx_attendance",
       "get_learningx_attendance_item",
       "list_learningx_modules",
-      ...TOOL_NAMES.slice(14),
+      "list_learningx_boards",
+      "list_learningx_board_posts",
+      "get_learningx_board_post",
+      ...TOOL_NAMES.slice(18),
     ]);
     for (const name of [
       "list_learningx_attendance",
       "get_learningx_attendance_item",
       "list_learningx_modules",
+      "list_learningx_boards",
+      "list_learningx_board_posts",
+      "get_learningx_board_post",
     ]) {
       const tool = tools.find((candidate) => candidate.name === name);
       expect(tool?.annotations).toMatchObject({
@@ -217,6 +227,55 @@ describe("Canvas MCP tools", () => {
     if (result.content[0]?.type === "text") {
       expect(result.content[0].text).toContain("Untrusted Canvas data follows");
     }
+    const validate = new AjvJsonSchemaValidator().getValidator(
+      tool.outputSchema as JsonSchemaType,
+    );
+    expect(validate(result.structuredContent)).toMatchObject({ valid: true });
+  });
+
+  it("returns the complete imported timetable with stable Canvas course mappings", async () => {
+    const client = await connectedClient({ getConnection: () => connection });
+    const tool = (await advertisedTools(client)).find(
+      (candidate) => candidate.name === "get_timetable",
+    );
+    if (!tool) throw new Error("get_timetable tool was not advertised");
+
+    const result = await client.callTool({ name: "get_timetable", arguments: {} });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      result: {
+        institution: "hanyang",
+        timezone: "Asia/Seoul",
+        totalCredits: 16,
+        term: { id: "94", academicYear: 2026, semester: 2 },
+        source: { kind: "official_portal_timetable", asOf: "2026-08-30" },
+      },
+      error: null,
+    });
+    const envelope = result.structuredContent as {
+      result?: { meetings?: Array<Record<string, unknown>> } | null;
+    };
+    expect(envelope.result?.meetings).toHaveLength(7);
+    expect(envelope.result?.meetings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canvasCourseId: "215729",
+          weekday: "tuesday",
+          startTime: "17:00",
+          endTime: "19:00",
+          locationCode: "Y206-0104",
+        }),
+        expect.objectContaining({
+          canvasCourseId: "216115",
+          weekday: "thursday",
+          startTime: "14:00",
+          endTime: "17:00",
+          locationCode: "Y202-0413",
+        }),
+      ]),
+    );
     const validate = new AjvJsonSchemaValidator().getValidator(
       tool.outputSchema as JsonSchemaType,
     );

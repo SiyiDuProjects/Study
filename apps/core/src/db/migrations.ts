@@ -296,6 +296,40 @@ const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 6,
+    sql: `
+      -- Credentials created before the siyidu.com cutover belong to the old RP.
+      -- The non-null default backfills a copied production database.
+      ALTER TABLE webauthn_credentials
+        ADD COLUMN rp_id TEXT NOT NULL DEFAULT 'canvas.gaid.studio';
+
+      -- Freeze the exact verification context when each ceremony begins.
+      -- Pre-migration flows were created on the legacy origin and RP.
+      ALTER TABLE setup_flows
+        ADD COLUMN rp_id TEXT NOT NULL DEFAULT 'canvas.gaid.studio';
+      ALTER TABLE setup_flows
+        ADD COLUMN expected_origin TEXT NOT NULL DEFAULT 'https://canvas.gaid.studio';
+
+      ALTER TABLE login_flows
+        ADD COLUMN rp_id TEXT NOT NULL DEFAULT 'canvas.gaid.studio';
+      ALTER TABLE login_flows
+        ADD COLUMN expected_origin TEXT NOT NULL DEFAULT 'https://canvas.gaid.studio';
+
+      ALTER TABLE step_up_flows
+        ADD COLUMN rp_id TEXT NOT NULL DEFAULT 'canvas.gaid.studio';
+      ALTER TABLE step_up_flows
+        ADD COLUMN expected_origin TEXT NOT NULL DEFAULT 'https://canvas.gaid.studio';
+
+      ALTER TABLE passkey_registration_flows
+        ADD COLUMN rp_id TEXT NOT NULL DEFAULT 'canvas.gaid.studio';
+      ALTER TABLE passkey_registration_flows
+        ADD COLUMN expected_origin TEXT NOT NULL DEFAULT 'https://canvas.gaid.studio';
+
+      CREATE INDEX webauthn_credentials_user_rp_idx
+        ON webauthn_credentials(user_id, rp_id, created_at);
+    `,
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

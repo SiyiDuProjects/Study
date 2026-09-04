@@ -94,6 +94,33 @@ export interface CanvasSubmission {
   history: CanvasSubmission[];
 }
 
+export interface CanvasSubmissionComment {
+  id: string;
+  authorId: string | null;
+  authorName: string | null;
+  commentHtml: string | null;
+  commentText: string | null;
+  createdAt: string | null;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    displayName: string | null;
+    contentType: string | null;
+    size: number | null;
+  }>;
+}
+
+export interface CanvasCourseSubmission extends CanvasSubmission {
+  assignment: {
+    id: string;
+    name: string;
+    dueAt: string | null;
+    pointsPossible: number | null;
+    htmlUrl: string | null;
+  };
+  comments: CanvasSubmissionComment[];
+}
+
 export interface CanvasAssignment {
   id: string;
   courseId: string;
@@ -259,10 +286,54 @@ export interface CanvasFile {
   hidden: boolean;
 }
 
+export interface CanvasConversationParticipant {
+  id: string;
+  name: string;
+  fullName: string | null;
+}
+
+export interface CanvasConversationSummary {
+  id: string;
+  subject: string;
+  workflowState: string | null;
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+  messageCount: number;
+  subscribed: boolean;
+  private: boolean;
+  starred: boolean;
+  contextCode: string | null;
+  contextName: string | null;
+  participants: CanvasConversationParticipant[];
+}
+
+export interface CanvasConversationMessage {
+  id: string;
+  createdAt: string | null;
+  authorId: string | null;
+  generated: boolean;
+  bodyHtml: string | null;
+  bodyText: string | null;
+  attachments: Array<{
+    id: string;
+    filename: string;
+    displayName: string | null;
+    contentType: string | null;
+    size: number | null;
+  }>;
+  forwardedMessages: CanvasConversationMessage[];
+}
+
+export interface CanvasConversation extends CanvasConversationSummary {
+  messages: CanvasConversationMessage[];
+}
+
 export interface CanvasCalendarEvent {
   id: string;
   type: string;
   title: string;
+  createdAt: string | null;
+  updatedAt: string | null;
   descriptionHtml: string | null;
   descriptionText: string | null;
   startAt: string | null;
@@ -350,6 +421,16 @@ export interface ListFilesOptions extends ListOptions {
   contentTypes?: string[];
   sort?: "name" | "size" | "created_at" | "updated_at";
   order?: "asc" | "desc";
+}
+
+export type ConversationScope = "inbox" | "unread" | "starred" | "archived" | "sent";
+
+export interface ListConversationsOptions extends ListOptions {
+  scope?: ConversationScope;
+}
+
+export interface ListCourseSubmissionsOptions extends ListOptions {
+  includeHistory?: boolean;
 }
 
 export interface TimeWindowOptions extends ListOptions {

@@ -335,6 +335,7 @@ async function initSetup() {
 
 async function initLogin() {
   const button = document.querySelector("#login-button");
+  const legacyButton = document.querySelector("#legacy-login-button");
   const status = document.querySelector("#login-status");
   if (!button || !status) return;
 
@@ -346,28 +347,65 @@ async function initLogin() {
       redirectSameOrigin(session.redirectTo, returnTo);
       return;
     }
+    if (legacyButton) legacyButton.hidden = session.legacyLoginEnabled !== true;
   } catch (error) {
     setStatus(status, errorMessage(error), "error");
   }
 
-  button.addEventListener("click", async () => {
-    setBusy(button, true, "Waiting for your passkey…");
+  const signIn = async (mode, activeButton) => {
+    setBusy(activeButton, true, "Waiting for your passkey…");
+    if (activeButton !== button) button.disabled = true;
+    if (legacyButton && activeButton !== legacyButton) legacyButton.disabled = true;
     setStatus(status, "Approve the sign-in request on this device.");
     try {
       requireWebAuthn();
-      const options = await api(API_ENDPOINTS.loginOptions, { method: "POST", body: {} });
+      const options = await api(API_ENDPOINTS.loginOptions, {
+        method: "POST",
+        body: { mode },
+      });
       const credential = await getPasskey(options);
       const result = await api(API_ENDPOINTS.loginVerify, {
         method: "POST",
         body: { flowId: flowIdFrom(options), credential, returnTo },
       });
+      if (typeof result.migrationStepUpToken === "string" && result.migrationStepUpToken) {
+        try {
+          setStatus(status, "Signed in. Create a new siyidu.com passkey to complete the migration.");
+          const registration = await api(API_ENDPOINTS.passkeyOptions, {
+            method: "POST",
+            body: {
+              deviceName: "siyidu.com migration",
+              stepUpToken: result.migrationStepUpToken,
+            },
+          });
+          const canonicalCredential = await createPasskey(registration);
+          await api(API_ENDPOINTS.passkeyVerify, {
+            method: "POST",
+            body: { flowId: flowIdFrom(registration), credential: canonicalCredential },
+          });
+          setStatus(status, "Signed in and siyidu.com passkey created.", "success");
+        } catch (migrationError) {
+          setStatus(
+            status,
+            `Signed in, but the siyidu.com passkey was not created: ${errorMessage(migrationError)}`,
+            "error",
+          );
+          window.setTimeout(() => redirectSameOrigin(result.redirectTo, returnTo), 1800);
+          return;
+        }
+      }
       setStatus(status, "Signed in. Opening account settings…", "success");
       redirectSameOrigin(result.redirectTo, returnTo);
     } catch (error) {
       setStatus(status, errorMessage(error), "error");
-      setBusy(button, false);
+      setBusy(activeButton, false);
+      if (activeButton !== button) button.disabled = false;
+      if (legacyButton && activeButton !== legacyButton) legacyButton.disabled = false;
     }
-  });
+  };
+
+  button.addEventListener("click", () => void signIn("auto", button));
+  legacyButton?.addEventListener("click", () => void signIn("legacy", legacyButton));
 }
 
 function formatDate(value) {
