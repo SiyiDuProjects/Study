@@ -3,18 +3,5 @@
   "interface": {
     "displayName": "GAID Studio Local"
   },
-  "plugins": [
-    {
-      "name": "canvas",
-      "source": {
-        "source": "local",
-        "path": "./plugins/canvas"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Education"
-    }
-  ]
+  "plugins": []
 }

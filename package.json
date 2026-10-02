@@ -5,6 +5,16 @@
   "scripts": {
     "typecheck": "npm --prefix apps/core run typecheck && npm --prefix apps/record run typecheck",
     "test": "npm --prefix apps/core test && npm --prefix apps/record test",
-    "build": "npm --prefix apps/core run build && npm --prefix apps/record run build && npm --prefix apps/record run sites:build"
+    "build": "npm --prefix apps/core run build && npm --prefix apps/record run build",
+    "build:mcp-skills": "node scripts/build-mcp-skills.mjs",
+    "release:status": "node scripts/study-release.mjs status",
+    "release:check": "node scripts/study-release.mjs check",
+    "release:prepare": "node scripts/study-release.mjs prepare",
+    "test:release": "node --test scripts/release/*.test.mjs",
+    "check:record-dependencies": "node scripts/check-record-dependencies.mjs",
+    "validate:plugin": "node scripts/validate-plugin.mjs && node scripts/build-mcp-skills.mjs --check"
+  },
+  "devDependencies": {
+    "yaml": "2.9.0"
   }
 }

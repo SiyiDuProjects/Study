@@ -12,9 +12,10 @@ import express, {
   type Router,
 } from "express";
 import { normalizeReturnTo, type AppConfig } from "../config.js";
-import { INSTITUTIONS, type InstitutionKey } from "../domain.js";
+import { INSTITUTIONS, scopesForInstitution, type InstitutionKey } from "../domain.js";
 import { AuthError, invalidClient, invalidRequest } from "./errors.js";
 import { assertSameOriginBrowserPost } from "./origin.js";
+import { RECOVERY_TTL_MS, type PasskeyRecovery } from "./recovery.js";
 import type {
   AuthService,
   DynamicClientRegistrationInput,
@@ -120,7 +121,7 @@ function optionalLoginMode(record: Record<string, unknown>): WebAuthnLoginMode |
   if (mode === undefined) {
     return undefined;
   }
-  if (mode !== "auto" && mode !== "canonical" && mode !== "legacy") {
+  if (mode !== "auto" && mode !== "canonical" && mode !== "legacy" && mode !== "berkeley") {
     throw new AuthError("invalid_login_mode", "Unsupported passkey login mode", 400);
   }
   return mode;
@@ -244,16 +245,18 @@ function renderAuthorizationForm(
   user: SessionAuthentication["user"],
 ): string {
   const institutionName = INSTITUTIONS[user.institution].displayName;
-  const grantsLecture = scope.split(/\s+/).includes("lecture.read");
-  const dataDescription = grantsLecture
-    ? "Hanyang Canvas data and saved Study Lecture transcripts"
-    : "Hanyang Canvas data";
+  scope = scopesForInstitution(scope.split(/\s+/), user.institution).join(" ");
+  const authorizationParams = new URLSearchParams({ client_id: input.clientId, redirect_uri: input.redirectUri,
+    response_type: input.responseType, code_challenge: input.codeChallenge, code_challenge_method: input.codeChallengeMethod,
+    resource: input.resource, ...(input.scope ? { scope: input.scope } : {}), ...(input.state !== undefined ? { state: input.state } : {}) });
+  const switchUrl = `/login?switch=1&returnTo=${encodeURIComponent(`/oauth/authorize?${authorizationParams}`)}`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Authorize Study access</title><script src="/assets/oauth-consent.js" defer></script></head><body>
-<main><h1>Authorize ${clientName}</h1>
+<main><h1>Connect Study to ${clientName}</h1>
 <p>Signed in as <strong>${escapeHtml(user.displayName)}</strong> at ${escapeHtml(institutionName)}.</p>
-<p>This grants read-only access to ${dataDescription} with scopes: ${escapeHtml(scope)}.</p>
+<p><a href="${escapeHtml(switchUrl)}">Connect a different school account</a>. Each connection stays independent in the same Study plugin.</p>
+<p>Study can access coursework in this account and carry out your requests to upload files, send messages with attachments and submit assignments when those features are available. ${user.institution === "hanyang" ? "It also connects your Hanyang learning tools and saved Study Lecture transcripts. " : ""}Sending or submitting requires your instruction; routine checks do not send or submit anything.</p>
 <p>After approval, return to <code>${escapeHtml(input.redirectUri)}</code>.</p>
 <form id="oauth-consent-form" method="post" action="/oauth/consent">
 ${hiddenInput("client_id", input.clientId)}
@@ -262,10 +265,10 @@ ${hiddenInput("response_type", input.responseType)}
 ${hiddenInput("code_challenge", input.codeChallenge)}
 ${hiddenInput("code_challenge_method", input.codeChallengeMethod)}
 ${hiddenInput("resource", input.resource)}
-${hiddenInput("scope", input.scope)}
+${hiddenInput("scope", scope)}
 ${hiddenInput("state", input.state)}
 ${hiddenInput("authorization_user_id", user.id)}
-<button type="submit">Allow read-only access</button>
+<button type="submit">Connect Study</button>
 </form><p id="oauth-consent-status" role="status" hidden></p></main></body></html>`;
 }
 
@@ -321,11 +324,37 @@ export function requireBearer(
   };
 }
 
-export function createAuthRouter(service: AuthService, config: AppConfig = service.config): Router {
+export function createAuthRouter(service: AuthService, config: AppConfig = service.config, recovery?: PasskeyRecovery): Router {
   const router = express.Router();
   router.use(cookieParser());
   router.use(express.json({ limit: "64kb" }));
   router.use(express.urlencoded({ extended: false, limit: "32kb" }));
+
+  if (recovery) {
+    const cookieName = config.cookieSecure ? "__Host-study-recovery" : "study-recovery";
+    const cookieOptions = { httpOnly: true, secure: config.cookieSecure, sameSite: "strict" as const, path: "/" };
+    const browserToken = (request: Request) => parseCookies(request)[cookieName] ?? "";
+    router.post("/auth/recovery/request", browserPost(config, async (request, response) => {
+      const { browserToken: token, ...result } = recovery.request(browserToken(request));
+      response.cookie(cookieName, token, { ...cookieOptions, maxAge: RECOVERY_TTL_MS });
+      oauthNoStore(response);
+      response.json(result);
+    }));
+    router.post("/auth/recovery/status", browserPost(config, async (request, response) => {
+      oauthNoStore(response);
+      response.json(recovery.status(browserToken(request)));
+    }));
+    router.post("/auth/recovery/options", browserPost(config, async (request, response) => {
+      oauthNoStore(response);
+      response.json(await recovery.options(browserToken(request)));
+    }));
+    router.post("/auth/recovery/verify", browserPost(config, async (request, response) => {
+      const result = await recovery.finish(browserToken(request), requiredObject<RegistrationResponseJSON>(asRecord(request.body), "credential"));
+      response.clearCookie(cookieName, cookieOptions);
+      oauthNoStore(response);
+      response.json(result);
+    }));
+  }
 
   router.get("/.well-known/oauth-protected-resource", (_request, response) => {
     response.json(service.protectedResourceMetadata());
@@ -417,6 +446,7 @@ export function createAuthRouter(service: AuthService, config: AppConfig = servi
         user: session.user,
         expiresAt: session.expiresAt,
         legacyLoginEnabled: config.webauthnLegacyLoginEnabled,
+        berkeleyLoginEnabled: config.webauthnBerkeleyRpIds.length > 0,
         returnTo,
         redirectTo: returnTo,
       });
@@ -429,6 +459,7 @@ export function createAuthRouter(service: AuthService, config: AppConfig = servi
       response.json({
         authenticated: false,
         legacyLoginEnabled: config.webauthnLegacyLoginEnabled,
+        berkeleyLoginEnabled: config.webauthnBerkeleyRpIds.length > 0,
         returnTo,
         redirectTo: "/login",
       });

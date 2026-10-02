@@ -1,6 +1,6 @@
-import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createTestD1 } from "./test-d1";
+
+
 import { describe, expect, it } from "vitest";
 import { DAILY_COURSE } from "../shared/courses";
 import {
@@ -73,7 +73,7 @@ describe("D1 Study Record repositories", () => {
       writerLeaseToken: token,
       expectedRevision: 0
     });
-    expect(checkpointed).toMatchObject({ revision: 1, status: "recording" });
+    expect(checkpointed).toMatchObject({ revision: 1, status: "recording", segmentCount: 1 });
     expect(checkpointed?.segments).toEqual([segment]);
 
     await expect(sessions.checkpointSession("lecture_test", {
@@ -91,7 +91,7 @@ describe("D1 Study Record repositories", () => {
       expectedRevision: 1
     });
     expect(completed).toMatchObject({ revision: 2, status: "ready" });
-    expect(await sessions.searchSessions({ query: "你好" })).toHaveLength(1);
+    expect((await sessions.searchSessions({ query: "你好" })).items).toHaveLength(1);
     expect(await sessions.archiveSession("lecture_test")).toBe(true);
   });
 
@@ -115,60 +115,3 @@ describe("D1 Study Record repositories", () => {
     );
   });
 });
-
-class TestStatement {
-  private values: unknown[] = [];
-
-  constructor(
-    private readonly database: Database.Database,
-    private readonly query: string
-  ) {}
-
-  bind(...values: unknown[]): TestStatement {
-    this.values = values;
-    return this;
-  }
-
-  async all<T>(): Promise<D1Result<T>> {
-    const rows = this.database.prepare(this.query).all(...this.values) as T[];
-    return { results: rows, success: true, meta: {} } as D1Result<T>;
-  }
-
-  async first<T>(): Promise<T | null> {
-    return (this.database.prepare(this.query).get(...this.values) as T | undefined) ?? null;
-  }
-
-  async run<T = unknown>(): Promise<D1Result<T>> {
-    return this.runSync<T>();
-  }
-
-  runSync<T = unknown>(): D1Result<T> {
-    const result = this.database.prepare(this.query).run(...this.values);
-    return {
-      results: [],
-      success: true,
-      meta: { changes: result.changes, last_row_id: Number(result.lastInsertRowid) }
-    } as unknown as D1Result<T>;
-  }
-}
-
-function createTestD1(): D1Database {
-  const sqlite = new Database(":memory:");
-  sqlite.pragma("foreign_keys = ON");
-  for (const migration of ["0000_funny_rictor.sql", "0001_study_record.sql"]) {
-    const sql = readFileSync(join(process.cwd(), "drizzle", migration), "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      if (statement.trim()) sqlite.exec(statement);
-    }
-  }
-  return {
-    prepare(query: string) {
-      return new TestStatement(sqlite, query) as unknown as D1PreparedStatement;
-    },
-    async batch<T = unknown>(statements: D1PreparedStatement[]) {
-      return sqlite.transaction(() =>
-        statements.map((statement) => (statement as unknown as TestStatement).runSync<T>())
-      )();
-    }
-  } as unknown as D1Database;
-}

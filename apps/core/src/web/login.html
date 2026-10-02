@@ -10,7 +10,7 @@
     <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/assets/app.css">
-    <script type="module" src="/assets/auth.js"></script>
+    <script type="module" src="/assets/auth.js?recovery=1"></script>
   </head>
   <body data-page="login">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -35,9 +35,12 @@
 
         <button id="login-button" type="button">Continue with a passkey</button>
         <button id="legacy-login-button" class="button-secondary" type="button" hidden>
-          Use legacy gaid.studio passkey
+          Use existing Hanyang passkey
         </button>
+        <button id="berkeley-login-button" class="button-secondary" type="button" hidden>Use existing Berkeley passkey</button>
+        <p class="muted">Connect each school once inside the same Study plugin. Choose the school account you want to authorize.</p>
         <p id="login-status" class="status" role="status" aria-live="polite"></p>
+        <p><a id="recovery-link" href="/recover">Lost your passkey? Recover access</a></p>
         <p class="meta">Passkeys require HTTPS, except when developing on localhost.</p>
       </section>
     </main>

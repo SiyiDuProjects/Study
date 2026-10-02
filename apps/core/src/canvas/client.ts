@@ -1,9 +1,12 @@
 import { INSTITUTIONS, type CanvasConnection, type InstitutionKey } from "../domain.js";
 import { isIP } from "node:net";
-import { CanvasApiError } from "./errors.js";
+import { CanvasApiError, asCanvasApiError } from "./errors.js";
+import { sanitizeHtml as sanitizeCanvasHtml, plainText as canvasPlainText, safePublicUrl } from "../content.js";
+import { CanvasCursor, mapPage } from "./pagination.js";
 import type {
   CanvasAnnouncement,
   CanvasAssignment,
+  CanvasAssignmentPage,
   CanvasCalendarEvent,
   CanvasConnectionStatus,
   CanvasConversation,
@@ -36,7 +39,10 @@ import type {
   ListDiscussionTopicsOptions,
   ListFilesOptions,
   ListModulesOptions,
+  ListOptions,
   NormalizedSubmissionStatus,
+  Page,
+  SourceResult,
   UpcomingWorkOptions,
   WeeklySummaryOptions,
 } from "./types.js";
@@ -65,10 +71,8 @@ const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 const DEFAULT_MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
-const DEFAULT_LIST_LIMIT = 500;
+const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 2_000;
-const MAX_HTML_LENGTH = 50_000;
-const MAX_TEXT_LENGTH = 30_000;
 
 async function readResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
   const declaredLength = response.headers.get("content-length");
@@ -141,68 +145,22 @@ function booleanValue(value: unknown): boolean {
   return value === true;
 }
 
-/**
- * Canvas rich text is untrusted course-authored data. Keep useful formatting,
- * but remove active content and cap its size before it reaches an MCP model.
- */
-function sanitizeCanvasHtml(value: unknown): string | null {
-  const input = stringValue(value);
-  if (input === null) return null;
-  return input
-    .slice(0, MAX_HTML_LENGTH)
-    .replace(/<(script|style|iframe|object|embed|form|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/<(script|style|iframe|object|embed|form|meta|base)\b[^>]*\/?\s*>/gi, "")
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+(style|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(
-      /\s+(href|src|xlink:href|action|formaction)\s*=\s*(["'])\s*(?:javascript|data):[\s\S]*?\2/gi,
-      "",
-    )
-    .replace(
-      /\s+(href|src|xlink:href|action|formaction)\s*=\s*(?:javascript|data):[^\s>]*/gi,
-      "",
-    )
-    .slice(0, MAX_HTML_LENGTH);
+function nullableBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
-function decodeHtmlEntities(value: string): string {
-  const named: Record<string, string> = {
-    amp: "&",
-    apos: "'",
-    gt: ">",
-    lt: "<",
-    nbsp: " ",
-    quot: '"',
-  };
-  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, body: string) => {
-    if (body.startsWith("#x") || body.startsWith("#X")) {
-      const codePoint = Number.parseInt(body.slice(2), 16);
-      return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
-        ? String.fromCodePoint(codePoint)
-        : entity;
-    }
-    if (body.startsWith("#")) {
-      const codePoint = Number.parseInt(body.slice(1), 10);
-      return Number.isFinite(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
-        ? String.fromCodePoint(codePoint)
-        : entity;
-    }
-    return named[body.toLowerCase()] ?? entity;
-  });
+function responseId(value: unknown): string {
+  const id = idValue(value);
+  if (!/^[1-9]\d*$/.test(id) || (typeof value === "number" && !Number.isSafeInteger(value))) {
+    throw new CanvasApiError("invalid_response", "Canvas returned a missing or invalid record identity.");
+  }
+  return id;
 }
 
-function canvasPlainText(html: string | null): string | null {
-  if (html === null) return null;
-  const text = decodeHtmlEntities(
-    html
-      .replace(/<(br|\/p|\/div|\/li|\/tr|h[1-6])\b[^>]*>/gi, "\n")
-      .replace(/<[^>]+>/g, " "),
-  )
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n\s+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return text.slice(0, MAX_TEXT_LENGTH);
+function matchResponseId(value: unknown, expected: string): void {
+  if (value !== undefined && value !== null && responseId(value) !== expected) {
+    throw new CanvasApiError("invalid_response", "Canvas returned a record for a different requested identity.");
+  }
 }
 
 function idValue(value: unknown): string {
@@ -299,34 +257,10 @@ function normalizeBaseUrl(value: string, label: string): URL {
   return url;
 }
 
-function canvasErrorMessage(body: unknown, fallback: string): string {
-  const clean = (value: string): string =>
-    value
-      .replace(/<[^>]*>/g, " ")
-      .replace(/[\u0000-\u001f\u007f]+/g, " ")
-      .replace(/\s{2,}/g, " ")
-      .trim()
-      .slice(0, 500);
-  if (isRecord(body)) {
-    const direct = stringValue(body.message) ?? stringValue(body.error) ?? stringValue(body.status);
-    if (direct) {
-      return clean(direct) || fallback;
-    }
-    if (Array.isArray(body.errors)) {
-      const messages = body.errors
-        .map((item) => (isRecord(item) ? stringValue(item.message) : stringValue(item)))
-        .filter((item): item is string => item !== null);
-      if (messages.length > 0) {
-        return clean(messages.join("; ")) || fallback;
-      }
-    }
-  }
-  return fallback;
-}
-
-function errorCodeForStatus(status: number): {
+function errorCodeForStatus(status: number, profileRequest = false): {
   code:
     | "authentication_failed"
+    | "access_denied"
     | "permission_denied"
     | "not_found"
     | "rate_limited"
@@ -334,7 +268,11 @@ function errorCodeForStatus(status: number): {
     | "upstream_error";
   retryable: boolean;
 } {
-  if (status === 401) return { code: "authentication_failed", retryable: false };
+  if (status === 401) {
+    // HY-ON uses 401 for both operation permissions and credentials. Only the
+    // explicit own-profile check can distinguish a rejected connection.
+    return { code: profileRequest ? "authentication_failed" : "access_denied", retryable: false };
+  }
   if (status === 403) return { code: "permission_denied", retryable: false };
   if (status === 404) return { code: "not_found", retryable: false };
   if (status === 408 || status === 429) return { code: "rate_limited", retryable: true };
@@ -403,13 +341,35 @@ function courseIdFromContext(value: unknown): string | null {
 
 function submissionStatus(raw: JsonRecord): NormalizedSubmissionStatus {
   if (booleanValue(raw.excused)) return "excused";
+  if (booleanValue(raw.redo_request)) return "resubmission_required";
   if (booleanValue(raw.missing)) return "missing";
   const state = stringValue(raw.workflow_state);
   if (state === "graded") return "graded";
   if (stringValue(raw.submitted_at) || state === "submitted" || state === "pending_review") {
     return "submitted";
   }
-  return "unsubmitted";
+  return state === "unsubmitted" ? "unsubmitted" : "unknown";
+}
+
+/** Planner supplies booleans, not a Submission resource. Absence is unknown. */
+function plannerSubmissionStatus(raw: JsonRecord | null): NormalizedSubmissionStatus | null {
+  if (!raw) return null;
+  if (raw.excused === true) return "excused";
+  if (raw.redo_request === true) return "resubmission_required";
+  if (raw.missing === true) return "missing";
+  if (raw.submitted === false && raw.needs_grading !== true) return "unsubmitted";
+  if (raw.graded === true) return "graded";
+  if (raw.submitted === true || raw.needs_grading === true) return "submitted";
+  if (raw.submitted === false) return "unsubmitted";
+  return null;
+}
+
+async function sourceResult<T>(operation: Promise<Page<T>>): Promise<SourceResult<T>> {
+  try {
+    return { ok: true, result: await operation, error: null };
+  } catch (error) {
+    return { ok: false, result: null, error: asCanvasApiError(error).toJSON() };
+  }
 }
 
 function normalizeAttachment(raw: JsonRecord) {
@@ -427,11 +387,29 @@ function normalizeSubmission(
   courseId: string,
   assignmentId: string,
   includeHistory = true,
+  expectedUserId?: string,
 ): CanvasSubmission {
+  matchResponseId(raw.assignment_id, assignmentId);
+  matchResponseId(raw.course_id, courseId);
+  if (expectedUserId) matchResponseId(raw.user_id, expectedUserId);
+  if (raw.id != null) responseId(raw.id);
+  for (const field of ["missing", "excused", "late", "redo_request"]) {
+    if (raw[field] != null && typeof raw[field] !== "boolean") {
+      throw new CanvasApiError("invalid_response", "Canvas returned an invalid submission status flag.");
+    }
+  }
+  if (!stringValue(raw.workflow_state) && raw.id == null &&
+      ![raw.missing, raw.excused, raw.redo_request].some(value => typeof value === "boolean") && !stringValue(raw.submitted_at)) {
+    throw new CanvasApiError("invalid_response", "Canvas did not provide a recognizable submission record.");
+  }
   const attachments = records(raw.attachments).map(normalizeAttachment);
+  if (includeHistory && raw.submission_history != null &&
+      (!Array.isArray(raw.submission_history) || raw.submission_history.some(item => !isRecord(item)))) {
+    throw new CanvasApiError("invalid_response", "Canvas returned an invalid submission history.");
+  }
   const history = includeHistory
     ? records(raw.submission_history).map((item) =>
-        normalizeSubmission(item, courseId, assignmentId, false),
+        normalizeSubmission(item, courseId, assignmentId, false, expectedUserId),
       )
     : [];
 
@@ -446,10 +424,12 @@ function normalizeSubmission(
     score: numberValue(raw.score),
     grade: stringValue(raw.grade),
     attempt: numberValue(raw.attempt),
-    late: booleanValue(raw.late),
-    missing: booleanValue(raw.missing),
-    excused: booleanValue(raw.excused),
-    secondsLate: numberValue(raw.seconds_late) ?? 0,
+    late: nullableBoolean(raw.late),
+    missing: nullableBoolean(raw.missing),
+    excused: nullableBoolean(raw.excused),
+    redoRequest: nullableBoolean(raw.redo_request),
+    extraAttempts: numberValue(raw.extra_attempts),
+    secondsLate: numberValue(raw.seconds_late),
     submissionType: stringValue(raw.submission_type),
     attachments,
     history,
@@ -521,6 +501,8 @@ export class CanvasRestClient {
   private readonly maxFileBytes: number;
   private readonly now: () => Date;
   private readonly base: URL;
+  private readonly cursor: CanvasCursor;
+  private readonly canvasUserId: string;
 
   constructor(connection: CanvasConnection, options: CanvasRestClientOptions = {}) {
     if (!Object.prototype.hasOwnProperty.call(INSTITUTIONS, connection.institution)) {
@@ -581,6 +563,8 @@ export class CanvasRestClient {
     this.base = canonical;
     this.baseUrl = canonical.origin + (canonical.pathname === "/" ? "" : canonical.pathname);
     this.accessToken = connection.accessToken;
+    this.canvasUserId = connection.canvasUserId;
+    this.cursor = new CanvasCursor(connection.accessToken, connection.userId);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.timeoutMs = timeoutMs;
     this.maxPages = maxPages;
@@ -603,12 +587,12 @@ export class CanvasRestClient {
         sortableName: stringValue(raw.sortable_name),
         loginId: stringValue(raw.login_id),
         primaryEmail: stringValue(raw.primary_email),
-        avatarUrl: stringValue(raw.avatar_url),
+        avatarUrl: safePublicUrl(raw.avatar_url, this.baseUrl),
       },
     };
   }
 
-  async listCourses(options: ListCoursesOptions = {}): Promise<CanvasCourse[]> {
+  async listCourses(options: ListCoursesOptions = {}): Promise<Page<CanvasCourse>> {
     const query: Query = {
       "include[]": [
         "term",
@@ -620,8 +604,13 @@ export class CanvasRestClient {
       enrollment_state: options.enrollmentState ?? "active",
       "state[]": ["available", "completed"],
     };
-    const rows = await this.getAllRecords("/api/v1/courses", query, options.limit);
-    return rows.map((row) => this.normalizeCourse(row));
+    const selected = options.courseIds ? new Set(options.courseIds.map((id) => idArgument(id, "course_ids"))) : null;
+    const termId = options.termId === undefined ? null : idArgument(options.termId, "term_id");
+    const rows = await this.getPageRecords("/api/v1/courses", query, options,
+      (row) => (!selected || selected.has(idValue(row.id))) &&
+        (termId === null || idValue((isRecord(row.term) ? row.term.id : null) ?? row.enrollment_term_id) === termId),
+      JSON.stringify([query, selected ? [...selected].sort() : null, ...(termId === null ? [] : [termId])]));
+    return mapPage(rows, (row) => this.normalizeCourse(row));
   }
 
   async getCourse(courseId: CanvasId): Promise<CanvasCourse> {
@@ -642,17 +631,34 @@ export class CanvasRestClient {
   async listAssignments(
     courseId: CanvasId,
     options: ListAssignmentsOptions = {},
-  ): Promise<CanvasAssignment[]> {
+  ): Promise<CanvasAssignmentPage> {
     const id = idArgument(courseId, "course_id");
+    const checkedAt = this.now();
+    const overdue = options.bucket === "overdue";
+    const includeSubmission = overdue || options.includeSubmission !== false;
     const query: Query = { order_by: "due_at" };
-    if (options.bucket) query.bucket = options.bucket;
-    if (options.includeSubmission !== false) query["include[]"] = ["submission"];
-    const rows = await this.getAllRecords(
+    if (options.bucket && !overdue) query.bucket = options.bucket;
+    if (includeSubmission) query["include[]"] = ["submission"];
+    const rows = await this.getPageRecords(
       `/api/v1/courses/${id}/assignments`,
       query,
-      options.limit,
+      options,
+      overdue ? (raw) => {
+        const assignment = this.normalizeAssignment(raw, id);
+        const submission = assignment.submission;
+        if (submission?.excused === true) return false;
+        if (submission?.missing === true) return true;
+        if (!assignment.dueAt || Date.parse(assignment.dueAt) >= checkedAt.getTime()) return false;
+        if (submission?.redoRequest === true) return true;
+        // A grade alone does not establish that this student submitted work.
+        return !submission || (!submission.submittedAt && submission.status !== "submitted");
+      } : undefined,
+      JSON.stringify([query, options.bucket ?? null, "assignment-safety-v2"]),
     );
-    return rows.map((row) => this.normalizeAssignment(row, id));
+    return { ...mapPage(rows, (row) => this.normalizeAssignment(row, id)), coverage: {
+      courseId: id, selection: options.bucket ?? "all", source: !options.bucket || overdue ? "all_assignments" : "upstream_bucket",
+      submissionIncluded: includeSubmission, queryExhausted: rows.nextCursor === null, checkedAt: checkedAt.toISOString(),
+    } };
   }
 
   async getAssignment(courseId: CanvasId, assignmentId: CanvasId): Promise<CanvasAssignment> {
@@ -662,76 +668,90 @@ export class CanvasRestClient {
       `/api/v1/courses/${course}/assignments/${assignment}`,
       { "include[]": ["submission"] },
     );
+    matchResponseId(raw.id, assignment);
     return this.normalizeAssignment(raw, course);
   }
 
   async listAnnouncements(
-    courseId: CanvasId,
+    courseId: CanvasId | CanvasId[],
     options: ListAnnouncementsOptions = {},
-  ): Promise<CanvasAnnouncement[]> {
-    const id = idArgument(courseId, "course_id");
-    return this.listAnnouncementsForCourses([id], options);
+  ): Promise<Page<CanvasAnnouncement>> {
+    const ids = (Array.isArray(courseId) ? courseId : [courseId]).map((id) => idArgument(id, "course_id"));
+    return this.listAnnouncementsForCourses(ids, options);
   }
 
-  async listModules(courseId: CanvasId, options: ListModulesOptions = {}): Promise<CanvasModule[]> {
+  async listModules(courseId: CanvasId, options: ListModulesOptions = {}): Promise<Page<CanvasModule>> {
     const id = idArgument(courseId, "course_id");
-    const query: Query = {};
-    if (options.includeItems !== false) query["include[]"] = ["items", "content_details"];
-    const rows = await this.getAllRecords(`/api/v1/courses/${id}/modules`, query, options.limit);
-    return rows.map((row) => this.normalizeModule(row));
+    const rows = await this.getPageRecords(`/api/v1/courses/${id}/modules`, {}, options);
+    return mapPage(rows, (row) => this.normalizeModule(row));
   }
 
-  async listCourseTabs(courseId: CanvasId, limit?: number): Promise<CanvasCourseTab[]> {
+  async listModuleItems(courseId: CanvasId, moduleId: CanvasId, options: ListOptions = {}): Promise<Page<CanvasModuleItem>> {
+    const course = idArgument(courseId, "course_id");
+    const module = idArgument(moduleId, "module_id");
+    const rows = await this.getPageRecords(`/api/v1/courses/${course}/modules/${module}/items`, { "include[]": ["content_details"] }, options);
+    return mapPage(rows, (row) => this.normalizeModuleItem(row, module));
+  }
+
+  async listCourseTabs(courseId: CanvasId, options: ListOptions = {}): Promise<Page<CanvasCourseTab>> {
     const id = idArgument(courseId, "course_id");
-    const rows = await this.getAllRecords(
+    const rows = await this.getPageRecords(
       `/api/v1/courses/${id}/tabs`,
       { "include[]": ["external"] },
-      limit,
+      options,
     );
-    return rows.map((row) => this.normalizeCourseTab(row));
+    return mapPage(rows, (row) => this.normalizeCourseTab(row));
   }
 
-  async listQuizzes(courseId: CanvasId, limit?: number): Promise<CanvasQuiz[]> {
+  async listQuizzes(courseId: CanvasId, options: ListOptions = {}): Promise<Page<CanvasQuiz>> {
     const id = idArgument(courseId, "course_id");
-    const rows = await this.getAllRecords(`/api/v1/courses/${id}/quizzes`, {}, limit);
-    return rows.map((row) => this.normalizeQuiz(row, id));
+    const rows = await this.getPageRecords(`/api/v1/courses/${id}/quizzes`, {}, options);
+    return mapPage(rows, (row) => this.normalizeQuiz(row, id));
   }
 
   async listDiscussionTopics(
     courseId: CanvasId,
     options: ListDiscussionTopicsOptions = {},
-  ): Promise<CanvasDiscussionTopic[]> {
+  ): Promise<Page<CanvasDiscussionTopic>> {
     const id = idArgument(courseId, "course_id");
-    const rows = await this.getAllRecords(
+    const rows = await this.getPageRecords(
       `/api/v1/courses/${id}/discussion_topics`,
       {
         order_by: options.orderBy ?? "recent_activity",
         only_announcements: options.onlyAnnouncements ?? false,
       },
-      options.limit,
+      options,
     );
-    return rows.map((row) => this.normalizeDiscussionTopic(row, id));
+    return mapPage(rows, (row) => this.normalizeDiscussionTopic(row, id));
   }
 
   async listDiscussionEntries(
     courseId: CanvasId,
     topicId: CanvasId,
-    limit?: number,
-  ): Promise<CanvasDiscussionEntry[]> {
+    options: ListOptions = {},
+  ): Promise<Page<CanvasDiscussionEntry>> {
     const course = idArgument(courseId, "course_id");
     const topic = idArgument(topicId, "topic_id");
-    const rows = await this.getAllRecords(
+    const rows = await this.getPageRecords(
       `/api/v1/courses/${course}/discussion_topics/${topic}/entries`,
       {},
-      limit,
+      options,
     );
-    return rows.map((row) => this.normalizeDiscussionEntry(row, topic));
+    return mapPage(rows, (row) => this.normalizeDiscussionEntry(row, topic));
   }
 
-  async listPages(courseId: CanvasId, limit?: number): Promise<CanvasPageSummary[]> {
+  async listDiscussionReplies(courseId: CanvasId, topicId: CanvasId, entryId: CanvasId, options: ListOptions = {}): Promise<Page<CanvasDiscussionEntry>> {
+    const course = idArgument(courseId, "course_id");
+    const topic = idArgument(topicId, "topic_id");
+    const entry = idArgument(entryId, "entry_id");
+    const rows = await this.getPageRecords(`/api/v1/courses/${course}/discussion_topics/${topic}/entries/${entry}/replies`, {}, options);
+    return mapPage(rows, (row) => this.normalizeDiscussionEntry(row, topic));
+  }
+
+  async listPages(courseId: CanvasId, options: ListOptions = {}): Promise<Page<CanvasPageSummary>> {
     const id = idArgument(courseId, "course_id");
-    const rows = await this.getAllRecords(`/api/v1/courses/${id}/pages`, {}, limit);
-    return rows.map((row) => this.normalizePageSummary(row));
+    const rows = await this.getPageRecords(`/api/v1/courses/${id}/pages`, {}, options);
+    return mapPage(rows, (row) => this.normalizePageSummary(row));
   }
 
   async getPage(courseId: CanvasId, pageUrl: string): Promise<CanvasPage> {
@@ -747,7 +767,7 @@ export class CanvasRestClient {
     };
   }
 
-  async listFiles(courseId: CanvasId, options: ListFilesOptions = {}): Promise<CanvasFile[]> {
+  async listFiles(courseId: CanvasId, options: ListFilesOptions = {}): Promise<Page<CanvasFile>> {
     const id = idArgument(courseId, "course_id");
     const query: Query = {
       sort: options.sort ?? "name",
@@ -755,8 +775,8 @@ export class CanvasRestClient {
     };
     if (options.searchTerm) query.search_term = options.searchTerm.slice(0, 200);
     if (options.contentTypes?.length) query["content_types[]"] = options.contentTypes.slice(0, 20);
-    const rows = await this.getAllRecords(`/api/v1/courses/${id}/files`, query, options.limit);
-    return rows.map((row) => this.normalizeFile(row));
+    const rows = await this.getPageRecords(`/api/v1/courses/${id}/files`, query, options);
+    return mapPage(rows, (row) => this.normalizeFile(row));
   }
 
   async getFile(fileId: CanvasId): Promise<CanvasFile> {
@@ -812,13 +832,13 @@ export class CanvasRestClient {
 
   async listConversations(
     options: ListConversationsOptions = {},
-  ): Promise<CanvasConversationSummary[]> {
-    const rows = await this.getAllRecords(
+  ): Promise<Page<CanvasConversationSummary>> {
+    const rows = await this.getPageRecords(
       "/api/v1/conversations",
       { scope: options.scope ?? "inbox" },
-      options.limit,
+      options,
     );
-    return rows.map(normalizeConversationSummary);
+    return mapPage(rows, normalizeConversationSummary);
   }
 
   async getConversation(conversationId: CanvasId): Promise<CanvasConversation> {
@@ -837,22 +857,24 @@ export class CanvasRestClient {
   async listCourseSubmissions(
     courseId: CanvasId,
     options: ListCourseSubmissionsOptions = {},
-  ): Promise<CanvasCourseSubmission[]> {
+  ): Promise<Page<CanvasCourseSubmission>> {
     const course = idArgument(courseId, "course_id");
     const includes = ["assignment", "submission_comments"];
     if (options.includeHistory) includes.push("submission_history");
-    const rows = await this.getAllRecords(
+    const rows = await this.getPageRecords(
       `/api/v1/courses/${course}/students/submissions`,
       {
         "student_ids[]": ["self"],
         "include[]": includes,
       },
-      options.limit,
+      options,
     );
-    return rows.map((raw) => {
+    return mapPage(rows, (raw) => {
       const assignment = record(raw.assignment) ?? {};
-      const assignmentId = idValue(raw.assignment_id) || idValue(assignment.id);
-      const submission = normalizeSubmission(raw, course, assignmentId, options.includeHistory === true);
+      const assignmentId = responseId(raw.assignment_id ?? assignment.id);
+      matchResponseId(assignment.id, assignmentId);
+      matchResponseId(assignment.course_id, course);
+      const submission = normalizeSubmission(raw, course, assignmentId, options.includeHistory === true, this.canvasUserId);
       return {
         ...submission,
         assignment: {
@@ -860,7 +882,7 @@ export class CanvasRestClient {
           name: stringValue(assignment.name) ?? "",
           dueAt: stringValue(assignment.due_at),
           pointsPossible: numberValue(assignment.points_possible),
-          htmlUrl: stringValue(assignment.html_url),
+          htmlUrl: safePublicUrl(assignment.html_url, this.baseUrl),
         },
         comments: records(raw.submission_comments).map((comment) => {
           const commentHtml = sanitizeCanvasHtml(comment.comment);
@@ -883,7 +905,7 @@ export class CanvasRestClient {
 
   async listCalendarEvents(
     options: ListCalendarEventsOptions = {},
-  ): Promise<CanvasCalendarEvent[]> {
+  ): Promise<Page<CanvasCalendarEvent>> {
     const window = resolveWindow(options.startAt, options.endAt, this.now());
     const query: Query = {
       type: options.type ?? "event",
@@ -895,21 +917,25 @@ export class CanvasRestClient {
         (id) => `course_${idArgument(id, "course_ids")}`,
       );
     }
-    const rows = await this.getAllRecords("/api/v1/calendar_events", query, options.limit);
-    return rows.map((row) => this.normalizeCalendarEvent(row));
+    const rows = await this.getPageRecords("/api/v1/calendar_events", query, options, undefined,
+      JSON.stringify([options.startAt ?? null, options.endAt ?? null, options.courseIds?.map(String) ?? null, options.type ?? "event"]));
+    return mapPage(rows, (row) => this.normalizeCalendarEvent(row));
   }
 
-  async getUpcomingWork(options: UpcomingWorkOptions = {}): Promise<CanvasUpcomingWorkItem[]> {
+  async getUpcomingWork(options: UpcomingWorkOptions = {}): Promise<Page<CanvasUpcomingWorkItem>> {
     const window = resolveWindow(options.startAt, options.endAt, this.now());
     const query: Query = { start_date: window.startAt, end_date: window.endAt };
+    // Fetch all Planner rows: upstream incomplete_items can discard graded missing
+    // work or manual overrides before we can inspect the contradictory flags.
     if (options.courseIds && options.courseIds.length > 0) {
       query["context_codes[]"] = options.courseIds.map(
         (id) => `course_${idArgument(id, "course_ids")}`,
       );
     }
-    const rows = await this.getAllRecords("/api/v1/planner/items", query, options.limit);
-    const items = rows.map((row) => this.normalizeUpcomingWork(row));
-    return options.includeCompleted ? items : items.filter((item) => !item.completed);
+    const rows = await this.getPageRecords("/api/v1/planner/items", query, options,
+      options.includeCompleted ? undefined : (row) => this.normalizeUpcomingWork(row).completed !== true,
+      JSON.stringify([options.startAt ?? null, options.endAt ?? null, options.courseIds?.map(String) ?? null, options.includeCompleted ?? false]));
+    return mapPage(rows, (row) => this.normalizeUpcomingWork(row));
   }
 
   async getSubmissionStatus(
@@ -925,10 +951,10 @@ export class CanvasRestClient {
       `/api/v1/courses/${course}/assignments/${assignment}/submissions/self`,
       query,
     );
-    return normalizeSubmission(raw, course, assignment, includeHistory);
+    return normalizeSubmission(raw, course, assignment, includeHistory, this.canvasUserId);
   }
 
-  async getGrades(options: GradeOptions = {}): Promise<CanvasGrade[]> {
+  async getGrades(options: GradeOptions = {}): Promise<Page<CanvasGrade>> {
     const query: Query = {
       "type[]": ["StudentEnrollment"],
       "include[]": ["current_points", "current_grading_period_scores"],
@@ -937,61 +963,53 @@ export class CanvasRestClient {
     if (options.courseId !== undefined) {
       query.course_id = idArgument(options.courseId, "course_id");
     }
-    const rows = await this.getAllRecords(
+    const rows = await this.getPageRecords(
       "/api/v1/users/self/enrollments",
       query,
-      options.limit,
+      options,
     );
-    return rows.map((row) => this.normalizeGrade(row));
+    return mapPage(rows, (row) => this.normalizeGrade(row));
   }
 
   async weeklySummary(options: WeeklySummaryOptions = {}): Promise<CanvasWeeklySummary> {
     const window = resolveWindow(options.startAt, options.endAt, this.now());
     const limit = Math.min(boundedLimit(options.limitPerCollection ?? 200), 500);
     const selectedIds = options.courseIds?.map((id) => idArgument(id, "course_ids"));
-
     const courseFilter = selectedIds ? { courseIds: selectedIds } : {};
-    const [allCourses, upcomingWork, calendarEvents] = await Promise.all([
-      this.listCourses({ enrollmentState: "active", limit }),
-      this.getUpcomingWork({
+    const announcementsWindow = resolveWindow(
+      options.announcementsStartAt ?? new Date(new Date(window.startAt).getTime() - 14 * 86_400_000).toISOString(),
+      window.endAt,
+      this.now(),
+    );
+    const coursesPromise = sourceResult(this.listCourses({ enrollmentState: "active", ...courseFilter, limit }));
+    const announcementsPromise = (async (): Promise<SourceResult<CanvasAnnouncement>> => {
+      const courses = await coursesPromise;
+      if (!selectedIds && !courses.ok) return { ok: false, result: null, error: courses.error };
+      const ids = selectedIds ?? (courses.ok ? courses.result.items.map((course) => course.id) : []);
+      return sourceResult(this.listAnnouncements(ids, { ...announcementsWindow, activeOnly: true, limit }));
+    })();
+    const [courses, upcomingWork, calendarEvents, announcements] = await Promise.all([
+      coursesPromise,
+      sourceResult(this.getUpcomingWork({
         startAt: window.startAt,
         endAt: window.endAt,
         ...courseFilter,
         includeCompleted: true,
         limit,
-      }),
-      this.listCalendarEvents({
+      })),
+      sourceResult(this.listCalendarEvents({
         startAt: window.startAt,
         endAt: window.endAt,
         ...courseFilter,
         type: "event",
         limit,
-      }),
+      })),
+      announcementsPromise,
     ]);
-
-    const selected = selectedIds ? new Set(selectedIds) : null;
-    const courses = selected ? allCourses.filter((course) => selected.has(course.id)) : allCourses;
-    const announcementCourseIds = selectedIds ?? courses.map((course) => course.id);
-    const announcements = await this.listAnnouncementsForCourses(announcementCourseIds, {
-      startAt: window.startAt,
-      endAt: window.endAt,
-      activeOnly: true,
-      limit,
-    });
-
     return {
       window,
-      courses,
-      upcomingWork,
-      calendarEvents,
-      announcements,
-      counts: {
-        courses: courses.length,
-        upcomingWork: upcomingWork.length,
-        incompleteWork: upcomingWork.filter((item) => !item.completed).length,
-        calendarEvents: calendarEvents.length,
-        announcements: announcements.length,
-      },
+      announcementsWindow,
+      sources: { courses, upcomingWork, calendarEvents, announcements },
     };
   }
 
@@ -1028,14 +1046,18 @@ export class CanvasRestClient {
         id: idValue(teacher.id),
         name: stringValue(teacher.name) ?? "",
         displayName: stringValue(teacher.display_name),
-        avatarImageUrl: stringValue(teacher.avatar_image_url),
+        avatarImageUrl: safePublicUrl(teacher.avatar_image_url, this.baseUrl),
       })),
       enrollment: enrollmentRaw ? normalizeEnrollment(enrollmentRaw) : null,
     };
   }
 
   private normalizeAssignment(raw: JsonRecord, courseId: string): CanvasAssignment {
-    const id = idValue(raw.id);
+    const id = responseId(raw.id);
+    matchResponseId(raw.course_id, courseId);
+    if (raw.submission != null && !isRecord(raw.submission)) {
+      throw new CanvasApiError("invalid_response", "Canvas returned an invalid submission shape.");
+    }
     const submission = record(raw.submission);
     const descriptionHtml = sanitizeCanvasHtml(raw.description);
     return {
@@ -1047,6 +1069,9 @@ export class CanvasRestClient {
       dueAt: stringValue(raw.due_at),
       unlockAt: stringValue(raw.unlock_at),
       lockAt: stringValue(raw.lock_at),
+      lockedForUser: nullableBoolean(raw.locked_for_user),
+      lockExplanation: canvasPlainText(sanitizeCanvasHtml(raw.lock_explanation)),
+      allowedAttempts: numberValue(raw.allowed_attempts),
       pointsPossible: numberValue(raw.points_possible),
       position: numberValue(raw.position),
       published: booleanValue(raw.published),
@@ -1058,8 +1083,8 @@ export class CanvasRestClient {
         ? raw.allowed_extensions.filter((item): item is string => typeof item === "string")
         : [],
       hasSubmittedSubmissions: booleanValue(raw.has_submitted_submissions),
-      htmlUrl: stringValue(raw.html_url),
-      submission: submission ? normalizeSubmission(submission, courseId, id, false) : null,
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl),
+      submission: submission ? normalizeSubmission(submission, courseId, id, false, this.canvasUserId) : null,
     };
   }
 
@@ -1077,7 +1102,7 @@ export class CanvasRestClient {
       delayedPostAt: stringValue(raw.delayed_post_at),
       lastReplyAt: stringValue(raw.last_reply_at),
       authorName: author ? stringValue(author.display_name) ?? stringValue(author.name) : null,
-      htmlUrl: stringValue(raw.html_url),
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl),
       readState: stringValue(raw.read_state),
       locked: booleanValue(raw.locked),
       published: raw.published === undefined ? true : booleanValue(raw.published),
@@ -1097,23 +1122,23 @@ export class CanvasRestClient {
       state: stringValue(raw.state),
       completedAt: stringValue(raw.completed_at),
       published: raw.published === undefined ? true : booleanValue(raw.published),
-      items: records(raw.items).map((item) => this.normalizeModuleItem(item)),
+      itemCount: numberValue(raw.items_count),
     };
   }
 
-  private normalizeModuleItem(raw: JsonRecord): CanvasModuleItem {
+  private normalizeModuleItem(raw: JsonRecord, moduleId: string): CanvasModuleItem {
     const requirement = record(raw.completion_requirement);
     const details = record(raw.content_details);
     return {
       id: idValue(raw.id),
-      moduleId: idValue(raw.module_id),
+      moduleId,
       title: stringValue(raw.title) ?? "",
       type: stringValue(raw.type),
       position: numberValue(raw.position),
       indent: numberValue(raw.indent) ?? 0,
       contentId: raw.content_id === undefined || raw.content_id === null ? null : idValue(raw.content_id),
-      htmlUrl: stringValue(raw.html_url),
-      externalUrl: stringValue(raw.external_url),
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl),
+      externalUrl: safePublicUrl(raw.external_url, this.baseUrl),
       published: raw.published === undefined ? true : booleanValue(raw.published),
       completionRequirement: requirement
         ? {
@@ -1142,7 +1167,7 @@ export class CanvasRestClient {
       position: numberValue(raw.position),
       hidden: booleanValue(raw.hidden),
       visibility: stringValue(raw.visibility),
-      htmlUrl: stringValue(raw.html_url),
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl),
       externalToolId: id.match(/^context_external_tool_(\d+)$/)?.[1] ?? null,
     };
   }
@@ -1165,7 +1190,7 @@ export class CanvasRestClient {
       pointsPossible: numberValue(raw.points_possible),
       questionCount: numberValue(raw.question_count),
       published: booleanValue(raw.published),
-      htmlUrl: stringValue(raw.html_url),
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl),
     };
   }
 
@@ -1185,7 +1210,7 @@ export class CanvasRestClient {
       locked: booleanValue(raw.locked),
       subscribed: booleanValue(raw.subscribed),
       unreadCount: numberValue(raw.unread_count),
-      htmlUrl: stringValue(raw.html_url),
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl),
       authorName: author ? stringValue(author.display_name) ?? stringValue(author.name) : null,
     };
   }
@@ -1197,7 +1222,8 @@ export class CanvasRestClient {
   ): CanvasDiscussionEntry {
     const messageHtml = sanitizeCanvasHtml(raw.message);
     const user = record(raw.user);
-    const replies = depth >= 3 ? [] : records(raw.replies);
+    const recent = records(raw.recent_replies);
+    const replies = depth >= 3 ? [] : recent;
     return {
       id: idValue(raw.id),
       topicId,
@@ -1213,6 +1239,7 @@ export class CanvasRestClient {
       readState: stringValue(raw.read_state),
       deleted: booleanValue(raw.deleted),
       replies: replies.map((reply) => this.normalizeDiscussionEntry(reply, topicId, depth + 1)),
+      hasMoreReplies: raw.has_more_replies === true || (depth >= 3 && recent.length > 0),
     };
   }
 
@@ -1224,7 +1251,7 @@ export class CanvasRestClient {
       updatedAt: stringValue(raw.updated_at),
       published: raw.published === undefined ? true : booleanValue(raw.published),
       frontPage: booleanValue(raw.front_page),
-      htmlUrl: stringValue(raw.html_url),
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl),
     };
   }
 
@@ -1266,35 +1293,49 @@ export class CanvasRestClient {
       courseId: courseIdFromContext(contextCode),
       workflowState: stringValue(raw.workflow_state),
       locationName: stringValue(raw.location_name),
-      htmlUrl: stringValue(raw.html_url) ?? stringValue(assignment?.html_url),
+      htmlUrl: safePublicUrl(raw.html_url, this.baseUrl) ?? safePublicUrl(assignment?.html_url, this.baseUrl),
     };
   }
 
   private normalizeUpcomingWork(raw: JsonRecord): CanvasUpcomingWorkItem {
     const plannable = record(raw.plannable) ?? {};
     const plannerOverride = record(raw.planner_override);
-    const rawSubmissions = Array.isArray(raw.submissions)
-      ? records(raw.submissions)[0] ?? null
-      : record(raw.submissions);
-    const status = rawSubmissions ? submissionStatus(rawSubmissions) : null;
+    const status = plannerSubmissionStatus(record(raw.submissions));
+    const flags = record(raw.submissions) ?? {};
+    for (const field of ["submitted", "graded", "needs_grading", "missing", "excused", "redo_request"]) {
+      if (flags[field] != null && typeof flags[field] !== "boolean") {
+        throw new CanvasApiError("invalid_response", "Canvas returned an invalid Planner status flag.");
+      }
+    }
+    const type = stringValue(raw.plannable_type) ?? "unknown";
     const completeFromSubmission =
-      status === "submitted" || status === "graded" || status === "excused";
+      status === "submitted" || status === "excused" || (status === "graded" && flags.submitted === true);
     return {
       id: idValue(raw.plannable_id) || idValue(plannable.id),
       courseId:
         raw.course_id === undefined || raw.course_id === null ? null : idValue(raw.course_id),
-      type: stringValue(raw.plannable_type) ?? "unknown",
+      type,
       title:
         stringValue(plannable.title) ??
         stringValue(plannable.name) ??
         stringValue(raw.context_name) ??
         "",
       date: stringValue(raw.plannable_date),
-      dueAt: stringValue(plannable.due_at) ?? stringValue(raw.plannable_date),
-      htmlUrl: stringValue(plannable.html_url) ?? stringValue(raw.html_url),
+      dueAt: stringValue(plannable.due_at) ??
+        (["assignment", "quiz", "discussion_topic"].includes(type) ? stringValue(raw.plannable_date) : null),
+      htmlUrl: safePublicUrl(plannable.html_url, this.baseUrl) ?? safePublicUrl(raw.html_url, this.baseUrl),
       pointsPossible: numberValue(plannable.points_possible),
-      completed: booleanValue(plannerOverride?.marked_complete) || completeFromSubmission,
+      completed: status === "missing" || status === "resubmission_required" || status === "unsubmitted" ? false
+        : completeFromSubmission || (plannerOverride?.marked_complete === true && !["assignment", "quiz", "discussion_topic"].includes(type)) ? true : null,
       submissionStatus: status,
+      submissionFlags: {
+        submitted: nullableBoolean(flags.submitted), graded: nullableBoolean(flags.graded),
+        needsGrading: nullableBoolean(flags.needs_grading), missing: nullableBoolean(flags.missing),
+        excused: nullableBoolean(flags.excused), redoRequest: nullableBoolean(flags.redo_request),
+      },
+      plannerOverride: plannerOverride ? {
+        markedComplete: nullableBoolean(plannerOverride.marked_complete), dismissed: nullableBoolean(plannerOverride.dismissed),
+      } : null,
     };
   }
 
@@ -1315,41 +1356,23 @@ export class CanvasRestClient {
   private async listAnnouncementsForCourses(
     courseIds: string[],
     options: ListAnnouncementsOptions,
-  ): Promise<CanvasAnnouncement[]> {
-    if (courseIds.length === 0) return [];
-    const limit = boundedLimit(options.limit);
-    const all: CanvasAnnouncement[] = [];
-    const uniqueIds = [...new Set(courseIds.map((id) => idArgument(id, "course_ids")))];
-
-    for (let offset = 0; offset < uniqueIds.length && all.length < limit; offset += 50) {
-      const batch = uniqueIds.slice(offset, offset + 50);
-      const query: Query = {
-        "context_codes[]": batch.map((id) => `course_${id}`),
-        active_only: options.activeOnly ?? true,
-        latest_only: false,
-      };
-      if (options.startAt || options.endAt) {
-        const start = options.startAt
-          ? parseDate(options.startAt, "start_at", this.now())
-          : null;
-        const end = options.endAt ? parseDate(options.endAt, "end_at", this.now()) : null;
-        if (start && end && end.getTime() <= start.getTime()) {
-          throw new CanvasApiError("invalid_argument", "end_at must be later than start_at.");
-        }
-        if (start) query.start_date = start.toISOString();
-        if (end) query.end_date = end.toISOString();
-      }
-      const rows = await this.getAllRecords(
-        "/api/v1/announcements",
-        query,
-        limit - all.length,
-      );
-      all.push(...rows.map((row) => this.normalizeAnnouncement(row)));
+  ): Promise<Page<CanvasAnnouncement>> {
+    if (courseIds.length === 0) return { items: [], nextCursor: null };
+    const uniqueIds = [...new Set(courseIds.map((id) => idArgument(id, "course_ids")))].sort();
+    const query: Query = {
+      "context_codes[]": uniqueIds.map((id) => `course_${id}`),
+      active_only: options.activeOnly ?? true,
+      latest_only: false,
+    };
+    const start = options.startAt ? parseDate(options.startAt, "start_at", this.now()) : null;
+    const end = options.endAt ? parseDate(options.endAt, "end_at", this.now()) : null;
+    if (start && end && end.getTime() <= start.getTime()) {
+      throw new CanvasApiError("invalid_argument", "end_at must be later than start_at.");
     }
-
-    return all
-      .sort((a, b) => (b.postedAt ?? "").localeCompare(a.postedAt ?? ""))
-      .slice(0, limit);
+    if (start) query.start_date = start.toISOString();
+    if (end) query.end_date = end.toISOString();
+    const rows = await this.getPageRecords("/api/v1/announcements", query, options);
+    return mapPage(rows, (row) => this.normalizeAnnouncement(row));
   }
 
   private apiUrl(path: string, query: Query = {}): URL {
@@ -1392,59 +1415,68 @@ export class CanvasRestClient {
     return page.data;
   }
 
-  private async getAllRecords(
+  private async getPageRecords(
     path: string,
     query: Query = {},
-    requestedLimit?: number,
-  ): Promise<JsonRecord[]> {
-    const limit = boundedLimit(requestedLimit);
+    options: ListOptions = {},
+    accept: (row: JsonRecord) => boolean = () => true,
+    queryScope = JSON.stringify(query),
+  ): Promise<Page<JsonRecord>> {
+    const limit = boundedLimit(options.limit);
+    const scope = JSON.stringify([path, queryScope]);
     const first = this.apiUrl(path, { ...query, per_page: Math.min(100, limit) });
     const output: JsonRecord[] = [];
     const seen = new Set<string>();
-    let current: URL | null = first;
+    const continuation = options.cursor ? this.cursor.decode(options.cursor, scope) : null;
+    let current: URL | null = continuation ? new URL(continuation.url) : first;
+    let offset = continuation?.offset ?? 0;
     let pageCount = 0;
-
-    while (current && output.length < limit) {
+    while (current) {
       this.assertSafeApiUrl(current);
+      if (current.pathname !== first.pathname) {
+        throw new CanvasApiError("unsafe_pagination", "Canvas pagination changed the requested API endpoint.");
+      }
       if (seen.has(current.href)) {
         throw new CanvasApiError("unsafe_pagination", "Canvas pagination contained a cycle.");
       }
+      if (pageCount >= this.maxPages) {
+        return { items: output, nextCursor: this.cursor.encode({ scope, url: current.href, offset }) };
+      }
       seen.add(current.href);
       pageCount += 1;
-      if (pageCount > this.maxPages) {
-        throw new CanvasApiError(
-          "invalid_response",
-          `Canvas pagination exceeded the ${this.maxPages}-page safety limit.`,
-        );
-      }
-
       const page = await this.fetchJson(current);
       if (!Array.isArray(page.data) || page.data.some((item) => !isRecord(item))) {
         throw new CanvasApiError("invalid_response", "Canvas returned an unexpected paginated shape.");
       }
-      output.push(...(page.data as JsonRecord[]));
-
       const link = nextLink(page.linkHeader);
-      if (!link || output.length >= limit) {
-        current = null;
-      } else {
-        let candidate: URL;
+      let next: URL | null = null;
+      if (link) {
         try {
-          candidate = new URL(link, current);
-        } catch (error) {
-          throw new CanvasApiError(
-            "unsafe_pagination",
-            "Canvas returned an invalid pagination URL.",
-            {},
-            error instanceof Error ? { cause: error } : {},
-          );
+          next = new URL(link, current);
+        } catch {
+          throw new CanvasApiError("unsafe_pagination", "Canvas returned an invalid pagination URL.");
         }
-        this.assertSafeApiUrl(candidate);
-        current = candidate;
+        this.assertSafeApiUrl(next);
+        if (next.pathname !== first.pathname || seen.has(next.href)) {
+          throw new CanvasApiError("unsafe_pagination", "Canvas pagination changed endpoint or contained a cycle.");
+        }
       }
+      for (let index = offset; index < page.data.length; index += 1) {
+        const row = page.data[index] as JsonRecord;
+        if (accept(row)) output.push(row);
+        if (output.length === limit) {
+          const moreInPage = index + 1 < page.data.length;
+          const url = moreInPage ? current : next;
+          return {
+            items: output,
+            nextCursor: url ? this.cursor.encode({ scope, url: url.href, offset: moreInPage ? index + 1 : 0 }) : null,
+          };
+        }
+      }
+      current = next;
+      offset = 0;
     }
-
-    return output.slice(0, limit);
+    return { items: output, nextCursor: null };
   }
 
   private async fetchDownload(initialUrl: URL): Promise<{ bytes: Uint8Array; contentType: string | null }> {
@@ -1631,9 +1663,13 @@ export class CanvasRestClient {
     }
 
     if (!response.ok) {
-      const mapped = errorCodeForStatus(response.status);
-      const fallback = `Canvas API request failed with HTTP ${response.status}.`;
-      throw new CanvasApiError(mapped.code, canvasErrorMessage(body, fallback), {
+      const mapped = errorCodeForStatus(response.status, url.pathname === "/api/v1/users/self/profile");
+      const message = mapped.code === "access_denied"
+        ? "Canvas denied access. This response does not distinguish an expired connection from permission to this resource; use connection_status to check the connection."
+        : mapped.code === "authentication_failed"
+          ? "Canvas rejected the configured connection during its own-profile check."
+          : `Canvas API request failed with HTTP ${response.status}.`;
+      throw new CanvasApiError(mapped.code, message, {
         status: response.status,
         retryable: mapped.retryable,
         requestId: response.headers.get("x-request-context-id"),

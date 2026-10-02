@@ -1,23 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Chip, Description, Label, Modal, Tooltip } from "@heroui/react";
+import { RadioButtonGroup } from "@heroui-pro/react/radio-button-group";
+import { EmptyState } from "@heroui-pro/react/empty-state";
+import { ItemCard } from "@heroui-pro/react/item-card";
+import { ActionBar } from "@heroui-pro/react/action-bar";
+import { DeferredHistory } from "./components/DeferredHistory";
+import { SchoolCaptions } from "./components/SchoolCaptions";
+import type { SchoolCourse } from "../../core/src/lecture/school-types";
+import { fetchSchoolCourses, fetchSchoolLive } from "./lib/api";
+import { displayCourseName } from "./lib/coursePresentation";
+import { SubtitleSettings, Notice, useConfirmation } from "./components/SubtitleControls";
 import {
   BookOpen,
   ChevronDown,
-  ChevronUp,
-  Download,
-  Eye,
-  EyeOff,
-  FolderOpen,
+  AudioLines,
   Library,
   Mic,
   Pause,
   Play,
   RefreshCw,
-  Settings,
-  Square,
-  Trash2,
-  X
+  Square
 } from "lucide-react";
 import { DAILY_COURSE, DAILY_COURSE_ID, type CourseOption } from "../shared/courses";
+import { type Timetable } from "../shared/timetable";
+import { currentCourse } from "./lib/timetable";
 import type {
   AppSettings,
   ClassSession,
@@ -39,6 +45,7 @@ import {
   createRemoteSession,
   failRemoteSession,
   fetchCourses,
+  fetchTimetable,
   getRemoteSession,
   listRemoteSessions,
   resumeRemoteSession
@@ -57,9 +64,9 @@ import {
 } from "./lib/transcriptReducer";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/storage";
 import { connectionElapsedBase, nextCommitSequence } from "./lib/sessionTimeline";
-import { formatDateTime, formatDuration, formatTimestamp } from "./lib/time";
+import { formatDuration } from "./lib/time";
 
-type ViewMode = "live" | "records" | "document";
+type ViewMode = "live" | "records" | "document" | "settings";
 type PersistenceMode = "checkpoint" | "failed";
 
 const COMMIT_DELAY_MS = 1800;
@@ -102,8 +109,12 @@ export default function App() {
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [courseNotice, setCourseNotice] = useState("");
   const [selectedCourseId, setSelectedCourseId] = useState("");
+  const [timetable, setTimetable] = useState<Timetable | null>(null);
+  const [manualCourse, setManualCourse] = useState(false);
+  const [syncingCourse, setSyncingCourse] = useState(false);
+  const [clock, setClock] = useState(() => new Date());
   const [status, setStatus] = useState<ConnectionStatus>("idle");
-  const [viewMode, setViewMode] = useState<ViewMode>("live");
+  const [viewMode, setViewMode] = useState<ViewMode>(() => new URLSearchParams(window.location.search).get("view") === "settings" ? "settings" : new URLSearchParams(window.location.search).get("view") === "records" ? "records" : "live");
   const [sessions, setSessions] = useState<ClassSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<ClassSession | null>(null);
   const [transcriptState, setTranscriptState] = useState<TranscriptState>(createTranscriptState);
@@ -112,7 +123,10 @@ export default function App() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
   const [finalizationWarning, setFinalizationWarning] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { confirm, dialog } = useConfirmation();
+  const [needsSignIn, setNeedsSignIn] = useState(false);
+  const [schoolCourses, setSchoolCourses] = useState<SchoolCourse[]>([]);
+  const [schoolSession, setSchoolSession] = useState<ClassSession | null>(null);
 
   const clientRef = useRef<LiveSubtitleClient | null>(null);
   const transcriptRef = useRef<TranscriptState>(transcriptState);
@@ -137,6 +151,70 @@ export default function App() {
   );
   const canStart = (status === "idle" || status === "error") && Boolean(activeSessionId || selectedCourse);
   const isConnected = status === "recording" || status === "paused" || status === "connecting";
+  const recommendation = useMemo(() => currentCourse(timetable, courses, clock), [timetable, courses, clock]);
+  const schoolSettings = schoolCourses.find(course => course.courseId === selectedCourseId);
+  const showingSchool = Boolean(schoolSettings?.enabled && schoolSettings.sessionCount > 0 && !activeSessionId);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timeout: number | undefined;
+    async function refreshSchool() {
+      try {
+        const configured = await fetchSchoolCourses();
+        if (cancelled) return;
+        setSchoolCourses(configured);
+        if (configured.some(course => course.enabled)) {
+          const records = await listRemoteSessions({ limit: 100 });
+          if (cancelled) return;
+          setSessions(records);
+          if (selectedSession?.source && viewMode === "document") {
+            const full = await getRemoteSession(selectedSession.id);
+            if (!cancelled) setSelectedSession(full);
+          }
+        } else setSchoolSession(null);
+      } catch {
+        // Keep the last successfully read subtitles. The timestamp exposes a stale receiver.
+      } finally { if (!cancelled) timeout = window.setTimeout(() => void refreshSchool(), 15_000); }
+    }
+    void refreshSchool();
+    return () => { cancelled = true; if (timeout) window.clearTimeout(timeout); };
+  }, [selectedCourseId, schoolSettings?.enabled, selectedSession?.id, viewMode]);
+
+  useEffect(() => {
+    if (!showingSchool || !selectedCourseId) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    async function refreshLive() {
+      try {
+        const latest = await fetchSchoolLive(selectedCourseId);
+        if (!cancelled) setSchoolSession(latest);
+      } catch { /* Preserve the last displayed sentence across a network interruption. */ }
+      finally { if (!cancelled) timer = window.setTimeout(() => void refreshLive(), 2_000); }
+    }
+    void refreshLive();
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
+  }, [selectedCourseId, showingSchool]);
+
+  useEffect(() => {
+    let mounted = true;
+    void fetchTimetable().then(value => { if (mounted) setTimetable(value); }).catch(() => undefined);
+    const timer = window.setInterval(() => setClock(new Date()), 15_000);
+    return () => { mounted = false; window.clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    if (!activeSessionId && status !== "connecting" && !manualCourse && !coursesLoading) setSelectedCourseId(recommendation.courseId);
+  }, [recommendation.courseId, activeSessionId, manualCourse, coursesLoading, status]);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!activeSessionIdRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -149,13 +227,18 @@ export default function App() {
       }
       await refreshCourses(active);
       try {
-        const remoteSessions = await listRemoteSessions({ limit: 100 });
+        const remoteSessions = await listRemoteSessions({ limit: 100, onWarning: setErrorMessage });
         if (!active) return;
         setSessions(remoteSessions);
-        const unfinished = remoteSessions.find((session) => session.status === "recording" || session.status === "failed");
+        const unfinished = remoteSessions.find((session) => !session.source && (session.status === "recording" || session.status === "failed"));
         if (unfinished) {
           const fullSession = await getRemoteSession(unfinished.id);
           if (active) restoreUnfinishedSession(fullSession);
+        }
+        const requestedSession = new URLSearchParams(window.location.search).get("session");
+        if (requestedSession && /^[A-Za-z0-9_-]{1,128}$/.test(requestedSession)) {
+          const fullSession = await getRemoteSession(requestedSession);
+          if (active) { setSelectedSession(fullSession); setViewMode("document"); }
         }
       } catch {
         if (active) setErrorMessage("读取服务器记录失败。");
@@ -215,9 +298,11 @@ export default function App() {
       const result = await fetchCourses(false);
       if (!stillMounted) return;
       setCourses(result.courses);
+      setNeedsSignIn(false);
       setCourseNotice(result.stale ? result.warning ?? "课程列表来自缓存，稍后会再次刷新。" : "");
     } catch (error) {
       if (!stillMounted) return;
+      if (error instanceof ApiRequestError && error.status === 401) setNeedsSignIn(true);
       setCourses([DAILY_COURSE]);
       setCourseNotice(error instanceof Error ? `Hanyang 课程暂时无法读取：${error.message}` : "Hanyang 课程暂时无法读取。");
     } finally {
@@ -226,7 +311,7 @@ export default function App() {
   }
 
   async function refreshSessions() {
-    setSessions(await listRemoteSessions({ limit: 100 }));
+    setSessions(await listRemoteSessions({ limit: 100, onWarning: setErrorMessage }));
   }
 
   function restoreUnfinishedSession(session: ClassSession) {
@@ -283,7 +368,7 @@ export default function App() {
 
   async function persistSettings(nextSettings: AppSettings) {
     setSettings(nextSettings);
-    await saveSettings(nextSettings);
+    try { await saveSettings(nextSettings); } catch { setErrorMessage("设置已应用，但未能保存到当前浏览器。"); }
   }
 
   async function startClass() {
@@ -426,7 +511,7 @@ export default function App() {
   async function takeOverActiveSession(): Promise<ClassSession | null> {
     const sessionId = activeSessionIdRef.current;
     if (!sessionId) return null;
-    const confirmed = window.confirm(
+    const confirmed = await confirm(
       "这条记录可能仍由另一台设备或另一个页面录制。是否接管写入？\n\n接管后，旧页面将不能再保存；记录会标注接管前最后一段字幕无法确认。"
     );
     if (!confirmed) {
@@ -545,7 +630,7 @@ export default function App() {
     }
     let acceptIncomplete = false;
     if (finalizationWarningRef.current) {
-      acceptIncomplete = window.confirm(
+      acceptIncomplete = await confirm(
         "这条记录的最后一段字幕可能缺失。是否以当前已保存字幕结束？\n\n确认后记录会标注“字幕可能不完整”，不会被当作完整逐字稿。"
       );
       if (!acceptIncomplete) {
@@ -823,7 +908,7 @@ export default function App() {
       setErrorMessage("只有已经结束的记录可以归档。录制中或待恢复的记录需要先明确结束。");
       return;
     }
-    if (!window.confirm("归档这条课堂记录？内容不会从数据库中物理删除。")) return;
+    if (!await confirm("归档后，这条记录将从列表中隐藏，已保存的字幕仍会保留。")) return;
     try {
       await archiveRemoteSession(session.id);
       if (selectedSession?.id === session.id) setSelectedSession(null);
@@ -833,92 +918,78 @@ export default function App() {
     }
   }
 
-  async function updateSubtitleScale(value: number) {
-    await persistSettings({ ...settings, subtitleScale: value });
+  async function syncCurrentCourse() {
+    if (activeSessionIdRef.current || statusRef.current === "connecting") return;
+    setManualCourse(false);
+    setClock(new Date());
+    setSyncingCourse(true);
+    try {
+      const [freshTimetable] = await Promise.allSettled([fetchTimetable(), refreshCourses()]);
+      if (freshTimetable.status === "fulfilled") setTimetable(freshTimetable.value);
+      else setCourseNotice("课表暂时未能更新，可稍后重试或手动选课。");
+      setClock(new Date());
+    } finally { setSyncingCourse(false); }
   }
 
-  async function toggleKoreanInline() {
-    await persistSettings({ ...settings, showKoreanInline: !settings.showKoreanInline });
+  function navigateView(view: ViewMode) {
+    setViewMode(view);
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", view);
+    url.searchParams.delete("session");
+    window.history.replaceState(null, "", url);
   }
 
   return (
     <div className="app-shell" style={{ "--subtitle-scale": settings.subtitleScale } as React.CSSProperties}>
-      <header className="top-bar">
-        <button className="brand-button" type="button" onClick={() => setViewMode("live")} aria-label="回到字幕">
-          <span className="brand-mark">字</span>
-          <span>Study Lecture</span>
-        </button>
-        <div className="status-strip" aria-live="polite">
-          <span className={`status-dot status-${status}`} />
-          <span>{statusLabel(status, Boolean(activeSessionId), Boolean(latestSegment))}</span>
-          <span className="timer">{formatDuration(elapsedMs)}</span>
+      <header className="subtitle-topbar">
+        <div className="subtitle-brand"><AudioLines size={23} /><span>Study Lecture</span></div>
+        <div className="subtitle-course"><CoursePicker courses={courses} coursesLoading={coursesLoading} selectedCourseId={activeSessionId ? recordingCourseRef.current?.id ?? selectedCourseId : selectedCourseId} isDisabled={Boolean(activeSessionId) || status === "connecting"} onSelectCourse={id => { setManualCourse(true); setSelectedCourseId(id); }} onAuto={() => void syncCurrentCourse()} />
+          {!activeSessionId ? <Tooltip delay={250}><Button isIconOnly variant="ghost" aria-label="匹配现在的课程" isDisabled={syncingCourse || status === "connecting"} onPress={syncCurrentCourse}><RefreshCw size={15} className={syncingCourse ? "animate-spin motion-reduce:animate-none" : ""} /></Button><Tooltip.Content>刷新课表，匹配现在的课程</Tooltip.Content></Tooltip> : null}
+          <Tooltip delay={250}><Tooltip.Trigger><Chip size="sm" variant="soft" color="accent">{activeSessionId ? "本节课程" : syncingCourse ? "匹配中" : manualCourse ? "手动选择" : recommendation.label}</Chip></Tooltip.Trigger><Tooltip.Content>{activeSessionId ? "录制中课程已固定" : manualCourse ? "点击旁边的同步按钮，重新匹配当前课程。" : recommendation.message}</Tooltip.Content></Tooltip>
         </div>
-        <nav className="top-actions" aria-label="主要操作">
-          <button className="icon-button" type="button" onClick={() => setSettingsOpen((open) => !open)} title="设置"><Settings size={20} /></button>
-          <button className="icon-button secondary-nav" type="button" onClick={() => setViewMode("records")} title="记录"><Library size={20} /></button>
-          {status === "paused" ? (
-            <button className="primary-action" type="button" onClick={resumeClass} title="继续"><Play size={19} /><span className="control-label">继续</span></button>
-          ) : (
-            <button className="primary-action" type="button" onClick={startClass} title={activeSessionId ? "继续" : "开始"} disabled={!canStart || isConnected}>
-              {activeSessionId ? <Play size={19} /> : <Mic size={19} />}<span className="control-label">{activeSessionId ? "继续" : "开始"}</span>
-            </button>
-          )}
-          {status === "recording" ? <button className="icon-button control" type="button" onClick={pauseClass} title="暂停"><Pause size={20} /></button> : null}
-          <button className="icon-button danger" type="button" onClick={endClass} title="结束" disabled={!activeSessionId || status === "closing"}><Square size={18} /></button>
-        </nav>
+        <div className="subtitle-top-actions"><Button variant="ghost" aria-label="课堂记录" onPress={() => { navigateView("records"); void refreshSessions().catch(error => setErrorMessage(error instanceof Error ? error.message : "读取课堂记录失败，请稍后重试。")); }}><Library size={18} /><span className="top-button-label">记录</span></Button><SubtitleSettings settings={settings} onChange={persistSettings} isOpen={viewMode === "settings"} onOpenChange={open => navigateView(open ? "settings" : "live")} /></div>
       </header>
-
-      {settingsOpen ? (
-        <section className="settings-panel" aria-label="设置">
-          <label className="range-field">字号<input value={settings.subtitleScale} min="0.8" max="1.5" step="0.05" onChange={(event) => updateSubtitleScale(Number(event.target.value))} type="range" /></label>
-          <button className="ghost-button" type="button" onClick={toggleKoreanInline}>{settings.showKoreanInline ? <EyeOff size={17} /> : <Eye size={17} />}{settings.showKoreanInline ? "隐藏韩文" : "显示韩文"}</button>
-          <button className="ghost-button settings-records-link" type="button" onClick={() => { setViewMode("records"); setSettingsOpen(false); }}><Library size={17} />记录</button>
-          <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} title="关闭设置"><X size={18} /></button>
-        </section>
-      ) : null}
-
-      {courseNotice ? <p className="error-banner">{courseNotice}</p> : null}
-      {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
-      {finalizationWarning ? <p className="error-banner">字幕完整性警告：{finalizationWarning}</p> : null}
-
-      <main className="main-surface">
-        {viewMode === "live" ? (
-          <LiveSubtitleView
-            status={status}
-            segments={visibleSegments}
-            showKorean={settings.showKoreanInline}
-            courses={courses}
-            coursesLoading={coursesLoading}
-            selectedCourseId={selectedCourseId}
-            canChooseCourse={!activeSessionId}
-            onSelectCourse={setSelectedCourseId}
-            onRefreshCourses={() => void refreshCourses()}
-          />
-        ) : null}
-        {viewMode === "records" ? <RecordsView sessions={sessions} onSelect={openSession} onArchive={removeSession} onExport={exportSession} /> : null}
-        {viewMode === "document" ? <DocumentView session={selectedSession} onBack={() => setViewMode("records")} onExport={downloadMarkdown} /> : null}
-      </main>
+      <div className="subtitle-notices">
+        {needsSignIn ? <ItemCard className="signin-card"><ItemCard.Content><ItemCard.Title>登录后开始课堂录制</ItemCard.Title><ItemCard.Description>登录后读取课程和课堂记录。</ItemCard.Description></ItemCard.Content><ItemCard.Action><Button onPress={() => { window.location.href = "/signin-with-chatgpt?return_to=%2F"; }}>登录</Button></ItemCard.Action></ItemCard> : null}
+        {courseNotice && !needsSignIn ? <Notice message={courseNotice} warning /> : null}
+        {errorMessage && !needsSignIn ? <Notice message={errorMessage} /> : null}
+        {finalizationWarning ? <Notice message={"字幕完整性警告：" + finalizationWarning} warning /> : null}
+      </div>
+      <main className="subtitle-canvas">
+        <LiveSubtitleView status={status} segments={showingSchool ? (schoolSession?.courseId === selectedCourseId ? schoolSession.segments.slice(-3) : []) : visibleSegments} showKorean={settings.showKoreanInline} selectedCourseId={selectedCourseId} school={showingSchool} /></main>
+      <ActionBar isOpen aria-label="录制控制" className="subtitle-actionbar"><ActionBar.Prefix>
+        {selectedCourse?.source === "canvas" && !needsSignIn ? <SchoolCaptions key={selectedCourse.id} courseId={selectedCourse.id} courseName={displayCourseName(selectedCourse.name)} settings={schoolSettings} onChange={setSchoolCourses} usingSchool={showingSchool} /> : null}
+        <span className={"status-dot status-" + (showingSchool ? "idle" : status)} /><span className="recording-status">{showingSchool
+          ? schoolSettings?.error || !schoolSettings?.lastCheckedAt || Date.now() - Date.parse(schoolSettings.lastCheckedAt) > 120_000 ? "等待同步" : schoolSession?.status === "ready" ? "已结束" : "同步中"
+          : statusLabel(status, Boolean(activeSessionId), Boolean(latestSegment))}</span><span className="timer">{formatDuration(showingSchool ? schoolSession?.durationMs ?? 0 : elapsedMs)}</span></ActionBar.Prefix><ActionBar.Content>
+        {showingSchool && schoolSession?.courseId === selectedCourseId ? <Button variant="outline" onPress={() => void openSession({ ...schoolSession, segmentCount: schoolSession.segmentCount ?? 0 })}>完整记录</Button> : null}
+        {status === "recording" ? null : status === "paused" ? <Button onPress={resumeClass} aria-label="继续"><Play size={18} />继续</Button> : <Button onPress={startClass} variant={showingSchool ? "ghost" : "primary"} aria-label={activeSessionId ? "继续" : showingSchool ? "使用麦克风" : "开始"} isDisabled={!canStart || isConnected || needsSignIn} isPending={status === "connecting"}>{activeSessionId ? <Play size={18} /> : <Mic size={18} />}{status === "connecting" ? "连接中" : activeSessionId ? "继续" : showingSchool ? "使用麦克风" : "开始录制"}</Button>}
+        {status === "recording" ? <Button variant="ghost" onPress={pauseClass}><Pause size={17} />暂停</Button> : null}
+        {activeSessionId ? <Button variant="danger-soft" onPress={endClass} isDisabled={status === "closing"} aria-label="结束"><Square size={15} />{status === "closing" ? "保存中" : "结束"}</Button> : null}
+      </ActionBar.Content></ActionBar>
+      <DeferredHistory isOpen={viewMode === "records" || viewMode === "document"} showDocument={viewMode === "document"} sessions={sessions} selectedSession={selectedSession} timetable={timetable} errorMessage={errorMessage} onClose={() => navigateView("live")} onBack={() => navigateView("records")} onSelect={openSession} onArchive={removeSession} onExport={exportSession} />
+      {dialog}
     </div>
   );
 }
 
-function LiveSubtitleView({ status, segments, showKorean, courses, coursesLoading, selectedCourseId, canChooseCourse, onSelectCourse, onRefreshCourses }: {
+function LiveSubtitleView({ status, segments, showKorean, selectedCourseId, school = false }: {
   status: ConnectionStatus;
   segments: ReturnType<typeof getDisplaySegments>;
   showKorean: boolean;
-  courses: CourseOption[];
-  coursesLoading: boolean;
   selectedCourseId: string;
-  canChooseCourse: boolean;
-  onSelectCourse: (courseId: string) => void;
-  onRefreshCourses: () => void;
+  school?: boolean;
 }) {
-  const hasText = segments.some((segment) => segment.translatedText.trim());
+  const hasText = segments.some((segment) => segment.translatedText.trim() || (showKorean && segment.sourceText.trim()));
   if (!hasText) {
     return (
       <section className="subtitle-stage empty-stage">
-        {canChooseCourse ? <CoursePicker courses={courses} coursesLoading={coursesLoading} selectedCourseId={selectedCourseId} onSelectCourse={onSelectCourse} onRefresh={onRefreshCourses} /> : null}
-        <p className="empty-subtitle">{emptyMessage(status, Boolean(selectedCourseId))}</p>
+        <EmptyState className="caption-empty">
+          <EmptyState.Header><EmptyState.Media variant="icon"><AudioLines /></EmptyState.Media>
+            <EmptyState.Title>{school ? "等待学校字幕" : emptyMessage(status, Boolean(selectedCourseId))}</EmptyState.Title>
+            <EmptyState.Description>{school ? "本节课堂有字幕后，韩文原文与中文字幕将在这里呈现。" : "点击开始录制，韩文原文与中文字幕将在这里呈现。"}</EmptyState.Description>
+          </EmptyState.Header>
+        </EmptyState>
       </section>
     );
   }
@@ -927,8 +998,8 @@ function LiveSubtitleView({ status, segments, showKorean, courses, coursesLoadin
       <div className="subtitle-stack">
         {segments.map((segment, index) => (
           <article className={`subtitle-line ${index === segments.length - 1 ? "latest" : "previous"}`} key={segment.id}>
-            <p>{segment.translatedText.trim()}</p>
-            {showKorean && segment.sourceText.trim() ? <small>{segment.sourceText.trim()}</small> : null}
+            <p lang="zh">{segment.translatedText.trim() || (school ? "等待学校中文译文…" : "正在翻译…")}</p>
+            {showKorean && segment.sourceText.trim() ? <small lang="ko">{segment.sourceText.trim()}</small> : null}
           </article>
         ))}
       </div>
@@ -936,85 +1007,21 @@ function LiveSubtitleView({ status, segments, showKorean, courses, coursesLoadin
   );
 }
 
-function CoursePicker({ courses, coursesLoading, selectedCourseId, onSelectCourse, onRefresh }: {
+function CoursePicker({ courses, coursesLoading, selectedCourseId, onSelectCourse, onAuto, isDisabled }: {
   courses: CourseOption[];
   coursesLoading: boolean;
   selectedCourseId: string;
   onSelectCourse: (courseId: string) => void;
-  onRefresh: () => void;
+  onAuto: () => void;
+  isDisabled: boolean;
 }) {
-  const [isExpanded, setIsExpanded] = useState(!selectedCourseId);
-  const selectedCourse = courses.find((course) => course.id === selectedCourseId) ?? null;
-  const gridId = "course-picker-grid";
-  useEffect(() => { if (!selectedCourseId) setIsExpanded(true); }, [selectedCourseId]);
-  if (!isExpanded && selectedCourse) {
-    return (
-      <div className="course-picker course-picker-compact" aria-label="选择课程">
-        <button className="course-picker-toggle" type="button" aria-expanded={false} aria-controls={gridId} onClick={() => setIsExpanded(true)}>
-          <FolderOpen size={18} aria-hidden="true" /><span className="course-picker-summary"><strong>{selectedCourse.name}</strong><span>{courseMeta(selectedCourse)}</span></span><span className="course-picker-change">更换</span><ChevronDown size={18} aria-hidden="true" />
-        </button>
-      </div>
-    );
-  }
-  const academicCourseCount = courses.filter((course) => course.source === "canvas").length;
-  return (
-    <div className="course-picker" aria-label="选择课程">
-      <button className="course-picker-title" type="button" aria-expanded={true} aria-controls={gridId} disabled={!selectedCourse} onClick={() => setIsExpanded(false)}>
-        <FolderOpen size={18} aria-hidden="true" /><span>选择 Hanyang 课程</span>{selectedCourse ? <ChevronUp size={16} aria-hidden="true" /> : null}
-      </button>
-      <button className="ghost-button" type="button" onClick={onRefresh} disabled={coursesLoading}><RefreshCw size={16} />{coursesLoading ? "刷新中" : "刷新课程"}</button>
-      {academicCourseCount === 0 && !coursesLoading ? <p className="muted">Canvas 当前返回 0 门课程，这是正常状态；仍可选择日常记录。</p> : null}
-      <div className="course-grid" id={gridId}>
-        {courses.map((course) => (
-          <button className={`course-button ${course.id === selectedCourseId ? "selected" : ""}`} type="button" key={course.id} aria-pressed={course.id === selectedCourseId} onClick={() => { onSelectCourse(course.id); setIsExpanded(false); }}>
-            <strong>{course.name}</strong><span>{courseMeta(course)}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function RecordsView({ sessions, onSelect, onArchive, onExport }: {
-  sessions: ClassSessionSummary[];
-  onSelect: (session: ClassSessionSummary) => void;
-  onArchive: (session: ClassSessionSummary) => void;
-  onExport: (session: ClassSessionSummary) => void;
-}) {
-  const groups = groupSessionsByCourse(sessions);
-  return (
-    <section className="records-view">
-      <div className="section-heading"><BookOpen size={22} /><h1>课堂记录</h1></div>
-      {sessions.length === 0 ? <p className="muted">课堂开始后，字幕会持续保存到服务器。</p> : (
-        <div className="session-groups">
-          {groups.map((group) => (
-            <section className="session-course-group" key={group.key}>
-              <h2>{group.courseName}</h2>{group.courseTerm ? <p>{group.courseTerm}</p> : null}
-              <ul className="session-list">
-                {group.sessions.map((session) => (
-                  <li className="session-row" key={session.id}>
-                    <button type="button" onClick={() => onSelect(session)}><strong>{session.title}</strong><span>{formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {session.segmentCount} 段 · {sessionStatusLabel(session.status, session.finalizationWarning)}{session.courseMatchStatus === "legacy_unmatched" ? " · 旧课程未匹配" : ""}</span></button>
-                    <div className="row-actions"><button className="icon-button" type="button" onClick={() => onExport(session)} title="导出 Markdown"><Download size={18} /></button>{session.status === "ready" ? <button className="icon-button danger" type="button" onClick={() => onArchive(session)} title="归档"><Trash2 size={18} /></button> : null}</div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DocumentView({ session, onBack, onExport }: { session: ClassSession | null; onBack: () => void; onExport: (session: ClassSession) => void }) {
-  if (!session) return <section className="records-view"><p className="muted">没有选中的课堂记录。</p><button className="ghost-button" type="button" onClick={onBack}>返回记录</button></section>;
-  return (
-    <section className="document-view">
-      <div className="document-header"><button className="ghost-button" type="button" onClick={onBack}>返回</button><div><h1>{session.title}</h1><p>{session.courseName}{session.courseTerm ? ` · ${session.courseTerm}` : ""} · {formatDateTime(session.startedAt)} · {formatDuration(session.durationMs)} · {sessionStatusLabel(session.status, session.finalizationWarning)}</p></div><button className="primary-action" type="button" onClick={() => onExport(session)}><Download size={18} /><span className="control-label">Markdown</span></button></div>
-      {session.finalizationWarning ? <p className="error-banner">字幕完整性警告：{session.finalizationWarning}</p> : null}
-      <div className="document-body">{session.segments.length === 0 ? <p className="muted">这节课还没有保存到字幕文本。</p> : session.segments.map((segment) => <article className="transcript-block" key={segment.id}><time>{formatTimestamp(segment.startedAtMs)}</time><p className="zh-text">{segment.translatedText.trim() || "无中文译文"}</p><details><summary>韩文原文</summary><p lang="ko">{segment.sourceText.trim() || "无韩文原文"}</p></details></article>)}</div>
-    </section>
-  );
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftCourseId, setDraftCourseId] = useState(selectedCourseId);
+  return <Modal><Button variant="ghost" className="course-trigger" aria-label="更换课程" isDisabled={isDisabled} onPress={() => { setDraftCourseId(selectedCourseId); setIsOpen(true); }}><BookOpen size={17} /><span>{displayCourseName(courses.find(course => course.id === selectedCourseId)?.name)}</span><ChevronDown size={15} /></Button><Modal.Backdrop isOpen={isOpen} onOpenChange={setIsOpen}><Modal.Container size="lg"><Modal.Dialog><Modal.CloseTrigger aria-label="关闭选课" /><Modal.Header><Modal.Heading>选择本次课程</Modal.Heading><p className="muted">课程来自 Hanyang。课外内容可选择日常录制。</p></Modal.Header><Modal.Body>
+    <RadioButtonGroup className="course-grid" aria-label="选择本节课程" layout="grid" value={draftCourseId} onChange={setDraftCourseId}>
+      {courses.map(course => <RadioButtonGroup.Item key={course.id} value={course.id}><RadioButtonGroup.Indicator /><RadioButtonGroup.ItemContent><RadioButtonGroup.ItemIcon>{course.source === "daily" ? <Mic size={20} /> : <BookOpen size={20} />}</RadioButtonGroup.ItemIcon><Label>{displayCourseName(course.name)}</Label><Description>{courseMeta(course)}</Description></RadioButtonGroup.ItemContent></RadioButtonGroup.Item>)}
+    </RadioButtonGroup>
+  </Modal.Body><Modal.Footer><Button variant="ghost" onPress={() => { onAuto(); setIsOpen(false); }}>按课表匹配</Button><Button variant="outline" onPress={() => setIsOpen(false)}>取消</Button><Button isDisabled={coursesLoading || !draftCourseId} onPress={() => { onSelectCourse(draftCourseId); setIsOpen(false); }}>使用此课程</Button></Modal.Footer></Modal.Dialog></Modal.Container></Modal.Backdrop></Modal>;
 }
 
 function statusLabel(status: ConnectionStatus, hasActiveSession: boolean, hasText: boolean): string {
@@ -1024,11 +1031,6 @@ function statusLabel(status: ConnectionStatus, hasActiveSession: boolean, hasTex
   if (status === "closing") return "保存中";
   if (status === "error") return hasActiveSession ? "待恢复" : "错误";
   return hasText ? "已就绪" : "待开始";
-}
-
-function sessionStatusLabel(status: ClassSessionSummary["status"], warning: string | null): string {
-  const base = { recording: "录制中", ready: "已结束", failed: "待恢复", archived: "已归档" }[status];
-  return warning ? `${base}（字幕可能不完整）` : base;
 }
 
 function emptyMessage(status: ConnectionStatus, hasCourse: boolean) {
@@ -1041,7 +1043,7 @@ function emptyMessage(status: ConnectionStatus, hasCourse: boolean) {
 }
 
 function courseMeta(course: CourseOption) {
-  return course.id === DAILY_COURSE_ID ? "日常" : `${course.code || course.id}${course.term ? ` · ${course.term}` : ""}`;
+  return course.id === DAILY_COURSE_ID ? "日常" : `${course.code.split("_")[0] || course.id}${course.term ? ` · ${course.term}` : ""}`;
 }
 
 function courseFromSession(session: ClassSession): CourseOption {
@@ -1049,7 +1051,7 @@ function courseFromSession(session: ClassSession): CourseOption {
     id: session.courseId,
     code: session.courseCode,
     name: session.courseName,
-    term: session.courseTerm,
+    term: session.courseTerm ?? "",
     folderName: session.courseFolderName,
     label: session.courseName,
     source: session.courseMatchStatus === "daily" ? "daily" : session.courseMatchStatus === "matched" ? "canvas" : "legacy",
@@ -1072,15 +1074,4 @@ function chunkSegments(segments: TranscriptSegment[], size: number): TranscriptS
   const chunks: TranscriptSegment[][] = [];
   for (let index = 0; index < segments.length; index += size) chunks.push(segments.slice(index, index + size));
   return chunks;
-}
-
-function groupSessionsByCourse(sessions: ClassSessionSummary[]) {
-  const groups = new Map<string, { key: string; courseName: string; courseTerm: string; sessions: ClassSessionSummary[] }>();
-  for (const session of sessions) {
-    const key = `${session.courseMatchStatus}:${session.courseId}:${session.courseTerm}`;
-    const group = groups.get(key);
-    if (group) group.sessions.push(session);
-    else groups.set(key, { key, courseName: session.courseName, courseTerm: session.courseTerm, sessions: [session] });
-  }
-  return Array.from(groups.values());
 }

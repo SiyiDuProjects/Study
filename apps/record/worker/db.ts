@@ -1,4 +1,14 @@
 import type { CourseOption } from "../shared/courses";
+import {
+  lectureSessionSummarySchema,
+  lectureSearchHitSchema,
+  transcriptSegmentSchema,
+  type GetLectureSessionResponse,
+  type LectureSearchHit,
+  type ListLectureSessionsResponse,
+  type SearchLectureTranscriptsResponse,
+} from "../../core/src/lecture/types";
+import { InvalidLectureCursor, InvalidLectureRecord, readCursor, validatedPage } from "./read-pages";
 import type {
   ClassSession,
   ClassSessionSummary,
@@ -8,9 +18,7 @@ import type {
   LectureCheckpointRequest,
   LectureModels,
   LectureSessionStatus,
-  TranscriptSegment,
-  TranslationMode,
-  TranslationModel
+  TranscriptSegment
 } from "../src/types";
 
 interface CourseRow {
@@ -45,17 +53,20 @@ interface SessionRow {
   duration_ms: number;
   source_language: "ko";
   target_language: "zh";
-  translation_model: TranslationModel;
-  transcription_model: "gpt-realtime-whisper";
-  translation_mode: TranslationMode | null;
+  translation_model: string;
+  transcription_model: string;
+  translation_mode: string | null;
   saved_at: string;
   updated_at: string;
   revision: number;
   segment_count?: number;
+  source_json?: string | null;
 }
 
 interface SegmentRow {
   id: string;
+  position: number;
+  sequence: number;
   commit_sequence: number | null;
   started_at_ms: number;
   ended_at_ms: number | null;
@@ -74,6 +85,8 @@ interface WritableSessionRow {
 }
 
 interface SearchRow {
+  position: number;
+  sequence: number;
   session_id: string;
   session_title: string;
   session_status: LectureSessionStatus;
@@ -89,20 +102,20 @@ interface SearchRow {
   translated_text: string;
 }
 
-export interface LectureSearchHit {
-  sessionId: string;
-  sessionTitle: string;
-  sessionStatus: LectureSessionStatus;
-  finalizationWarning: string | null;
-  sessionStartedAt: string;
-  courseId: string;
-  courseCode: string;
-  courseName: string;
-  segmentId: string;
-  startedAtMs: number;
-  endedAtMs?: number;
-  sourceText: string;
-  translatedText: string;
+export interface LectureReadOptions {
+  courseId?: string;
+  status?: LectureSessionStatus | "all";
+  startAt?: string;
+  endAt?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface TranscriptReadOptions {
+  startMs?: number;
+  endMs?: number;
+  cursor?: string;
+  limit?: number;
 }
 
 export const RECOVERED_SESSION_WARNING =
@@ -124,6 +137,10 @@ export class WriterLeaseConflict extends Error {
   constructor(public readonly currentRevision: number) {
     super("The lecture writer lease or revision is no longer current");
   }
+}
+
+export class SessionNotWritableError extends Error {
+  constructor() { super("Lecture session is no longer writable"); }
 }
 
 export function createD1CourseRepository(db: D1Database) {
@@ -203,6 +220,7 @@ export function createD1SessionRepository(db: D1Database) {
     startedAt,
     models,
     writerLeaseToken,
+    title: suppliedTitle,
     now
   }: {
     id: string;
@@ -210,10 +228,11 @@ export function createD1SessionRepository(db: D1Database) {
     startedAt: string;
     models: LectureModels;
     writerLeaseToken: string;
+    title?: string;
     now: string;
   }): Promise<ClassSession> {
     const matchStatus: CourseMatchStatus = course.source === "daily" ? "daily" : "matched";
-    const title = `${course.source === "daily" ? "日常" : course.name} ${formatTitleDate(startedAt)}`;
+    const title = suppliedTitle ?? `${course.source === "daily" ? "日常" : course.name} ${formatTitleDate(startedAt)}`;
     const leaseHash = await hashWriterLeaseToken(writerLeaseToken);
     const result = await db.prepare(`
       INSERT INTO sessions(
@@ -226,7 +245,7 @@ export function createD1SessionRepository(db: D1Database) {
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'recording', ?, '', 0,
              'ko', 'zh', ?, ?, ?, NULL, '', ?, 0, ?, 1
       WHERE NOT EXISTS (
-        SELECT 1 FROM sessions WHERE status IN ('recording', 'failed')
+        SELECT 1 FROM sessions WHERE status IN ('recording', 'failed') AND source_json IS NULL
       )
     `).bind(
       id,
@@ -246,7 +265,7 @@ export function createD1SessionRepository(db: D1Database) {
     ).run();
     if ((result.meta.changes ?? 0) !== 1) {
       const unfinished = await db
-        .prepare("SELECT id FROM sessions WHERE status IN ('recording', 'failed') ORDER BY started_at DESC LIMIT 1")
+        .prepare("SELECT id FROM sessions WHERE status IN ('recording', 'failed') AND source_json IS NULL ORDER BY started_at DESC LIMIT 1")
         .first<{ id: string }>();
       throw new UnfinishedLectureConflict(unfinished?.id ?? "unknown");
     }
@@ -262,7 +281,7 @@ export function createD1SessionRepository(db: D1Database) {
     if (!row) return null;
     const leaseHash = await assertWriterLease(row, input);
     assertUnfinished(row.status);
-    await replaceSegmentsAndUpdate(db, id, input, leaseHash, db.prepare(`
+    await upsertSegmentsAndUpdate(db, id, input, leaseHash, db.prepare(`
       UPDATE sessions
       SET duration_ms = MAX(duration_ms, ?), updated_at = ?, revision = revision + 1
       WHERE id = ? AND revision = ? AND writer_lease_hash = ? AND status IN ('recording', 'failed')
@@ -279,7 +298,7 @@ export function createD1SessionRepository(db: D1Database) {
     if (!row) return null;
     const leaseHash = await assertWriterLease(row, input);
     assertUnfinished(row.status);
-    await replaceSegmentsAndUpdate(db, id, input, leaseHash, db.prepare(`
+    await upsertSegmentsAndUpdate(db, id, input, leaseHash, db.prepare(`
       UPDATE sessions
       SET status = 'failed', finalization_warning = COALESCE(finalization_warning, ?),
           duration_ms = MAX(duration_ms, ?), updated_at = ?, revision = revision + 1
@@ -307,7 +326,7 @@ export function createD1SessionRepository(db: D1Database) {
     if (row.finalization_warning && input.acceptIncomplete !== true) {
       throw new IncompleteFinalizationConflict(row.finalization_warning);
     }
-    await replaceSegmentsAndUpdate(db, id, input, leaseHash, db.prepare(`
+    await upsertSegmentsAndUpdate(db, id, input, leaseHash, db.prepare(`
       UPDATE sessions
       SET status = 'ready', ended_at = ?, duration_ms = MAX(duration_ms, ?),
           saved_at = ?, updated_at = ?, revision = revision + 1
@@ -364,11 +383,7 @@ export function createD1SessionRepository(db: D1Database) {
     return requireSession(id);
   }
 
-  async function listSessions(options: {
-    courseId?: string;
-    status?: LectureSessionStatus | "all";
-    limit?: number;
-  } = {}): Promise<ClassSessionSummary[]> {
+  async function listSessions(options: LectureReadOptions = {}): Promise<ListLectureSessionsResponse> {
     const conditions: string[] = [];
     const values: Array<string | number> = [];
     if (options.courseId) {
@@ -381,17 +396,66 @@ export function createD1SessionRepository(db: D1Database) {
     } else if (options.status !== "all") {
       conditions.push("sessions.status <> 'archived'");
     }
-    values.push(options.limit ?? 100);
+    addDateWindow(conditions, values, options);
+    const scope = JSON.stringify(["sessions", options.courseId ?? null, options.status ?? "active", options.startAt ?? null, options.endAt ?? null]);
+    const cursor = readCursor(options.cursor, scope);
+    if (cursor) {
+      if (cursor.length !== 2 || cursor.some((key) => typeof key !== "string")) throw new InvalidLectureCursor();
+      conditions.push("(sessions.started_at, sessions.id) < (?, ?)");
+      values.push(...cursor);
+    }
+    const limit = options.limit ?? 100;
+    values.push(limit + 1);
     const result = await db.prepare(`
       SELECT sessions.*, COUNT(transcript_segments.id) AS segment_count
       FROM sessions
       LEFT JOIN transcript_segments ON transcript_segments.session_id = sessions.id
       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
       GROUP BY sessions.id
-      ORDER BY sessions.started_at DESC
+      ORDER BY sessions.started_at DESC, sessions.id DESC
       LIMIT ?
     `).bind(...values).all<SessionRow>();
-    return result.results.map(rowToSummary);
+    return validatedPage({
+      rows: result.results, limit, scope,
+      key: row => [row.started_at, row.id], id: row => row.id,
+      map: rowToSummary, schema: lectureSessionSummarySchema,
+    });
+  }
+
+  async function getTranscriptPage(id: string, options: TranscriptReadOptions = {}): Promise<GetLectureSessionResponse | null> {
+    const row = await db.prepare(`
+      SELECT sessions.*, (SELECT COUNT(*) FROM transcript_segments WHERE session_id = sessions.id) AS segment_count
+      FROM sessions WHERE id = ?
+    `).bind(id).first<SessionRow>();
+    if (!row) return null;
+    const parsed = lectureSessionSummarySchema.safeParse(rowToSummary(row));
+    if (!parsed.success) throw new InvalidLectureRecord();
+    const scope = JSON.stringify(["transcript", id, row.revision, options.startMs ?? null, options.endMs ?? null]);
+    const cursor = readCursor(options.cursor, scope);
+    const conditions = ["session_id = ?"];
+    const values: Array<string | number> = [id];
+    let priorWarnings = 0;
+    if (options.startMs !== undefined) { conditions.push("started_at_ms >= ?"); values.push(options.startMs); }
+    if (options.endMs !== undefined) { conditions.push("started_at_ms < ?"); values.push(options.endMs); }
+    if (cursor) {
+      if (cursor.length !== 4 || typeof cursor[0] !== "number" || typeof cursor[1] !== "number" || typeof cursor[2] !== "string" || typeof cursor[3] !== "number" || cursor[3] < 0) throw new InvalidLectureCursor();
+      priorWarnings = cursor[3];
+      conditions.push("(COALESCE(commit_sequence, position), position, id) > (?, ?, ?)");
+      values.push(cursor[0], cursor[1], cursor[2]);
+    }
+    const limit = options.limit ?? 20;
+    values.push(limit + 1);
+    const result = await db.prepare(`
+      SELECT *, COALESCE(commit_sequence, position) AS sequence FROM transcript_segments
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY sequence ASC, position ASC, id ASC LIMIT ?
+    `).bind(...values).all<SegmentRow>();
+    const page = validatedPage({
+      rows: result.results, limit, scope,
+      key: (segment, skipped) => [segment.sequence, segment.position, segment.id, priorWarnings + skipped], id: segment => segment.id,
+      map: rowToSegment, schema: transcriptSegmentSchema,
+    });
+    return { session: parsed.data, ...page, rangeComplete: page.nextCursor === null && priorWarnings + page.warnings.length === 0 };
   }
 
   async function getSession(id: string): Promise<ClassSession | null> {
@@ -404,6 +468,18 @@ export function createD1SessionRepository(db: D1Database) {
     return rowToSession(sessionRow, segmentResult.results.map(rowToSegment));
   }
 
+  async function getSchoolLive(courseId: string): Promise<GetLectureSessionResponse | null> {
+    const row = await db.prepare(`SELECT sessions.*, (SELECT COUNT(*) FROM transcript_segments WHERE session_id=sessions.id) AS segment_count
+      FROM sessions WHERE course_id=? AND source_json IS NOT NULL AND status<>'archived'
+      ORDER BY started_at DESC,id DESC LIMIT 1`).bind(courseId).first<SessionRow>();
+    if (!row) return null;
+    const result = await db.prepare(`SELECT * FROM transcript_segments WHERE session_id=?
+      ORDER BY COALESCE(commit_sequence,position) DESC,position DESC,id DESC LIMIT 3`).bind(row.id).all<SegmentRow>();
+    return { session: lectureSessionSummarySchema.parse(rowToSummary(row)),
+      items: result.results.reverse().map(segment => transcriptSegmentSchema.parse(rowToSegment(segment))),
+      nextCursor: null, warnings: [], rangeComplete: false };
+  }
+
   async function archiveSession(id: string, now = new Date().toISOString()): Promise<boolean> {
     const result = await db.prepare(`
       UPDATE sessions SET status = 'archived', updated_at = ?, revision = revision + 1
@@ -412,19 +488,10 @@ export function createD1SessionRepository(db: D1Database) {
     return (result.meta.changes ?? 0) > 0;
   }
 
-  async function searchSessions({
-    query,
-    courseId,
-    status = "ready",
-    limit = 20
-  }: {
-    query: string;
-    courseId?: string;
-    status?: LectureSessionStatus | "all";
-    limit?: number;
-  }): Promise<LectureSearchHit[]> {
+  async function searchSessions(options: LectureReadOptions & { query: string; sessionId?: string }): Promise<SearchLectureTranscriptsResponse> {
+    const { query, courseId, status = "ready", limit = 20 } = options;
     const normalized = query.trim();
-    if (!normalized) return [];
+    if (!normalized) return { query, items: [], nextCursor: null, warnings: [] };
     const conditions = [
       "(transcript_segments.source_text LIKE ? ESCAPE '\\' OR transcript_segments.translated_text LIKE ? ESCAPE '\\')"
     ];
@@ -438,7 +505,21 @@ export function createD1SessionRepository(db: D1Database) {
       conditions.push("sessions.status = ?");
       values.push(status);
     }
-    values.push(limit);
+    if (options.sessionId) { conditions.push("sessions.id = ?"); values.push(options.sessionId); }
+    addDateWindow(conditions, values, options);
+    const scope = JSON.stringify(["search", normalized, courseId ?? null, status, options.sessionId ?? null, options.startAt ?? null, options.endAt ?? null]);
+    const cursor = readCursor(options.cursor, scope);
+    if (cursor) {
+      const [started, session, sequence, position, segment] = cursor;
+      if (cursor.length !== 5 || typeof started !== "string" || typeof session !== "string" || typeof sequence !== "number" || typeof position !== "number" || typeof segment !== "string") throw new InvalidLectureCursor();
+      conditions.push(`(
+        (sessions.started_at, sessions.id) < (?, ?)
+        OR ((sessions.started_at, sessions.id) = (?, ?) AND
+          (COALESCE(transcript_segments.commit_sequence, transcript_segments.position), transcript_segments.position, transcript_segments.id) > (?, ?, ?))
+      )`);
+      values.push(started, session, started, session, sequence, position, segment);
+    }
+    values.push(limit + 1);
     const result = await db.prepare(`
       SELECT sessions.id AS session_id, sessions.title AS session_title,
              sessions.status AS session_status, sessions.finalization_warning,
@@ -446,15 +527,20 @@ export function createD1SessionRepository(db: D1Database) {
              sessions.course_id, sessions.course_code, sessions.course_name,
              transcript_segments.id AS segment_id, transcript_segments.started_at_ms,
              transcript_segments.ended_at_ms, transcript_segments.source_text,
-             transcript_segments.translated_text
+             transcript_segments.translated_text, transcript_segments.position,
+             COALESCE(transcript_segments.commit_sequence, transcript_segments.position) AS sequence
       FROM transcript_segments
       JOIN sessions ON sessions.id = transcript_segments.session_id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY sessions.started_at DESC,
-               COALESCE(transcript_segments.commit_sequence, transcript_segments.position) ASC
+      ORDER BY sessions.started_at DESC, sessions.id DESC, sequence ASC,
+               transcript_segments.position ASC, transcript_segments.id ASC
       LIMIT ?
     `).bind(...values).all<SearchRow>();
-    return result.results.map(rowToSearchHit);
+    return { query: normalized, ...validatedPage({
+      rows: result.results, limit, scope,
+      key: row => [row.session_started_at, row.session_id, row.sequence, row.position, row.segment_id],
+      id: row => row.segment_id, map: rowToSearchHit, schema: lectureSearchHitSchema,
+    }) };
   }
 
   async function requireSession(id: string): Promise<ClassSession> {
@@ -472,12 +558,14 @@ export function createD1SessionRepository(db: D1Database) {
     resumeSession,
     listSessions,
     getSession,
+    getSchoolLive,
+    getTranscriptPage,
     archiveSession,
     searchSessions
   };
 }
 
-async function replaceSegmentsAndUpdate(
+async function upsertSegmentsAndUpdate(
   db: D1Database,
   sessionId: string,
   input: LectureCheckpointRequest,
@@ -487,7 +575,7 @@ async function replaceSegmentsAndUpdate(
   const payload = input.segments.map((segment, position) => ({
     id: segment.id,
     position,
-    commitSequence: segment.commitSequence ?? position,
+    commitSequence: segment.commitSequence ?? null,
     startedAtMs: Math.round(segment.startedAtMs),
     endedAtMs: segment.endedAtMs === undefined ? null : Math.round(segment.endedAtMs),
     sourceText: segment.sourceText,
@@ -505,17 +593,16 @@ async function replaceSegmentsAndUpdate(
   `;
   const results = await db.batch([
     db.prepare(`
-      DELETE FROM transcript_segments
-      WHERE session_id = ? AND ${writablePredicate}
-    `).bind(sessionId, sessionId, input.expectedRevision, leaseHash),
-    db.prepare(`
+      WITH base AS (
+        SELECT COALESCE(MAX(position), -1) AS last_position FROM transcript_segments WHERE session_id = ?
+      )
       INSERT INTO transcript_segments(
         session_id, id, position, commit_sequence, started_at_ms, ended_at_ms,
         source_text, translated_text, is_final, created_at, updated_at
       )
       SELECT ?,
              json_extract(value, '$.id'),
-             json_extract(value, '$.position'),
+             COALESCE((SELECT position FROM transcript_segments WHERE session_id = ? AND id = json_extract(value, '$.id')), base.last_position + CAST(key AS INTEGER) + 1),
              json_extract(value, '$.commitSequence'),
              json_extract(value, '$.startedAtMs'),
              json_extract(value, '$.endedAtMs'),
@@ -524,9 +611,19 @@ async function replaceSegmentsAndUpdate(
              json_extract(value, '$.isFinal'),
              json_extract(value, '$.createdAt'),
              json_extract(value, '$.updatedAt')
-      FROM json_each(?)
+      FROM json_each(?), base
       WHERE ${writablePredicate}
+      ON CONFLICT(session_id, id) DO UPDATE SET
+        commit_sequence = COALESCE(excluded.commit_sequence, transcript_segments.commit_sequence),
+        started_at_ms = excluded.started_at_ms,
+        ended_at_ms = excluded.ended_at_ms,
+        source_text = excluded.source_text,
+        translated_text = excluded.translated_text,
+        is_final = excluded.is_final,
+        updated_at = excluded.updated_at
     `).bind(
+      sessionId,
+      sessionId,
       sessionId,
       JSON.stringify(payload),
       sessionId,
@@ -540,13 +637,13 @@ async function replaceSegmentsAndUpdate(
 
 async function writableSessionRow(db: D1Database, id: string): Promise<WritableSessionRow | null> {
   return db.prepare(`
-    SELECT status, finalization_warning, writer_lease_hash, revision FROM sessions WHERE id = ?
+    SELECT status, finalization_warning, writer_lease_hash, revision FROM sessions WHERE id = ? AND source_json IS NULL
   `).bind(id).first<WritableSessionRow>();
 }
 
 function assertUnfinished(status: LectureSessionStatus): void {
   if (status !== "recording" && status !== "failed") {
-    throw new Error("Lecture session is no longer writable");
+    throw new SessionNotWritableError();
   }
 }
 
@@ -569,7 +666,7 @@ async function assertMutation(
   if ((result?.meta.changes ?? 0) === 1) return;
   const current = await writableSessionRow(db, id);
   if (!current || (current.status !== "recording" && current.status !== "failed")) {
-    throw new Error("Lecture session is no longer writable");
+    throw new SessionNotWritableError();
   }
   throw new WriterLeaseConflict(current.revision);
 }
@@ -599,6 +696,7 @@ function rowToCourse(row: CourseRow): CourseOption {
 
 function rowToSummary(row: SessionRow): ClassSessionSummary {
   return {
+    ...(row.source_json ? { source: JSON.parse(row.source_json) } : {}),
     id: row.id,
     title: row.title,
     courseId: row.course_id,
@@ -627,7 +725,7 @@ function rowToSummary(row: SessionRow): ClassSessionSummary {
 }
 
 function rowToSession(row: SessionRow, segments: TranscriptSegment[]): ClassSession {
-  return { ...rowToSummary(row), segments };
+  return { ...rowToSummary({ ...row, segment_count: segments.length }), segments };
 }
 
 function rowToSegment(row: SegmentRow): TranscriptSegment {
@@ -664,6 +762,11 @@ function rowToSearchHit(row: SearchRow): LectureSearchHit {
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function addDateWindow(conditions: string[], values: Array<string | number>, options: LectureReadOptions): void {
+  if (options.startAt) { conditions.push("sessions.started_at >= ?"); values.push(new Date(options.startAt).toISOString()); }
+  if (options.endAt) { conditions.push("sessions.started_at < ?"); values.push(new Date(options.endAt).toISOString()); }
 }
 
 function formatTitleDate(value: string): string {

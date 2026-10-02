@@ -22,6 +22,7 @@ export function formatTimestamp(ms: number): string {
 
 export function formatDateTime(iso: string): string {
   return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Seoul",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

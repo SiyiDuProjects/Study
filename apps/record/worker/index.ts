@@ -1,5 +1,6 @@
 import { DAILY_COURSE } from "../shared/courses";
-import { createRealtimeClientSecret, safetyIdentifierFromEmail, translateKoreanToChinese } from "../server/openai";
+import { weekSessionTitle } from "../shared/timetable";
+import { createRealtimeClientSecret, safetyIdentifierFromEmail, translateKoreanToChinese } from "../services/openai";
 import {
   completeLectureSessionSchema,
   courseQuerySchema,
@@ -11,16 +12,22 @@ import {
   realtimeClientSecretRequestSchema,
   resumeLectureSessionSchema,
   sessionListQuerySchema,
+  transcriptReadQuerySchema,
   translateRequestSchema
-} from "../server/schemas";
-import { createStudyCourseClient } from "../server/study";
+} from "../services/schemas";
+import { createStudyCourseClient } from "../services/study";
 import {
   createD1CourseRepository,
   createD1SessionRepository,
   IncompleteFinalizationConflict,
+  SessionNotWritableError,
   UnfinishedLectureConflict,
   WriterLeaseConflict
 } from "./db";
+import { InvalidLectureCursor, InvalidLectureRecord } from "./read-pages";
+import { safeErrorDiagnostic } from "../../core/src/logger";
+import { schoolCoursesSchema, schoolIdSchema, schoolImportSchema, schoolStatusSchema } from "../../core/src/lecture/school-types";
+import { schoolCaptionRepository } from "./school-captions";
 
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
 const rateLimitBuckets = new Map<string, { resetAt: number; count: number }>();
@@ -32,6 +39,7 @@ export interface SitesEnv {
   STUDY_API_URL?: string;
   STUDY_SERVICE_TOKEN?: string;
   LECTURE_SERVICE_TOKEN?: string;
+  STUDY_OWNER_EMAIL?: string;
 }
 
 export async function handleRequest(request: Request, env: SitesEnv): Promise<Response> {
@@ -46,49 +54,130 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
     }
 
     const sessions = createD1SessionRepository(env.DB);
+    const school = schoolCaptionRepository(env.DB);
+
+    if (url.pathname.startsWith("/internal/school-captions/")) {
+      await requireServiceToken(request, env.LECTURE_SERVICE_TOKEN);
+      if (request.method === "GET" && url.pathname === "/internal/school-captions/courses") {
+        // Background bootstrap: no browser visit or previous course-picker interaction is required.
+        const lastRefresh = await env.DB.prepare("SELECT value FROM app_metadata WHERE key='school_catalog_checked_at'").first<{ value: string }>();
+        if (!lastRefresh || Date.now() - Date.parse(lastRefresh.value) > 5 * 60_000) {
+          try {
+            const remote = await createStudyClient(env).listCourses({ includeArchived: true, refresh: true });
+            await createD1CourseRepository(env.DB).upsertCourses(remote.courses, remote.syncedAt);
+            await school.ensureDefaults(remote.courses);
+            await env.DB.prepare("INSERT INTO app_metadata(key,value) VALUES('school_catalog_checked_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+              .bind(new Date().toISOString()).run();
+          } catch (error) {
+            logError(request, error, "school_course_refresh_failed");
+            if (!(await school.list()).length) throw new HttpError(503, "School course discovery is temporarily unavailable.");
+          }
+        }
+        return json(schoolCoursesSchema.parse({ courses: await school.list() }));
+      }
+      if (request.method === "POST" && url.pathname === "/internal/school-captions/import") {
+        const parsed = schoolImportSchema.safeParse(await readJson(request));
+        if (!parsed.success) throw new HttpError(400, "Invalid school caption import.");
+        const course = await createD1CourseRepository(env.DB).getCourse(parsed.data.courseId);
+        const enabled = (await school.list()).some(item => item.courseId === parsed.data.courseId && item.enabled);
+        if (!course || course.isArchived || !enabled) throw new HttpError(409, "School caption synchronization is disabled.");
+        await school.ingest(course, parsed.data);
+        return json({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/internal/school-captions/status") {
+        const parsed = schoolStatusSchema.safeParse(await readJson(request));
+        if (!parsed.success) throw new HttpError(400, "Invalid school caption status.");
+        await school.status(parsed.data.courseId, parsed.data.sessionCount, parsed.data.error);
+        return json({ ok: true });
+      }
+      throw new HttpError(404, "Internal API route not found.");
+    }
 
     if (url.pathname.startsWith("/internal/mcp/lecture/")) {
       await requireServiceToken(request, env.LECTURE_SERVICE_TOKEN);
+      // An explicit read-contract version keeps old Core working during rollout
+      // and rollback. Browser /api responses already use the paged contract.
+      const contract = request.headers.get("X-Study-Lecture-Contract");
+      if (contract !== null && contract !== "paged-v1") throw new HttpError(426, "Unsupported lecture read contract.");
+      const paged = contract === "paged-v1";
+      const lectureJson = (body: unknown) => json(request.headers.get("X-Study-Lecture-Source") === "school-v1"
+        ? body : JSON.parse(JSON.stringify(body, (key, value) => key === "source" ? undefined : value)));
 
       if (request.method === "GET" && url.pathname === "/internal/mcp/lecture/sessions") {
         const parsed = internalSessionListQuerySchema.safeParse(Object.fromEntries(url.searchParams));
         if (!parsed.success) throw new HttpError(400, "Invalid lecture session query.");
-        return json({
-          sessions: await sessions.listSessions({
+        const page = await sessions.listSessions({
             courseId: parsed.data.course_id,
             status: parsed.data.status,
-            limit: parsed.data.limit
-          })
+            limit: parsed.data.limit,
+            startAt: parsed.data.start_at,
+            endAt: parsed.data.end_at,
+            cursor: parsed.data.cursor,
         });
+        return lectureJson(paged ? page : { sessions: page.items });
       }
 
       const internalSessionMatch = url.pathname.match(/^\/internal\/mcp\/lecture\/sessions\/([^/]+)$/);
       if (request.method === "GET" && internalSessionMatch) {
-        const session = await sessions.getSession(routeId(internalSessionMatch[1]));
-        if (!session) throw new HttpError(404, "Lecture session not found.");
-        return json({ session });
+        if (!paged) {
+          const session = await sessions.getSession(routeId(internalSessionMatch[1]));
+          if (!session) throw new HttpError(404, "Lecture session not found.");
+          return lectureJson({ session });
+        }
+        const parsed = transcriptReadQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+        if (!parsed.success) throw new HttpError(400, "Invalid transcript range query.");
+        const page = await sessions.getTranscriptPage(routeId(internalSessionMatch[1]), {
+          startMs: parsed.data.start_ms, endMs: parsed.data.end_ms, cursor: parsed.data.cursor, limit: parsed.data.limit,
+        });
+        if (!page) throw new HttpError(404, "Lecture session not found.");
+        return lectureJson(page);
       }
 
       if (request.method === "GET" && url.pathname === "/internal/mcp/lecture/search") {
         const parsed = internalSearchQuerySchema.safeParse(Object.fromEntries(url.searchParams));
         if (!parsed.success) throw new HttpError(400, "Invalid lecture search query.");
-        return json({
-          query: parsed.data.q,
-          hits: await sessions.searchSessions({
+        const page = await sessions.searchSessions({
             query: parsed.data.q,
             courseId: parsed.data.course_id,
             status: parsed.data.status,
-            limit: parsed.data.limit
-          })
+            limit: parsed.data.limit,
+            sessionId: parsed.data.session_id,
+            startAt: parsed.data.start_at,
+            endAt: parsed.data.end_at,
+            cursor: parsed.data.cursor,
         });
+        return lectureJson(paged ? page : { query: page.query, hits: page.items });
       }
 
       throw new HttpError(404, "Internal API route not found.");
     }
 
-    const identity = requireAuthenticatedUser(request);
+    const identity = requireAuthenticatedUser(request, env);
     requireSameOriginForMutation(request, url);
     const courses = createD1CourseRepository(env.DB);
+
+    if (request.method === "GET" && url.pathname === "/api/school-captions") {
+      return json(schoolCoursesSchema.parse({ courses: await school.list() }));
+    }
+    const schoolLiveMatch = url.pathname.match(/^\/api\/school-captions\/(\d{1,20})\/live$/);
+    if (request.method === "GET" && schoolLiveMatch) {
+      return json(await sessions.getSchoolLive(schoolIdSchema.parse(schoolLiveMatch[1])));
+    }
+    const schoolCourseMatch = url.pathname.match(/^\/api\/school-captions\/(\d{1,20})$/);
+    if (request.method === "PUT" && schoolCourseMatch) {
+      const courseId = schoolIdSchema.parse(schoolCourseMatch[1]);
+      const body = await readJson(request) as { enabled?: unknown };
+      if (!body || typeof body.enabled !== "boolean") throw new HttpError(400, "Invalid school caption setting.");
+      const course = await courses.getCourse(courseId);
+      if (!course || course.isArchived) throw new HttpError(409, "Select an active Hanyang course first.");
+      await school.configure(courseId, body.enabled);
+      return json(schoolCoursesSchema.parse({ courses: await school.list() }));
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/timetable") {
+      const study = createStudyClient(env);
+      return json(await study.getTimetable!());
+    }
 
     if (request.method === "GET" && url.pathname === "/api/courses") {
       const parsed = courseQuerySchema.safeParse(Object.fromEntries(url.searchParams));
@@ -148,13 +237,14 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
     if (request.method === "GET" && url.pathname === "/api/sessions") {
       const parsed = sessionListQuerySchema.safeParse(Object.fromEntries(url.searchParams));
       if (!parsed.success) throw new HttpError(400, "Invalid lecture session query.");
-      return json({
-        sessions: await sessions.listSessions({
+      return json(await sessions.listSessions({
           courseId: parsed.data.courseId,
           status: parsed.data.status,
-          limit: parsed.data.limit
-        })
-      });
+          limit: parsed.data.limit,
+          startAt: parsed.data.start_at,
+          endAt: parsed.data.end_at,
+          cursor: parsed.data.cursor,
+      }));
     }
 
     if (request.method === "POST" && url.pathname === "/api/sessions") {
@@ -171,6 +261,7 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
       if (course.isArchived) throw new HttpError(409, "Archived Hanyang courses cannot start a new recording.");
       const writerLeaseToken = randomToken();
       const session = await sessions.createSession({
+        title: weekSessionTitle(course, parsed.data.startedAt, course.source === "canvas" ? await createStudyClient(env).getTimetable!().catch(() => null) : null),
         id: `lecture_${crypto.randomUUID()}`,
         course,
         startedAt: parsed.data.startedAt,
@@ -185,9 +276,13 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
     if (sessionMatch) {
       const sessionId = routeId(sessionMatch[1]);
       if (request.method === "GET") {
-        const session = await sessions.getSession(sessionId);
-        if (!session) throw new HttpError(404, "Lecture session not found.");
-        return json({ session });
+        const parsed = transcriptReadQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+        if (!parsed.success) throw new HttpError(400, "Invalid transcript range query.");
+        const page = await sessions.getTranscriptPage(sessionId, {
+          startMs: parsed.data.start_ms, endMs: parsed.data.end_ms, cursor: parsed.data.cursor, limit: parsed.data.limit,
+        });
+        if (!page) throw new HttpError(404, "Lecture session not found.");
+        return json(page);
       }
       if (request.method === "DELETE") {
         if (await sessions.archiveSession(sessionId)) return new Response(null, { status: 204, headers: responseHeaders() });
@@ -237,6 +332,8 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
 
     throw new HttpError(404, "API route not found.");
   } catch (error) {
+    if (error instanceof InvalidLectureCursor) return json({ error: error.message, code: "invalid_cursor" }, 400);
+    if (error instanceof InvalidLectureRecord) return json({ error: error.message, code: "invalid_record" }, 502);
     if (error instanceof HttpError) return json({ error: error.message, ...error.details }, error.status);
     if (error instanceof UnfinishedLectureConflict) {
       return json({
@@ -257,14 +354,11 @@ export async function handleRequest(request: Request, env: SitesEnv): Promise<Re
         currentRevision: error.currentRevision
       }, 409);
     }
-    const message = error instanceof Error && /no longer writable/.test(error.message)
-      ? error.message
-      : "Server request failed.";
-    if (message === "Server request failed.") logError(request, error, "api_request_failed");
-    return json({
-      error: message,
-      ...(message === "Server request failed." ? {} : { code: "session_not_writable" })
-    }, message === "Server request failed." ? 502 : 409);
+    if (error instanceof SessionNotWritableError) {
+      return json({ error: "Lecture session is no longer writable", code: "session_not_writable" }, 409);
+    }
+    logError(request, error, "api_request_failed");
+    return json({ error: "Server request failed." }, 502);
   }
 }
 
@@ -298,10 +392,13 @@ function requireOpenAiKey(env: SitesEnv): string {
   return env.OPENAI_API_KEY;
 }
 
-function requireAuthenticatedUser(request: Request): { id: string; email: string | null } {
+function requireAuthenticatedUser(request: Request, env: SitesEnv): { id: string; email: string | null } {
   const id = request.headers.get("oai-authenticated-user-id")?.trim();
   if (!id) throw new HttpError(401, "Sign in to access Study Record.");
-  return { id, email: request.headers.get("oai-authenticated-user-email")?.trim() || null };
+  const email = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase() || null;
+  if (!env.STUDY_OWNER_EMAIL?.trim()) throw new HttpError(503, "Study Record owner is not configured.");
+  if (email !== env.STUDY_OWNER_EMAIL.trim().toLowerCase()) throw new HttpError(403, "This account cannot access Study Record.");
+  return { id, email };
 }
 
 async function requireServiceToken(request: Request, expected: string | undefined): Promise<void> {
@@ -401,8 +498,8 @@ function responseHeaders(): HeadersInit {
 function logError(request: Request, error: unknown, event: string): void {
   console.error(JSON.stringify({
     event,
-    method: request.method,
-    path: new URL(request.url).pathname,
-    error: error instanceof Error ? error.message : String(error)
+    method: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(request.method) ? request.method : "OTHER",
+    routeFamily: new URL(request.url).pathname.startsWith("/internal/") ? "internal" : "api",
+    error: safeErrorDiagnostic(error)
   }));
 }

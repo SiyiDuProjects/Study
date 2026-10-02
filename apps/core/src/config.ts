@@ -21,6 +21,7 @@ const envSchema = z.object({
   MASTER_KEY_BASE64: z.string().min(1),
   WEBAUTHN_RP_ID: z.string().min(1),
   WEBAUTHN_RP_NAME: z.string().min(1).default("Study"),
+  WEBAUTHN_BERKELEY_LOGIN_ENABLED: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
   WEBAUTHN_LEGACY_LOGIN_ENABLED: z
     .enum(["true", "false"])
     .default("false")
@@ -40,6 +41,11 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  CANVAS_MESSAGES_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  CANVAS_COURSEWORK_WRITES_ENABLED: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
+  CANVAS_UPLOAD_ORIGINS: z.string().default(""),
+  CANVAS_BERKELEY_UPLOAD_ORIGINS: z.string().default(""),
+  CHATGPT_FILE_ORIGINS: z.string().default("https://files.oaiusercontent.com"),
   OAUTH_ADDITIONAL_REDIRECT_URIS: z.string().optional(),
   OAUTH_DCR_ENABLED: z
     .enum(["true", "false"])
@@ -66,6 +72,7 @@ export interface AppConfig {
   webauthnRpName: string;
   webauthnLegacyLoginEnabled: boolean;
   webauthnLegacyRpId: string | null;
+  webauthnBerkeleyRpIds: readonly string[];
   trustProxy: number;
   cookieSecure: boolean;
   sessionCookieName: string;
@@ -76,6 +83,10 @@ export interface AppConfig {
   lectureSiteAuthToken: string | null;
   courseSyncMinIntervalSeconds: number;
   learningXEnabled: boolean;
+  canvasMessagesEnabled: boolean;
+  canvasCourseworkWritesEnabled: boolean;
+  canvasUploadOrigins: { hanyang: readonly string[]; berkeley: readonly string[] };
+  chatgptFileOrigins: readonly string[];
   oauthIssuer: string;
   oauthResource: string;
   oauthResourceAliases: ReadonlySet<string>;
@@ -124,6 +135,14 @@ function normalizeServiceOrigin(raw: string): string {
   return url.origin;
 }
 
+function uploadOrigins(raw: string): string[] {
+  return raw.split(/[\s,]+/).filter(Boolean).map(value => {
+    const origin = normalizeOrigin(value);
+    if (new URL(origin).protocol !== "https:") throw new Error("Canvas upload origins require HTTPS");
+    return origin;
+  });
+}
+
 function decodeMasterKey(raw: string): Buffer {
   const canonical = raw.trim();
   const key = Buffer.from(canonical, "base64");
@@ -165,7 +184,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("WEBAUTHN_RP_ID must exactly equal the PUBLIC_ORIGIN hostname for v1");
   }
   if (
-    parsed.WEBAUTHN_LEGACY_LOGIN_ENABLED &&
+    (parsed.WEBAUTHN_LEGACY_LOGIN_ENABLED || parsed.WEBAUTHN_BERKELEY_LOGIN_ENABLED) &&
     (publicOrigin !== STUDY_ROR_CANDIDATE_ORIGIN || parsed.WEBAUTHN_RP_ID !== STUDY_ROR_CANDIDATE_RP_ID)
   ) {
     throw new Error(
@@ -187,6 +206,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     masterKey: decodeMasterKey(parsed.MASTER_KEY_BASE64),
     webauthnRpId: parsed.WEBAUTHN_RP_ID,
     webauthnRpName: parsed.WEBAUTHN_RP_NAME,
+    webauthnBerkeleyRpIds: parsed.WEBAUTHN_BERKELEY_LOGIN_ENABLED
+      ? ["berkeley.siyidu.com", "berkeley-canvas.gaid.studio"] : [],
     webauthnLegacyLoginEnabled: parsed.WEBAUTHN_LEGACY_LOGIN_ENABLED,
     webauthnLegacyRpId: parsed.WEBAUTHN_LEGACY_LOGIN_ENABLED
       ? STUDY_LEGACY_WEBAUTHN_RP_ID
@@ -201,14 +222,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     lectureSiteAuthToken: parsed.LECTURE_SITE_AUTH_TOKEN ?? null,
     courseSyncMinIntervalSeconds: parsed.COURSE_SYNC_MIN_INTERVAL_SECONDS,
     learningXEnabled: parsed.LEARNINGX_ENABLED,
+    canvasMessagesEnabled: parsed.CANVAS_MESSAGES_ENABLED,
+    canvasCourseworkWritesEnabled: parsed.CANVAS_COURSEWORK_WRITES_ENABLED,
+    canvasUploadOrigins: {
+      hanyang: uploadOrigins(parsed.CANVAS_UPLOAD_ORIGINS),
+      berkeley: uploadOrigins(parsed.CANVAS_BERKELEY_UPLOAD_ORIGINS),
+    },
+    chatgptFileOrigins: uploadOrigins(parsed.CHATGPT_FILE_ORIGINS),
     oauthIssuer: publicOrigin,
     oauthResource: `${publicOrigin}/mcp`,
     oauthResourceAliases: publicOrigin === STUDY_ROR_CANDIDATE_ORIGIN
       ? new Set([STUDY_LEGACY_MCP_RESOURCE])
       : new Set(),
-    oauthScopes: lectureConfigured
-      ? ["canvas.read", "lecture.read", "offline_access"]
-      : ["canvas.read", "offline_access"],
+    // One Study account authorization. Keep the legacy wire identifier so existing
+    // connections and scheduled tasks continue working after the user-approved merger.
+    oauthScopes: ["canvas.read", "offline_access"],
     additionalRedirectUris: parseAdditionalRedirectUris(parsed.OAUTH_ADDITIONAL_REDIRECT_URIS),
     oauthDcrEnabled: parsed.OAUTH_DCR_ENABLED,
     oauthMaxClients: parsed.OAUTH_MAX_CLIENTS,

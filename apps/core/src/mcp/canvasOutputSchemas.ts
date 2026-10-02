@@ -1,31 +1,9 @@
 import { z } from "zod";
+import { envelopeSchema, pageSchema } from "./contracts.js";
 
 const nullableString = z.string().nullable();
 const nullableNumber = z.number().nullable();
-
-const canvasErrorSchema = z
-  .object({
-    code: z.enum([
-      "configuration_error",
-      "invalid_argument",
-      "authentication_failed",
-      "permission_denied",
-      "not_found",
-      "rate_limited",
-      "canvas_error",
-      "upstream_error",
-      "timeout",
-      "network_error",
-      "invalid_response",
-      "unsafe_pagination",
-    ]),
-    message: z.string(),
-    status: z.number().int().nullable(),
-    retryable: z.boolean(),
-    requestId: nullableString,
-    retryAfterSeconds: z.number().nonnegative().nullable(),
-  })
-  .strict();
+const recordId = z.string().regex(/^[1-9]\d*$/);
 
 const enrollmentSchema = z
   .object({
@@ -103,6 +81,13 @@ const timetableSchema = z
       })
       .strict(),
     timezone: z.literal("Asia/Seoul"),
+    teachingCalendar: z.object({
+      startsOn: z.string().date(),
+      weeks: z.number().int().positive(),
+      basis: z.string(),
+      sourceUrl: z.string().url(),
+      label: z.string(),
+    }).strict(),
     totalCredits: z.number().int().nonnegative(),
     source: z
       .object({
@@ -133,6 +118,8 @@ const submissionStatusSchema = z.enum([
   "graded",
   "missing",
   "excused",
+  "resubmission_required",
+  "unknown",
 ]);
 
 const attachmentSchema = z
@@ -147,8 +134,8 @@ const attachmentSchema = z
 
 const submissionShape = {
   id: nullableString,
-  assignmentId: z.string(),
-  courseId: z.string(),
+  assignmentId: recordId,
+  courseId: recordId,
   status: submissionStatusSchema,
   workflowState: nullableString,
   submittedAt: nullableString,
@@ -156,10 +143,12 @@ const submissionShape = {
   score: nullableNumber,
   grade: nullableString,
   attempt: nullableNumber,
-  late: z.boolean(),
-  missing: z.boolean(),
-  excused: z.boolean(),
-  secondsLate: z.number(),
+  late: z.boolean().nullable(),
+  missing: z.boolean().nullable(),
+  excused: z.boolean().nullable(),
+  redoRequest: z.boolean().nullable(),
+  extraAttempts: nullableNumber,
+  secondsLate: nullableNumber,
   submissionType: nullableString,
   attachments: z.array(attachmentSchema),
 } as const;
@@ -209,21 +198,24 @@ const courseSubmissionSchema = submissionSchema
 
 const assignmentSchema = z
   .object({
-    id: z.string(),
-    courseId: z.string(),
+    id: recordId,
+    courseId: recordId,
     name: z.string(),
     descriptionHtml: nullableString,
     descriptionText: nullableString,
     dueAt: nullableString,
     unlockAt: nullableString,
     lockAt: nullableString,
+    lockedForUser: z.boolean().nullable().describe("Canvas user-specific lock; null means unknown. A null lockAt does not establish permission to submit."),
+    lockExplanation: nullableString,
+    allowedAttempts: nullableNumber,
     pointsPossible: nullableNumber,
     position: nullableNumber,
     published: z.boolean(),
     workflowState: nullableString,
     submissionTypes: z.array(z.string()),
     allowedExtensions: z.array(z.string()),
-    hasSubmittedSubmissions: z.boolean(),
+    hasSubmittedSubmissions: z.boolean().describe("Whether ANY student has submitted. Never use this as the current student's submission status."),
     htmlUrl: nullableString,
     submission: submissionSchema.nullable(),
   })
@@ -290,7 +282,7 @@ const moduleSchema = z
     state: nullableString,
     completedAt: nullableString,
     published: z.boolean(),
-    items: z.array(moduleItemSchema),
+    itemCount: nullableNumber,
   })
   .strict();
 
@@ -342,6 +334,7 @@ const discussionEntrySchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
       readState: nullableString,
       deleted: z.boolean(),
       replies: z.array(discussionEntrySchema),
+      hasMoreReplies: z.boolean(),
     })
     .strict(),
 );
@@ -377,7 +370,7 @@ const pageSummarySchema = z
   })
   .strict();
 
-const pageSchema = pageSummarySchema.extend({
+const coursePageSchema = pageSummarySchema.extend({
   bodyHtml: nullableString,
   bodyText: nullableString,
 });
@@ -453,17 +446,19 @@ const learningXAttendanceSchema = z
     title: z.string(),
     type: nullableString,
     attendanceStatus: nullableString,
-    useAttendance: z.boolean(),
-    completed: z.boolean(),
+    useAttendance: z.boolean().nullable(),
+    completed: z.boolean().nullable().describe("Unknown completion is null; only explicit false establishes not completed."),
     dueAt: nullableString,
     unlockAt: nullableString,
     completedAt: nullableString,
     progressSeconds: nullableNumber,
     lastAtSeconds: nullableNumber,
-    required: z.boolean(),
+    required: z.boolean().nullable(),
     durationSeconds: nullableNumber,
     progressSupported: z.boolean().nullable(),
     viewerUrl: z.string(),
+    moduleItemId: nullableString.optional(),
+    translive: z.object({ id: z.string(), viewerUrl: z.string() }).strict().nullable().optional(),
   })
   .strict();
 
@@ -588,8 +583,13 @@ const upcomingWorkSchema = z
     dueAt: nullableString,
     htmlUrl: nullableString,
     pointsPossible: nullableNumber,
-    completed: z.boolean(),
+    completed: z.boolean().nullable().describe("Submission-backed completion for coursework; grade or manual override alone is insufficient. Missing or resubmission required stays false. Non-coursework may use a manual override. Unknown is null."),
     submissionStatus: submissionStatusSchema.nullable(),
+    submissionFlags: z.object({
+      submitted: z.boolean().nullable(), graded: z.boolean().nullable(), needsGrading: z.boolean().nullable(),
+      missing: z.boolean().nullable(), excused: z.boolean().nullable(), redoRequest: z.boolean().nullable(),
+    }).strict(),
+    plannerOverride: z.object({ markedComplete: z.boolean().nullable(), dismissed: z.boolean().nullable() }).strict().nullable(),
   })
   .strict();
 
@@ -614,66 +614,20 @@ const weeklySummarySchema = z
         endAt: z.string(),
       })
       .strict(),
-    courses: z.array(courseSchema),
-    upcomingWork: z.array(upcomingWorkSchema),
-    calendarEvents: z.array(calendarEventSchema),
-    announcements: z.array(announcementSchema),
-    counts: z
-      .object({
-        courses: z.number().int().nonnegative(),
-        upcomingWork: z.number().int().nonnegative(),
-        incompleteWork: z.number().int().nonnegative(),
-        calendarEvents: z.number().int().nonnegative(),
-        announcements: z.number().int().nonnegative(),
-      })
-      .strict(),
+    announcementsWindow: z.object({ startAt: z.string(), endAt: z.string() }).strict(),
+    sources: z.object({
+      courses: envelopeSchema(pageSchema(courseSchema)),
+      upcomingWork: envelopeSchema(pageSchema(upcomingWorkSchema)),
+      calendarEvents: envelopeSchema(pageSchema(calendarEventSchema)),
+      announcements: envelopeSchema(pageSchema(announcementSchema)),
+    }).strict(),
   })
   .strict();
-
-const ENVELOPE_BRANCHES = [
-  {
-    properties: {
-      ok: { const: true },
-      result: { not: { type: "null" } },
-      error: { type: "null" },
-    },
-    required: ["ok", "result", "error"],
-  },
-  {
-    properties: {
-      ok: { const: false },
-      result: { type: "null" },
-      error: { not: { type: "null" } },
-    },
-    required: ["ok", "result", "error"],
-  },
-] as const;
-
-function envelopeSchema(resultSchema: z.ZodType<unknown>) {
-  return z
-    .object({
-      ok: z.boolean(),
-      result: resultSchema.nullable(),
-      error: canvasErrorSchema.nullable(),
-    })
-    .strict()
-    .meta({ oneOf: ENVELOPE_BRANCHES })
-    .superRefine((envelope, context) => {
-      const validSuccess = envelope.ok && envelope.result !== null && envelope.error === null;
-      const validError = !envelope.ok && envelope.result === null && envelope.error !== null;
-      if (!validSuccess && !validError) {
-        context.addIssue({
-          code: "custom",
-          message: "Canvas tool envelope success/error fields are inconsistent.",
-        });
-      }
-    });
-}
 
 const connectionStatusSchema = z
   .object({
     connected: z.literal(true),
-    institution: z.literal("hanyang"),
+    institution: z.enum(["hanyang", "berkeley"]),
     institutionName: z.string(),
     baseUrl: z.string(),
     profile: z
@@ -691,34 +645,42 @@ const connectionStatusSchema = z
 
 export const canvasToolOutputSchemas = {
   connection_status: envelopeSchema(connectionStatusSchema),
-  list_courses: envelopeSchema(z.array(courseSchema)),
+  list_courses: envelopeSchema(pageSchema(courseSchema)),
   get_timetable: envelopeSchema(timetableSchema),
   get_course: envelopeSchema(courseSchema),
-  list_assignments: envelopeSchema(z.array(assignmentSchema)),
+  list_assignments: envelopeSchema(pageSchema(assignmentSchema).extend({ coverage: z.object({
+    courseId: recordId, selection: z.string(), source: z.enum(["all_assignments", "upstream_bucket"]),
+    submissionIncluded: z.boolean(), queryExhausted: z.boolean().describe("This query is exhausted only; not proof that other courses or sources were checked."),
+    checkedAt: z.string(),
+  }).strict() }).strict()),
   get_assignment: envelopeSchema(assignmentSchema),
-  list_announcements: envelopeSchema(z.array(announcementSchema)),
-  list_modules: envelopeSchema(z.array(moduleSchema)),
-  list_course_tabs: envelopeSchema(z.array(courseTabSchema)),
-  list_quizzes: envelopeSchema(z.array(quizSchema)),
-  list_discussion_topics: envelopeSchema(z.array(discussionTopicSchema)),
-  list_discussion_entries: envelopeSchema(z.array(discussionEntrySchema)),
-  list_pages: envelopeSchema(z.array(pageSummarySchema)),
-  get_page: envelopeSchema(pageSchema),
-  list_files: envelopeSchema(z.array(fileSchema)),
-  get_file: envelopeSchema(fileSchema),
-  list_conversations: envelopeSchema(z.array(conversationSummarySchema)),
+  list_announcements: envelopeSchema(pageSchema(announcementSchema)),
+  list_modules: envelopeSchema(pageSchema(moduleSchema)),
+  list_module_items: envelopeSchema(pageSchema(moduleItemSchema)),
+  list_course_tabs: envelopeSchema(pageSchema(courseTabSchema)),
+  list_quizzes: envelopeSchema(pageSchema(quizSchema)),
+  list_discussion_topics: envelopeSchema(pageSchema(discussionTopicSchema)),
+  list_discussion_entries: envelopeSchema(pageSchema(discussionEntrySchema)),
+  list_discussion_replies: envelopeSchema(pageSchema(discussionEntrySchema)),
+  list_pages: envelopeSchema(pageSchema(pageSummarySchema)),
+  get_page: envelopeSchema(coursePageSchema),
+  list_files: envelopeSchema(pageSchema(fileSchema)),
+  get_file: envelopeSchema(fileSchema.extend({
+    download: z.object({ url: z.string().url(), expiresAt: z.string() }).strict(),
+  })),
+  list_conversations: envelopeSchema(pageSchema(conversationSummarySchema)),
   get_conversation: envelopeSchema(conversationSchema),
-  list_course_submissions: envelopeSchema(z.array(courseSubmissionSchema)),
+  list_course_submissions: envelopeSchema(pageSchema(courseSubmissionSchema)),
   list_learningx_attendance: envelopeSchema(z.array(learningXAttendanceSchema)),
   get_learningx_attendance_item: envelopeSchema(learningXAttendanceSchema),
   list_learningx_modules: envelopeSchema(z.array(learningXModuleSchema)),
   list_learningx_boards: envelopeSchema(z.array(learningXBoardSchema)),
   list_learningx_board_posts: envelopeSchema(learningXBoardPostPageSchema),
   get_learningx_board_post: envelopeSchema(learningXBoardPostSchema),
-  list_calendar_events: envelopeSchema(z.array(calendarEventSchema)),
-  get_upcoming_work: envelopeSchema(z.array(upcomingWorkSchema)),
+  list_calendar_events: envelopeSchema(pageSchema(calendarEventSchema)),
+  get_upcoming_work: envelopeSchema(pageSchema(upcomingWorkSchema)),
   get_submission_status: envelopeSchema(submissionSchema),
-  get_grades: envelopeSchema(z.array(gradeSchema)),
+  get_grades: envelopeSchema(pageSchema(gradeSchema)),
   weekly_summary: envelopeSchema(weeklySummarySchema),
 } as const;
 

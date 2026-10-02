@@ -1,6 +1,9 @@
 node_modules/
 dist/
 data/
+!src/data/
+src/data/*
+!src/data/hanyang-timetable.json
 .env
 *.sqlite
 *.sqlite-shm

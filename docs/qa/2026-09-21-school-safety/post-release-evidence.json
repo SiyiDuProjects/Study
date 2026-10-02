@@ -1,0 +1,160 @@
+{
+  "verifiedAt": "2026-09-21T03:49:27.948Z",
+  "releaseId": "20260921T034417418Z-0c8569c05fda-20f0c5fde4a9",
+  "target": {
+    "overdue": [
+      {
+        "id": "2807918",
+        "status": "missing",
+        "workflowState": "graded",
+        "missing": true,
+        "score": 0,
+        "submittedAt": null
+      }
+    ],
+    "planner": [
+      {
+        "id": "514533",
+        "type": "announcement",
+        "date": "2026-09-06T06:52:12Z",
+        "dueAt": null,
+        "completed": null,
+        "submissionStatus": null,
+        "submissionFlags": {
+          "submitted": null,
+          "graded": null,
+          "needsGrading": null,
+          "missing": null,
+          "excused": null,
+          "redoRequest": null
+        }
+      },
+      {
+        "id": "2807918",
+        "type": "assignment",
+        "date": "2026-09-20T14:59:59Z",
+        "dueAt": "2026-09-20T14:59:59Z",
+        "completed": false,
+        "submissionStatus": "missing",
+        "submissionFlags": {
+          "submitted": false,
+          "graded": true,
+          "needsGrading": false,
+          "missing": true,
+          "excused": false,
+          "redoRequest": null
+        }
+      }
+    ],
+    "detail": {
+      "id": "2807918",
+      "lockedForUser": false,
+      "allowedAttempts": 2
+    }
+  },
+  "courseChecks": [
+    {
+      "courseId": "215704",
+      "ok": true,
+      "count": 9,
+      "nextCursor": null,
+      "assignmentIds": [
+        "2802756",
+        "2807918",
+        "2807919",
+        "2807923",
+        "2807924",
+        "2807925",
+        "2816296",
+        "2816297",
+        "2816298"
+      ],
+      "mismatches": [],
+      "redoRequests": [],
+      "error": null
+    },
+    {
+      "courseId": "215714",
+      "ok": true,
+      "count": 0,
+      "nextCursor": null,
+      "assignmentIds": [],
+      "mismatches": [],
+      "redoRequests": [],
+      "error": null
+    },
+    {
+      "courseId": "215729",
+      "ok": true,
+      "count": 1,
+      "nextCursor": null,
+      "assignmentIds": [
+        "2803267"
+      ],
+      "mismatches": [],
+      "redoRequests": [],
+      "error": null
+    },
+    {
+      "courseId": "215739",
+      "ok": true,
+      "count": 12,
+      "nextCursor": null,
+      "assignmentIds": [
+        "2802362",
+        "2815632",
+        "2815633",
+        "2815634",
+        "2815635",
+        "2815638",
+        "2815640",
+        "2815641",
+        "2815642",
+        "2815643",
+        "2815645",
+        "2815646"
+      ],
+      "mismatches": [],
+      "redoRequests": [],
+      "error": null
+    },
+    {
+      "courseId": "214375",
+      "ok": true,
+      "count": 0,
+      "nextCursor": null,
+      "assignmentIds": [],
+      "mismatches": [],
+      "redoRequests": [],
+      "error": null
+    },
+    {
+      "courseId": "216115",
+      "ok": true,
+      "count": 1,
+      "nextCursor": null,
+      "assignmentIds": [
+        "2815128"
+      ],
+      "mismatches": [],
+      "redoRequests": [],
+      "error": null
+    },
+    {
+      "courseId": "214446",
+      "ok": true,
+      "count": 0,
+      "nextCursor": null,
+      "assignmentIds": [],
+      "mismatches": [],
+      "redoRequests": [],
+      "error": null
+    }
+  ],
+  "lecture": {
+    "ok": true,
+    "count": 2,
+    "hasMore": true,
+    "warnings": []
+  }
+}

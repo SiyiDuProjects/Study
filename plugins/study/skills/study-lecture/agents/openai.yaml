@@ -1,0 +1,15 @@
+interface:
+  display_name: "Study Lecture"
+  short_description: "Find and explain Hanyang lectures with timestamps"
+  default_prompt: "Use $study-lecture to find what was said in my recent lectures."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "canvas"
+      description: "Read-only Hanyang Canvas and Study Lecture tools"
+      transport: "streamable_http"
+      url: "https://study.siyidu.com/mcp"
+
+policy:
+  allow_implicit_invocation: true

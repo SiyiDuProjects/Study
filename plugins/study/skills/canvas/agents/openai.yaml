@@ -1,0 +1,16 @@
+interface:
+  display_name: "Study Canvas"
+  short_description: "Review coursework; submit work and send LMS attachments"
+  brand_color: "#1F6B45"
+  default_prompt: "Use $canvas for the selected school account to read coursework or complete explicitly requested submissions and messages, including files, with enabled tools."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "canvas"
+      description: "Shared Berkeley and Hanyang coursework, uploads, submissions and Inbox; Hanyang school extensions"
+      transport: "streamable_http"
+      url: "https://study.siyidu.com/mcp"
+
+policy:
+  allow_implicit_invocation: true

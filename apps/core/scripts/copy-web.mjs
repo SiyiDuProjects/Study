@@ -6,3 +6,4 @@ const destination = resolve("dist/web");
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });
 await cp(source, destination, { recursive: true });
+await cp(resolve("src/data"), resolve("dist/data"), { recursive: true });

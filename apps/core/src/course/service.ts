@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { LearningXReadClient, LearningXSessionCache } from "../learningx/index.js";
+import type { SchoolViewer } from "../lecture/school-reader.js";
 
 import type { AppDatabase } from "../db/index.js";
 import type { CanvasConnection } from "../domain.js";
-import { CanvasRestClient, asCanvasApiError, type CanvasCourse } from "../canvas/index.js";
+import { CanvasRestClient, CanvasApiError, asCanvasApiError, type CanvasCourse } from "../canvas/index.js";
+import { getHanyangTimetable, getImportedTimetableOwnerId, type HanyangTimetable } from "../timetable.js";
 import {
   CourseCatalogError,
   type CourseCatalogResponse,
@@ -115,6 +118,24 @@ function toCourseOption(row: CatalogRow): CourseOption {
   };
 }
 
+/** Publish a catalog only after both enrollment collections have been fully read. */
+async function listAllCourses(client: CanvasRestClient, enrollmentState: "active" | "completed"): Promise<CanvasCourse[]> {
+  const courses: CanvasCourse[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < 100; page += 1) {
+    const result = await client.listCourses({ enrollmentState, limit: 200, ...(cursor ? { cursor } : {}) });
+    courses.push(...result.items);
+    if (result.nextCursor === null) return courses;
+    if (seen.has(result.nextCursor)) {
+      throw new CanvasApiError("unsafe_pagination", "Course synchronization encountered a repeated cursor.");
+    }
+    seen.add(result.nextCursor);
+    cursor = result.nextCursor;
+  }
+  throw new CanvasApiError("invalid_response", "Course synchronization exceeded its page budget; the previous catalog was retained.");
+}
+
 export class CourseCatalogService {
   private readonly clock: () => number;
 
@@ -148,8 +169,8 @@ export class CourseCatalogService {
         this.options.fetch ? { fetch: this.options.fetch } : {},
       );
       const [active, completed] = await Promise.all([
-        client.listCourses({ enrollmentState: "active", limit: 200 }),
-        client.listCourses({ enrollmentState: "completed", limit: 200 }),
+        listAllCourses(client, "active"),
+        listAllCourses(client, "completed"),
       ]);
       if (active.length === 0 && completed.length === 0 && this.hasCatalog(userId)) {
         this.saveSuspiciousEmptySync(userId, now);
@@ -175,6 +196,21 @@ export class CourseCatalogService {
     }
   }
 
+  async getTimetableForLecture(): Promise<HanyangTimetable> {
+    const ownerCanvasUserId = getImportedTimetableOwnerId();
+    const candidates = this.options.db.prepare(
+      "SELECT user_id FROM canvas_connections WHERE institution = 'hanyang' AND canvas_user_id = ?",
+    ).all(ownerCanvasUserId) as Array<{ user_id: string }>;
+    if (candidates.length !== 1) {
+      throw new CourseCatalogError("timetable_owner_unavailable", "The imported timetable owner has no unique Canvas connection.", 403);
+    }
+    this.assertLectureOwner(candidates[0]!.user_id);
+    const connection = this.options.getConnection(candidates[0]!.user_id);
+    const client = new CanvasRestClient(connection, this.options.fetch ? { fetch: this.options.fetch } : {});
+    const status = await client.connectionStatus();
+    return getHanyangTimetable(status.profile.id, new Date(this.clock()));
+  }
+
   assertLectureOwner(userId: string): void {
     if (this.soleHanyangUserId() !== userId) {
       throw new CourseCatalogError(
@@ -185,13 +221,33 @@ export class CourseCatalogService {
     }
   }
 
+  private readonly schoolLaunchCache = new LearningXSessionCache();
+
+  async discoverSchoolViewers(courseId: string): Promise<SchoolViewer[]> {
+    const catalog = await this.listForLecture(false);
+    if (!catalog.courses.some(course => course.id === courseId && course.status === "active")) {
+      throw new CourseCatalogError("course_unavailable", "An active Hanyang course is required.", 403);
+    }
+    const client = new LearningXReadClient(this.options.getConnection(this.soleHanyangUserId()), {
+      sessionCache: this.schoolLaunchCache, ...(this.options.fetch ? { fetch: this.options.fetch } : {}),
+    });
+    const modules = await client.listModules(courseId).catch(error => {
+      if (error instanceof CanvasApiError && error.code === "not_found") return [];
+      throw error;
+    });
+    const viewers = modules.flatMap(module => module.items.flatMap(item => item.translive
+      ? [{ courseId, viewerId: item.translive.id, moduleItemId: item.moduleItemId ?? null,
+          title: `${module.name} · ${item.title}`.slice(0, 500) }] : []));
+    return [...new Map(viewers.map(viewer => [viewer.viewerId, viewer])).values()].slice(0, 200);
+  }
+
   private soleHanyangUserId(): string {
     const rows = this.options.db
       .prepare(
         `SELECT user_id
          FROM canvas_connections
          WHERE institution = 'hanyang'
-         ORDER BY created_at`,
+           AND user_id = (SELECT user_id FROM lecture_owner WHERE singleton = 1)`,
       )
       .all() as Array<{ user_id: string }>;
     if (rows.length === 0) {

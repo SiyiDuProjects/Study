@@ -9,15 +9,20 @@ import { type Server } from "node:http";
 import { type AppConfig } from "./config.js";
 import { type AppDatabase, openDatabase } from "./db/index.js";
 import { CanvasRestClient } from "./canvas/index.js";
-import { createAuthRouter, requireBearer } from "./auth/http.js";
+import { createAuthRouter, requireBearer, requireSession } from "./auth/http.js";
+import { createPasskeyRecovery } from "./auth/recovery.js";
 import { createAuthService } from "./auth/service.js";
 import { AuthError } from "./auth/errors.js";
 import type { AuthService, BearerAuthentication, ValidatePat } from "./auth/types.js";
 import { createCanvasMcpServer } from "./mcp/index.js";
+import { CanvasMessageService } from "./canvas/messages.js";
+import { CanvasWriteService } from "./canvas/writes.js";
 import { isLectureToolName } from "./mcp/lectureTools.js";
 import { CourseCatalogService } from "./course/index.js";
 import { createInternalRouter } from "./internal/http.js";
 import { LectureClient } from "./lecture/index.js";
+import { createSchoolCaptionSync } from "./lecture/school-sync.js";
+import { LearningXSessionCache } from "./learningx/index.js";
 import { log } from "./logger.js";
 import { createFileDownloadLink, verifyFileDownloadToken } from "./fileLinks.js";
 
@@ -36,6 +41,7 @@ export interface ApplicationRuntime {
   config: AppConfig;
   database: AppDatabase;
   auth: AuthService;
+  startBackground(): void;
   close(): void;
 }
 
@@ -131,6 +137,12 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
       })
     : null;
   const publicHost = new URL(config.publicOrigin).hostname;
+  const schoolSync = config.lectureApiUrl && config.lectureServiceToken ? createSchoolCaptionSync({
+    baseUrl: config.lectureApiUrl, serviceToken: config.lectureServiceToken,
+    ...(config.lectureSiteAuthToken ? { siteAuthToken: config.lectureSiteAuthToken } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    discover: courseId => courseCatalog.discoverSchoolViewers(courseId),
+  }) : null;
   const compatiblePublicHosts = publicHost === STUDY_CANONICAL_HOST
     ? [STUDY_LEGACY_MCP_HOST]
     : [];
@@ -207,6 +219,7 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
   app.get("/", page(webRoot, "index.html"));
   app.get("/setup", page(webRoot, "setup.html"));
   app.get("/login", page(webRoot, "login.html"));
+  app.get("/recover", page(webRoot, "recover.html"));
   app.get("/account", page(webRoot, "account.html"));
   app.get("/privacy", page(webRoot, "privacy.html"));
   app.get("/terms", page(webRoot, "terms.html"));
@@ -218,7 +231,8 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
   app.use("/oauth/consent", limiter(10 * 60_000, 120));
   app.use("/oauth/token", limiter(10 * 60_000, 120));
   app.use("/oauth/revoke", limiter(10 * 60_000, 120));
-  app.use(createAuthRouter(auth, config));
+  app.use("/auth/recovery/request", limiter(30 * 60_000, 10));
+  app.use(createAuthRouter(auth, config, createPasskeyRecovery(database, config, options.clock)));
   app.use(createInternalRouter(courseCatalog, config.studyServiceToken));
 
   app.get("/files/:token", limiter(60_000, 120), async (request, response, next) => {
@@ -252,17 +266,24 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
     }
   });
 
+  app.get("/api/lecture/sessions", requireSession(auth), async (_request, response, next) => {
+    try {
+      courseCatalog.assertLectureOwner(response.locals.user.id);
+      if (!lectureClient) {
+        response.status(503).json({ error: { message: "Lecture integration is not configured." } });
+        return;
+      }
+      response.set("Cache-Control", "no-store");
+      response.json(await lectureClient.listSessions({ limit: 20, status: "all" }));
+    } catch (error) { next(error); }
+  });
+
   const mcpLimit = limiter(60_000, 240);
+  const learningXSessionCache = new LearningXSessionCache();
+  const writeService = config.canvasCourseworkWritesEnabled ? new CanvasWriteService(database, userId => auth.getCanvasConnection(userId), options.fetch, config.canvasUploadOrigins, config.chatgptFileOrigins) : undefined;
+  const messageService = config.canvasMessagesEnabled ? new CanvasMessageService(database, userId => auth.getCanvasConnection(userId), options.fetch, writeService) : undefined;
   const bearer = requireBearer(auth, ["canvas.read"]);
-  const lectureBearer = requireBearer(auth, ["canvas.read", "lecture.read"]);
-  const requireToolScope: RequestHandler = (request, response, next) => {
-    if (!lectureClient || !invokesLectureTool(request.body)) {
-      next();
-      return;
-    }
-    lectureBearer(request, response, next);
-  };
-  app.post("/mcp", mcpLimit, bearer, requireToolScope, async (request, response) => {
+  app.post("/mcp", mcpLimit, bearer, async (request, response) => {
     const authentication = response.locals.auth as BearerAuthentication;
     const lectureCall = Boolean(lectureClient && invokesLectureTool(request.body));
     if (lectureCall) {
@@ -290,6 +311,9 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
           ...(options.clock ? { now: options.clock() } : {}),
         }),
       learningXEnabled: config.learningXEnabled,
+      learningXSessionCache,
+      ...(messageService ? { messageService } : {}),
+      ...(writeService ? { writeService } : {}),
       ...(lectureClient ? { lectureClient } : {}),
       ...(options.fetch ? { fetch: options.fetch } : {}),
     });
@@ -355,7 +379,8 @@ export function createApplication(options: CreateApplicationOptions): Applicatio
     config,
     database,
     auth,
-    close: () => database.close(),
+    startBackground: () => schoolSync?.start(),
+    close: () => { schoolSync?.close(); database.close(); },
   };
 }
 

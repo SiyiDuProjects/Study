@@ -1,0 +1,1195 @@
+{
+  "formatVersion": 1,
+  "observedAt": "2026-09-07T09:45:57.883Z",
+  "scope": "Local working-tree MCP registration with every optional integration enabled. Not a production or current-session tool snapshot.",
+  "method": {
+    "sdkVersion": "1.30.0",
+    "transport": "InMemoryTransport",
+    "observedClientMethods": [
+      "initialize",
+      "notifications/initialized",
+      "tools/list"
+    ],
+    "toolsListRequests": 1,
+    "toolsCallRequests": 0,
+    "networkRequests": 0,
+    "connectionLookups": 0,
+    "realMessagesSent": 0,
+    "credentials": "Synthetic constructor values only; not included in this artifact."
+  },
+  "configuration": {
+    "learningXEnabled": true,
+    "lectureClientConfigured": true,
+    "messageServiceConfigured": true,
+    "oauthScopeOverride": false,
+    "scopeMeaning": "Required scopes advertised by each tool using the same defaults as app.ts; this in-memory probe does not verify any real account grant."
+  },
+  "counts": {
+    "total": 37,
+    "readOnly": 35,
+    "write": 2,
+    "canvasRead": 26,
+    "learningXRead": 6,
+    "lectureRead": 3
+  },
+  "writeToolNames": [
+    "send_message",
+    "reply_message"
+  ],
+  "scopeGroups": [
+    {
+      "scopes": [
+        "canvas.read"
+      ],
+      "toolNames": [
+        "connection_status",
+        "list_courses",
+        "get_timetable",
+        "get_course",
+        "list_assignments",
+        "get_assignment",
+        "list_announcements",
+        "list_modules",
+        "list_module_items",
+        "list_course_tabs",
+        "list_quizzes",
+        "list_discussion_topics",
+        "list_discussion_entries",
+        "list_discussion_replies",
+        "list_pages",
+        "get_page",
+        "list_files",
+        "get_file",
+        "list_conversations",
+        "get_conversation",
+        "list_course_submissions",
+        "list_learningx_attendance",
+        "get_learningx_attendance_item",
+        "list_learningx_modules",
+        "list_learningx_boards",
+        "list_learningx_board_posts",
+        "get_learningx_board_post",
+        "list_calendar_events",
+        "get_upcoming_work",
+        "get_submission_status",
+        "get_grades",
+        "weekly_summary"
+      ]
+    },
+    {
+      "scopes": [
+        "canvas.read",
+        "canvas.messages.write"
+      ],
+      "toolNames": [
+        "send_message",
+        "reply_message"
+      ]
+    },
+    {
+      "scopes": [
+        "canvas.read",
+        "lecture.read"
+      ],
+      "toolNames": [
+        "list_lecture_sessions",
+        "get_lecture_transcript",
+        "search_lecture_transcripts"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "connection_status",
+      "title": "Canvas connection status",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "a649977f724ad625a17d237428e9f67e00163c0ba0ebd27f205c20ea9904d44e",
+      "outputSchemaSha256": "a4ea28027f1d3004249ce32eeb8f06acaa974f10da4bbc71c0c3a453d68b1285"
+    },
+    {
+      "name": "list_courses",
+      "title": "List Canvas courses",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "6b9520c9c01fcd0218b3c2d04ae63757d899af83a288a9e8f4fce603a8a781cb",
+      "outputSchemaSha256": "0d398b63a9024572b895994bc60b02c42a117ac102d43b78a18e32cfae6ecee6"
+    },
+    {
+      "name": "get_timetable",
+      "title": "Get Hanyang timetable",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "a649977f724ad625a17d237428e9f67e00163c0ba0ebd27f205c20ea9904d44e",
+      "outputSchemaSha256": "b47409cb22703e1784991ef3540ef788ba151dee189c62d9dab8c39459925ee5"
+    },
+    {
+      "name": "get_course",
+      "title": "Get Canvas course",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "8ff83768de4af50a0d908fae8690e6ce30dcc4b38aa9f0e939de3cf692e31d6b",
+      "outputSchemaSha256": "f008d9cc9fec141f90dca7c1fdb3165dd8c3eeb2fb17013ac4edd8956cd2706f"
+    },
+    {
+      "name": "list_assignments",
+      "title": "List Canvas assignments",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "89847e02ea21ebfccd769177f61bac154c135323395ec4b6eeebdf174341916e",
+      "outputSchemaSha256": "23a8e34569c5c251d3c374fe857df2313aadf761776448fc810a11c0acc91dfd"
+    },
+    {
+      "name": "get_assignment",
+      "title": "Get Canvas assignment",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "aff76f877698d17cffeb48038696b77c48b8dae41e27431196c847c9617ca8dc",
+      "outputSchemaSha256": "758cc6bd338e26ed254dd556733f2b94a0568726d284a9e4dc084364246d0ede"
+    },
+    {
+      "name": "list_announcements",
+      "title": "List Canvas announcements",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "d123dbc13b91ed090670f64a45c388234050188462c06f7a39bf817f73901272",
+      "outputSchemaSha256": "7a7341fa11cda335e4be9e159ae207913d56ebd7912229bf60e317de41432a6a"
+    },
+    {
+      "name": "list_modules",
+      "title": "List Canvas modules",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "ab49d34d2fee076b03dff3015b29b5fe6cf5a7c01693943acafd4f71cf28cc45",
+      "outputSchemaSha256": "8b74b0191c6d5af6be95289f8cbef9063c18676e4e70bced3658d3fbf2b2bec3"
+    },
+    {
+      "name": "list_module_items",
+      "title": "List Canvas module items",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "0333f741e4a552baffca48bb275a5b479b1cad78225dd8f8d4d7339310acae89",
+      "outputSchemaSha256": "caec93d9529dcdf5e35afe27cbea075b0ea86710e15f9e1003eb96e4f3a8c6ff"
+    },
+    {
+      "name": "list_course_tabs",
+      "title": "List Canvas course tabs",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "ab49d34d2fee076b03dff3015b29b5fe6cf5a7c01693943acafd4f71cf28cc45",
+      "outputSchemaSha256": "fe01f03285151c9cae59f9a9789fe9bfc3b8e54e67be1d3c5095343ffba345d0"
+    },
+    {
+      "name": "list_quizzes",
+      "title": "List Canvas quizzes",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "ab49d34d2fee076b03dff3015b29b5fe6cf5a7c01693943acafd4f71cf28cc45",
+      "outputSchemaSha256": "0d12b322c0a9968b0db67e8498bad3ca22784dc116514115ff97efffe50616ec"
+    },
+    {
+      "name": "list_discussion_topics",
+      "title": "List Canvas discussion topics",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "77ae0172db5e6fd2fac604fe32e4c034410ec6a23a911b8d35f1fff05fe21019",
+      "outputSchemaSha256": "12403bd3646fb284a69444f4b44e5b000b3f17880645c96b2863e3a8a986d18f"
+    },
+    {
+      "name": "list_discussion_entries",
+      "title": "List Canvas discussion entries",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "25d15a2f2d76c0342370e723790091a4943658633529d475ffb68f437b068acc",
+      "outputSchemaSha256": "4f0f357174b2a9c3fc5c18a184536565d8f711ba20c6e4fc217a1337c4659fca"
+    },
+    {
+      "name": "list_discussion_replies",
+      "title": "List Canvas discussion replies",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "4dc73eff1802c62c1a8ce32844ed7c275622c482cfadc92a564cce4200fe2792",
+      "outputSchemaSha256": "4f0f357174b2a9c3fc5c18a184536565d8f711ba20c6e4fc217a1337c4659fca"
+    },
+    {
+      "name": "list_pages",
+      "title": "List Canvas course pages",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "ab49d34d2fee076b03dff3015b29b5fe6cf5a7c01693943acafd4f71cf28cc45",
+      "outputSchemaSha256": "142ff1ae3578e01cbbb702022152212ced3b28962563b1dadf735e7b3b278baa"
+    },
+    {
+      "name": "get_page",
+      "title": "Get Canvas course page",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "c23d250acdfc1449f2e030cf8c0a1fb00c8c19a546afa7cdc7cd12fdcd91c075",
+      "outputSchemaSha256": "328c7adf41fc6de488aeebd1cbe29e6aeff1faf4354989c29bdcd60bd6f74b72"
+    },
+    {
+      "name": "list_files",
+      "title": "List Canvas course files",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "00500e8b7691dae68f1ccefca064821250aef649a4e3d46c3f07f81e024018c1",
+      "outputSchemaSha256": "e4f87c6768ebba78c5116206db2bc288f0d83ddf05ae56abafa943218e6fb8c3"
+    },
+    {
+      "name": "get_file",
+      "title": "Get Canvas file",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "63b86d7609d4b015a8eee4491f784e06acff27032af092a3941c34a32fb7681f",
+      "outputSchemaSha256": "f08efa7869e5f6e2c2ff809f8d72a8aaa73633ff3e3e836d78378281cceb6a58"
+    },
+    {
+      "name": "list_conversations",
+      "title": "List Canvas Inbox conversations",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "ad56782cd3e46c9ce70a4b16ea90d6efdd25e15fe99f4410689cfc98cd79ca45",
+      "outputSchemaSha256": "3e5cc490d706850112c7b43b5001f77b528673ebe15e9453d7d6dc4c9d19952c"
+    },
+    {
+      "name": "get_conversation",
+      "title": "Get Canvas Inbox conversation",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "658464400ce2a01f4ed06c2ef123057306a0b06883f9927bb6a6847157447477",
+      "outputSchemaSha256": "33f9e93eb37d41f6811d3eae9fe39644bcb87d1ce3bb22a70ae24320ebf1bdf5"
+    },
+    {
+      "name": "list_course_submissions",
+      "title": "List own Canvas course submissions",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "97ca89dd27ac1be5966f067f3dd9e7a7fdc0c71b3b0cf6b98e03de81e1640bfa",
+      "outputSchemaSha256": "d60cb66a9915da58b7cde90c707a73852ead026f12f830f8780e657087581789"
+    },
+    {
+      "name": "list_learningx_attendance",
+      "title": "List LearningX attendance items",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "3f01382cb0d9b6151b2648967e489091e8e79f2ed8a27ddb9ccbeba33ef05bf2",
+      "outputSchemaSha256": "9faa84a2b1ce22824a15d964a379fba04df400a03a3317ea627864237704d5bf"
+    },
+    {
+      "name": "get_learningx_attendance_item",
+      "title": "Get LearningX attendance item",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "fafa84002e48f2367200ca9885cdea725f249b50995f97f556eb960b0ae06fa7",
+      "outputSchemaSha256": "55567ac6848e9a33730530e9ce7c33692ef582276d2b7ef43c99a792483e2657"
+    },
+    {
+      "name": "list_learningx_modules",
+      "title": "List LearningX course modules",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "3f01382cb0d9b6151b2648967e489091e8e79f2ed8a27ddb9ccbeba33ef05bf2",
+      "outputSchemaSha256": "f35f8135ed621b9f9aed8f66a230a0763f322531f6e41d7a220aad2cd6f264c6"
+    },
+    {
+      "name": "list_learningx_boards",
+      "title": "List LearningX course boards",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "3f01382cb0d9b6151b2648967e489091e8e79f2ed8a27ddb9ccbeba33ef05bf2",
+      "outputSchemaSha256": "e4a488ee618a6e15b5b88353d79ce7be8f13d9d37f8b8e277e5d1d5fdf497ab9"
+    },
+    {
+      "name": "list_learningx_board_posts",
+      "title": "List LearningX board posts",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "e5daae5c25771c4e8569b3f3fdd3f9622e129543d12705777262eeab3222c011",
+      "outputSchemaSha256": "87da3bbbd8c7a58a0c26d2218ec8e10a675df9d77a3230b753b23dc6273dd601"
+    },
+    {
+      "name": "get_learningx_board_post",
+      "title": "Get LearningX board post",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "92c95f748d175da1af19f16914b833564cdc5ad352bc4ef975b4064662f15ef5",
+      "outputSchemaSha256": "e8add3096e0efcded0bc0c7b62ab855700f119c5c0bbd5d48aed72d5feb0f961"
+    },
+    {
+      "name": "list_calendar_events",
+      "title": "List Canvas calendar events",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "5851bc0375fb473797e131b755ed8d8e4eb578ee885ec31ddb2239c970a93d5d",
+      "outputSchemaSha256": "5e38695ad15a77421c80de26fe48ddad2991772aaddba5b9b2a79a4f44c88175"
+    },
+    {
+      "name": "get_upcoming_work",
+      "title": "Get upcoming Canvas work",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "9feb4a07c7b55f0fa95aaaf86cd264fab85bc5f1e45f39a65dc80ad4aeb108d3",
+      "outputSchemaSha256": "5e06cab8152066859d0c2097273626ba29dfeb2a6e4de3860106800d7947ca84"
+    },
+    {
+      "name": "get_submission_status",
+      "title": "Get own Canvas submission status",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "e0879303f8cca44d0c389a895c56e8dda1003e5d62e612511f7bf051ed63bceb",
+      "outputSchemaSha256": "d4d972d726cda3918d8447f02f4fef3b90d6892c1819857780b1e2e0f9163a8d"
+    },
+    {
+      "name": "get_grades",
+      "title": "Get own Canvas grades",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "c08053881578b50cc030fea8e767bbad023720b8ecf0420c117615c327648d02",
+      "outputSchemaSha256": "d9409cc3538c8f60b1c62f12a66336d9bb7066d8e5475e49b1456273c62b47ad"
+    },
+    {
+      "name": "weekly_summary",
+      "title": "Canvas weekly summary",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "0d27dadb7a1d6626bc6127d8d34403531e15dff984e0d161345755414264a3d3",
+      "outputSchemaSha256": "7d4a64eefea36316de2ce809f4e88b188bfa806b3de67c6907f4fe3cb5d1aedd"
+    },
+    {
+      "name": "send_message",
+      "title": "Send Canvas Inbox message to a teacher",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "canvas.messages.write"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "canvas.messages.write"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "e41bb09586501ec12ccbb9939bd0b8bbab23aacaae2ff84ec006cbf83a9bf1ce",
+      "outputSchemaSha256": "27e675f13d4ef0ef9da741470f8fd8363208f72147f07aa47fcbbf3210fe8438"
+    },
+    {
+      "name": "reply_message",
+      "title": "Reply to a Canvas Inbox message",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "canvas.messages.write"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "canvas.messages.write"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "14fed277474a9f002db763f6ed30cdefaee0afdc50c6da15c7523f8541ed32b4",
+      "outputSchemaSha256": "27e675f13d4ef0ef9da741470f8fd8363208f72147f07aa47fcbbf3210fe8438"
+    },
+    {
+      "name": "list_lecture_sessions",
+      "title": "List lecture recordings",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "lecture.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "lecture.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "db23938e87392a2e2b3cbda0f6dff86aa08546a171afc7aa5fd450fc6ac05168",
+      "outputSchemaSha256": "e1cbedbce26acd6db733f84f006e9514e8827e4a7b46869fa687bb06c74f4b1e"
+    },
+    {
+      "name": "get_lecture_transcript",
+      "title": "Get lecture transcript",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "lecture.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "lecture.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "55b79b357510f498a48f5622eca9d3bbba3d15faf6a74b73049e288406ba304b",
+      "outputSchemaSha256": "c75fe9c0a90ba167e98ece5bda377638a4d50921a145e8f95871c3415b0c9ae8"
+    },
+    {
+      "name": "search_lecture_transcripts",
+      "title": "Search lecture transcripts",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "lecture.read"
+          ]
+        }
+      ],
+      "metaSecuritySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "canvas.read",
+            "lecture.read"
+          ]
+        }
+      ],
+      "inputSchemaSha256": "51ad6471f70cf398402d11a104a9e1681b86e11a930cfab260740ccf80542a2f",
+      "outputSchemaSha256": "da808876af480a3a02c6da918397a5175745ca8066f5573f6a7cd9443a193d2a"
+    }
+  ],
+  "sourceFiles": [
+    {
+      "path": "apps/core/src/app.ts",
+      "sha256": "37de9077f165f3dc61ddaa16b5b7274c2d22f151d018725959fe5111d8c1b336"
+    },
+    {
+      "path": "apps/core/src/mcp/server.ts",
+      "sha256": "30cc6fe8efc2afabcd630ff0a769dbfccdd1ad1a8d7f339963c519be2c42bfed"
+    },
+    {
+      "path": "apps/core/src/mcp/canvasTools.ts",
+      "sha256": "4b1da93fe81aff989fb7fc52cbc9795ca4ff9536cb11a6add6a1f7b891caf08d"
+    },
+    {
+      "path": "apps/core/src/mcp/lectureTools.ts",
+      "sha256": "483a5b56901a971d742693286125e15863748ab44f612d5a7480adf286251d2d"
+    },
+    {
+      "path": "apps/core/src/mcp/messageTools.ts",
+      "sha256": "4e56837c00a316c9947ac5f78abccac8d2c7f94ff0476720ba6e09c516489dcb"
+    },
+    {
+      "path": "apps/core/src/mcp/tools.ts",
+      "sha256": "29bfb9046509eda3636a097c3551e02ebefa2faa52f2f2c3f820c37145434f8a"
+    },
+    {
+      "path": "apps/core/src/mcp/contracts.ts",
+      "sha256": "6153b83493805cad96828871aa6d84993d74528ee3da6d80ed5fb78699490a0b"
+    },
+    {
+      "path": "apps/core/src/mcp/canvasOutputSchemas.ts",
+      "sha256": "fbdfef2c44bb551ba68984881061be493ea00ff42f15286a3d3fb2167a7097e2"
+    },
+    {
+      "path": "apps/core/src/mcp/lectureOutputSchemas.ts",
+      "sha256": "1da18d5d9c77c43e144a0c812f194cfd97292ab494e23567a07cb7aa91fdb836"
+    },
+    {
+      "path": "apps/core/src/lecture/types.ts",
+      "sha256": "f639eb7f83fa81a94dae2c3ba36d9059394d4030562bcef1d8de35c23409032f"
+    },
+    {
+      "path": "apps/core/src/canvas/messages.ts",
+      "sha256": "76710e8c3bdd61af131ec4d34710e34a5acf585b658824227261b6346957dc0f"
+    }
+  ]
+}

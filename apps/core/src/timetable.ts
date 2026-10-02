@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { CanvasApiError } from "./canvas/errors.js";
+
 export type HanyangWeekday =
   | "monday"
   | "tuesday"
@@ -33,6 +36,13 @@ export interface HanyangTimetable {
     label: string;
     asOf: string;
   };
+  teachingCalendar: {
+    startsOn: string;
+    weeks: number;
+    basis: "semester_start_seven_day_blocks";
+    sourceUrl: string;
+    label: string;
+  };
   meetings: HanyangTimetableMeeting[];
   interpretation: {
     recurringBaseline: true;
@@ -42,118 +52,40 @@ export interface HanyangTimetable {
   };
 }
 
-const HANYANG_2026_FALL_TIMETABLE: HanyangTimetable = {
-  institution: "hanyang",
-  term: {
-    id: "94",
-    name: "2026년 2학기",
-    academicYear: 2026,
-    semester: 2,
-  },
-  timezone: "Asia/Seoul",
-  totalCredits: 16,
-  source: {
-    kind: "official_portal_timetable",
-    label: "Hanyang Portal > 수업 > 수강신청 > 신청과목시간표확인",
-    asOf: "2026-08-30",
-  },
-  meetings: [
-    {
-      canvasCourseId: "214446",
-      canvasCourseCode: "202620HY25113_파이썬과데이터분석",
-      courseNameKo: "파이썬과데이터분석",
-      courseNameZh: "Python与数据分析",
-      weekday: "monday",
-      weekdayIso: 1,
-      startTime: "11:00",
-      endTime: "13:00",
-      locationCode: "Y202-0410",
-      locationName: null,
-    },
-    {
-      canvasCourseId: "215704",
-      canvasCourseCode: "202620HY20316_한국어듣기말하기2",
-      courseNameKo: "한국어듣기말하기2",
-      courseNameZh: "韩语听说2",
-      weekday: "monday",
-      weekdayIso: 1,
-      startTime: "17:00",
-      endTime: "19:00",
-      locationCode: "Y206-0104",
-      locationName: "Conference Hall 104",
-    },
-    {
-      canvasCourseId: "214375",
-      canvasCourseCode: "202620HY24372_ESG와SDGs이해",
-      courseNameKo: "ESG와SDGs이해",
-      courseNameZh: "ESG与SDGs理解",
-      weekday: "tuesday",
-      weekdayIso: 2,
-      startTime: "11:00",
-      endTime: "13:00",
-      locationCode: "Y-317-F-06-03",
-      locationName: null,
-    },
-    {
-      canvasCourseId: "215729",
-      canvasCourseCode: "202620HY20340_디지털리터러시와한국어",
-      courseNameKo: "디지털리터러시와한국어",
-      courseNameZh: "数字素养与韩国语",
-      weekday: "tuesday",
-      weekdayIso: 2,
-      startTime: "17:00",
-      endTime: "19:00",
-      locationCode: "Y206-0104",
-      locationName: "Conference Hall 104",
-    },
-    {
-      canvasCourseId: "215714",
-      canvasCourseCode: "202620HY20326_한국어읽기쓰기2",
-      courseNameKo: "한국어읽기쓰기2",
-      courseNameZh: "韩语读写2",
-      weekday: "wednesday",
-      weekdayIso: 3,
-      startTime: "17:00",
-      endTime: "19:00",
-      locationCode: "Y206-0104",
-      locationName: "Conference Hall 104",
-    },
-    {
-      canvasCourseId: "216115",
-      canvasCourseCode: "202620HY24465_디지털미디어사회의이해",
-      courseNameKo: "디지털미디어사회의이해",
-      courseNameZh: "数字媒体社会理解",
-      weekday: "thursday",
-      weekdayIso: 4,
-      startTime: "14:00",
-      endTime: "17:00",
-      locationCode: "Y202-0413",
-      locationName: "솔성관 413",
-    },
-    {
-      canvasCourseId: "215739",
-      canvasCourseCode: "202620HY20350_유학생을위한합리적사고와토의",
-      courseNameKo: "유학생을위한합리적사고와토의",
-      courseNameZh: "外国留学生合理思考与讨论",
-      weekday: "friday",
-      weekdayIso: 5,
-      startTime: "17:00",
-      endTime: "19:00",
-      locationCode: "Y206-0104",
-      locationName: "Conference Hall 104",
-    },
-  ],
-  interpretation: {
-    recurringBaseline: true,
-    matchCourseBy: ["canvasCourseId", "canvasCourseCode", "courseNameKo"],
-    temporaryNoticeRule:
-      "A date-specific instructor notice may override only the matching course and the exact stated date or date range; preserve both the normal timetable and the temporary arrangement in the answer.",
-    missingNoticeRule:
-      "The absence of a notice does not prove that a class is in person, online, cancelled, or moved.",
-  },
-};
+interface TimetableImport {
+  ownerCanvasUserId: string | null;
+  timetable: HanyangTimetable;
+}
 
-/** Return an isolated copy so no caller can mutate the imported timetable. */
-export function getHanyangTimetable(): HanyangTimetable {
-  return structuredClone(HANYANG_2026_FALL_TIMETABLE);
+const imported = JSON.parse(readFileSync(new URL("./data/hanyang-timetable.json", import.meta.url), "utf8")) as TimetableImport;
+
+export function getImportedTimetableOwnerId(): string {
+  if (typeof imported.ownerCanvasUserId !== "string" || !/^[1-9]\d*$/.test(imported.ownerCanvasUserId)) {
+    throw new CanvasApiError("configuration_error", "The imported timetable has no verified Canvas owner.");
+  }
+  return imported.ownerCanvasUserId;
+}
+
+/** The caller must obtain this ID from Canvas connectionStatus, not a cached App identity. */
+export function getHanyangTimetable(verifiedCanvasUserId: string, now = new Date()): HanyangTimetable {
+  if (verifiedCanvasUserId !== getImportedTimetableOwnerId()) {
+    throw new CanvasApiError("permission_denied", "No imported timetable is available for this Canvas account.", { status: 403 });
+  }
+  const calendar = imported.timetable.teachingCalendar;
+  const startsAt = Date.parse(calendar?.startsOn + "T00:00:00Z");
+  if (!Number.isFinite(startsAt) || !Number.isInteger(calendar.weeks) || calendar.weeks < 1 || calendar.weeks > 30) {
+    throw new CanvasApiError("configuration_error", "The imported timetable has an invalid teaching calendar.");
+  }
+  if (!Number.isFinite(now.getTime())) {
+    throw new CanvasApiError("invalid_argument", "The timetable lookup date is invalid.");
+  }
+  const dateInSeoul = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(now);
+  const day = Date.parse(dateInSeoul + "T00:00:00Z");
+  const endsBefore = startsAt + calendar.weeks * 7 * 86_400_000;
+  if (day < startsAt || day >= endsBefore) {
+    throw new CanvasApiError("not_found", "No imported timetable covers the current teaching term.", { status: 404 });
+  }
+  return structuredClone(imported.timetable);
 }

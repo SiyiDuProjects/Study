@@ -1,0 +1,162 @@
+{
+  "timestamp": "2026-09-07T08:47:02.343Z",
+  "cases": 23,
+  "passed": 8,
+  "failed": 15,
+  "network": "none; every upstream call is mocked",
+  "results": [
+    {
+      "id": "P01",
+      "category": "correctness",
+      "name": "Planner boolean submitted is not unsubmitted",
+      "status": "FAIL",
+      "detail": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'unsubmitted'\n- 'submitted'\n"
+    },
+    {
+      "id": "P02",
+      "category": "correctness",
+      "name": "Planner graded boolean is preserved",
+      "status": "FAIL",
+      "detail": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'unsubmitted'\n- 'graded'\n"
+    },
+    {
+      "id": "P03",
+      "category": "completeness",
+      "name": "Completed first page must not hide an incomplete second page",
+      "status": "FAIL",
+      "detail": "Expected values to be strictly equal:\n\nundefined !== '2'\n"
+    },
+    {
+      "id": "P04",
+      "category": "completeness",
+      "name": "Module children omitted by upstream are not reported as an empty module",
+      "status": "FAIL",
+      "detail": "items=[] with no incomplete marker despite items_count=150"
+    },
+    {
+      "id": "P05",
+      "category": "resilience",
+      "name": "Weekly summary retains successful sections when announcements fail",
+      "status": "FAIL",
+      "detail": "Denied"
+    },
+    {
+      "id": "P06",
+      "category": "completeness",
+      "name": "Selecting a course should happen before a global course limit",
+      "status": "FAIL",
+      "detail": "Expected values to be strictly equal:\n\nundefined !== '8'\n"
+    },
+    {
+      "id": "P07",
+      "category": "resilience",
+      "name": "LearningX changed response shape must not become a successful empty list",
+      "status": "FAIL",
+      "detail": "valid JSON object with records silently becomes []"
+    },
+    {
+      "id": "P08",
+      "category": "routing",
+      "name": "Ambiguous attendance tabs must not silently select Offline Attendance",
+      "status": "FAIL",
+      "detail": "first regex match selected Offline Attendance"
+    },
+    {
+      "id": "P09",
+      "category": "contract",
+      "name": "The declared daily recording course can be selected through MCP",
+      "status": "FAIL",
+      "detail": "daily is rejected at the MCP input boundary"
+    },
+    {
+      "id": "P10",
+      "category": "completeness",
+      "name": "Historical recordings expose a continuation or date window",
+      "status": "FAIL",
+      "detail": "only course_id/status/limit are exposed; records beyond the cap cannot be enumerated"
+    },
+    {
+      "id": "P11",
+      "category": "compatibility",
+      "name": "One historical model name must not break all recording summaries",
+      "status": "FAIL",
+      "detail": "[\n  {\n    \"code\": \"invalid_value\",\n    \"values\": [\n      \"gpt-realtime-whisper\"\n    ],\n    \"path\": [\n      \"sessions\",\n      1,\n      \"models\",\n      \"transcription\"\n    ],\n    \"message\": \"Invalid input: expected \\\"gpt-realtime-whisper\\\"\"\n  }\n]"
+    },
+    {
+      "id": "P12",
+      "category": "sanitization",
+      "name": "Encoded active URL is not returned as sanitized HTML",
+      "status": "FAIL",
+      "detail": "encoded javascript scheme survives the HTML regex"
+    },
+    {
+      "id": "P13",
+      "category": "credential-boundary",
+      "name": "Raw verifier links in course-authored HTML are not returned",
+      "status": "FAIL",
+      "detail": "course HTML bypasses the file relay credential boundary"
+    },
+    {
+      "id": "P14",
+      "category": "error-contract",
+      "name": "Upstream reflected credentials do not appear in public errors",
+      "status": "FAIL",
+      "detail": "synthetic credential was copied into public error.message"
+    },
+    {
+      "id": "P15",
+      "category": "error-contract",
+      "name": "Punctuation in a permission denial must not imply an expired credential",
+      "status": "FAIL",
+      "detail": "only adding Chinese punctuation changed the diagnosis to authentication failure"
+    },
+    {
+      "id": "G01",
+      "category": "guardrail",
+      "name": "Invalid Canvas ID is rejected before network",
+      "status": "PASS"
+    },
+    {
+      "id": "G02",
+      "category": "guardrail",
+      "name": "Pagination cannot send a PAT to another origin",
+      "status": "PASS"
+    },
+    {
+      "id": "G03",
+      "category": "guardrail",
+      "name": "Cyclic pagination is rejected",
+      "status": "PASS"
+    },
+    {
+      "id": "G04",
+      "category": "guardrail",
+      "name": "Inbox GET explicitly preserves unread state",
+      "status": "PASS"
+    },
+    {
+      "id": "G05",
+      "category": "guardrail",
+      "name": "Invalid date window is rejected before network",
+      "status": "PASS"
+    },
+    {
+      "id": "G06",
+      "category": "guardrail",
+      "name": "Missing grade stays null rather than zero",
+      "status": "PASS"
+    },
+    {
+      "id": "G07",
+      "category": "guardrail",
+      "name": "File capability expires at its boundary",
+      "status": "PASS"
+    },
+    {
+      "id": "G08",
+      "category": "guardrail",
+      "name": "Concurrent identical sends issue at most one synthetic POST",
+      "status": "PASS"
+    }
+  ]
+}

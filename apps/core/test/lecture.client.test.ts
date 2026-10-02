@@ -42,7 +42,24 @@ function json(body: unknown, status = 200): Response {
 }
 
 describe("LectureClient", () => {
-  it("uses only fixed internal GET paths and the dedicated service token", async () => {
+  it("preserves daily/date/cursor filters and historical model names in the shared read contract", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("course_id")).toBe("daily");
+      expect(url.searchParams.get("start_at")).toBe("2026-08-01T00:00:00Z");
+      expect(url.searchParams.get("end_at")).toBe("2026-09-01T00:00:00Z");
+      expect(url.searchParams.get("cursor")).toBe("opaque-cursor");
+      return json({ items: [{ ...summary(), courseId: "daily", courseMatchStatus: "daily",
+        models: { translation: "retired-translation-model", transcription: "gpt-4o-mini-transcribe", mode: "historical-mode" } }],
+        nextCursor: "next-page", warnings: [] });
+    }) as typeof globalThis.fetch;
+    const client = new LectureClient({ baseUrl: "http://lecture:8091", serviceToken: SERVICE_TOKEN, fetch });
+    const page = await client.listSessions({ courseId: "daily", startAt: "2026-08-01T00:00:00Z", endAt: "2026-09-01T00:00:00Z", cursor: "opaque-cursor" });
+    expect(page.nextCursor).toBe("next-page");
+    expect(page.items[0]?.models.transcription).toBe("gpt-4o-mini-transcribe");
+  });
+
+  it("uses fixed internal GET paths, service authentication, and the paged contract for every read", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       expect(url.origin).toBe("http://lecture:8091");
@@ -50,12 +67,14 @@ describe("LectureClient", () => {
       expect(init?.redirect).toBe("error");
       expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${SERVICE_TOKEN}`);
       expect(new Headers(init?.headers).get("oai-sites-authorization")).toBe(`Bearer ${SITE_AUTH_TOKEN}`);
+      expect(new Headers(init?.headers).get("x-study-lecture-contract")).toBe("paged-v1");
       if (url.pathname.endsWith("/search")) {
         expect(url.searchParams.get("q")).toBe("homework");
         expect(url.searchParams.get("course_id")).toBe("7");
         return json({
           query: "homework",
-          hits: [{
+          nextCursor: null, warnings: [],
+          items: [{
             sessionId: "session-1",
             sessionTitle: "Week 1",
             sessionStatus: "ready",
@@ -74,9 +93,9 @@ describe("LectureClient", () => {
       }
       if (url.pathname.endsWith("/sessions/session-1")) {
         return json({
-          session: {
-            ...summary(),
-            segments: [
+          session: summary(),
+          nextCursor: null, warnings: [], rangeComplete: true,
+          items: [
               {
                 id: "segment-1",
                 commitSequence: 3,
@@ -89,12 +108,11 @@ describe("LectureClient", () => {
                 updatedAt: "2026-09-01T10:00:02.000Z",
               },
             ],
-          },
         });
       }
       expect(url.pathname).toBe("/internal/mcp/lecture/sessions");
       expect(url.searchParams.get("status")).toBe("ready");
-      return json({ sessions: [summary()] });
+      return json({ items: [summary()], nextCursor: null, warnings: [] });
     }) as unknown as typeof globalThis.fetch;
     const client = new LectureClient({
       baseUrl: "http://lecture:8091",
@@ -103,18 +121,18 @@ describe("LectureClient", () => {
       fetch,
     });
 
-    expect((await client.listSessions({ status: "ready" })).sessions[0]).toMatchObject({
+    expect((await client.listSessions({ status: "ready" })).items[0]).toMatchObject({
       finalizationWarning: "The final sentence may be incomplete.",
       revision: 4,
     });
-    expect((await client.getSession("session-1")).session.segments[0]).toMatchObject({
+    expect((await client.getSession("session-1")).items[0]).toMatchObject({
       commitSequence: 3,
       sourceText: "원문",
       translatedText: "译文",
     });
     await expect(client.search({ query: "homework", courseId: "7" })).resolves.toMatchObject({
       query: "homework",
-      hits: [{
+      items: [{
         finalizationWarning: "The final sentence may be incomplete.",
       }],
     });
@@ -155,7 +173,8 @@ describe("LectureClient", () => {
         expect(url.searchParams.get("course_id")).toBe(producerMaximumCourseId);
         return json({
           query: "x",
-          hits: [{
+          nextCursor: null, warnings: [],
+          items: [{
             sessionId: "session-1",
             sessionTitle: "Week 1",
             sessionStatus: "ready",
@@ -175,8 +194,8 @@ describe("LectureClient", () => {
         session: {
           ...summary(),
           courseId: producerMaximumCourseId,
-          segments: [segment],
         },
+        items: [segment], nextCursor: null, warnings: [], rangeComplete: true,
       });
     }) as unknown as typeof globalThis.fetch;
     const client = new LectureClient({
@@ -188,18 +207,18 @@ describe("LectureClient", () => {
     await expect(client.getSession("session-1")).resolves.toMatchObject({
       session: {
         courseId: producerMaximumCourseId,
-        segments: [{
+      },
+      items: [{
           id: producerMaximumId,
           sourceText: producerMaximumText,
           translatedText: producerMaximumText,
         }],
-      },
     });
     await expect(client.search({
       query: "x",
       courseId: producerMaximumCourseId,
     })).resolves.toMatchObject({
-      hits: [{
+      items: [{
         courseId: producerMaximumCourseId,
         segmentId: producerMaximumId,
         sourceText: producerMaximumText,

@@ -6,7 +6,7 @@ import {
   verifyRegistrationResponse,
   type AuthenticatorTransportFuture,
 } from "@simplewebauthn/server";
-import { INSTITUTIONS, type CanvasConnection, type InstitutionKey } from "../domain.js";
+import { INSTITUTIONS, scopesForInstitution, type CanvasConnection, type InstitutionKey } from "../domain.js";
 import { isAllowedChatGptRedirectUri, isAllowedOAuthRedirectUri } from "../config.js";
 import { createPatCipher, hashOpaqueToken, hashPat, pkceS256, randomOpaqueToken, safeEqualText } from "../crypto/index.js";
 import { AuthError, invalidClient, invalidGrant, invalidRequest } from "./errors.js";
@@ -325,6 +325,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
     if (rpId === config.webauthnRpId) {
       return;
     }
+    if (config.webauthnBerkeleyRpIds.includes(rpId)) return;
     if (
       config.webauthnLegacyLoginEnabled &&
       config.webauthnLegacyRpId !== null &&
@@ -337,6 +338,11 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
 
   function selectLoginRp(rawMode: WebAuthnLoginMode | undefined): string {
     const mode = rawMode ?? "auto";
+    if (mode === "berkeley") {
+      const rpId = config.webauthnBerkeleyRpIds.find(rp => credentialExistsForRp(rp));
+      if (rpId) return rpId;
+      throw new AuthError("passkey_missing", "No Berkeley migration passkey is available; use your Study passkey", 409);
+    }
     if (mode !== "auto" && mode !== "canonical" && mode !== "legacy") {
       throw new AuthError("invalid_login_mode", "Unsupported passkey login mode", 400);
     }
@@ -362,6 +368,8 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
     if (credentialExistsForRp(config.webauthnRpId, userId)) {
       return config.webauthnRpId;
     }
+    const berkeleyRp = config.webauthnBerkeleyRpIds.find(rp => credentialExistsForRp(rp, userId));
+    if (berkeleyRp) return berkeleyRp;
     const legacyRpId = config.webauthnLegacyRpId;
     if (legacyRpId !== null && credentialExistsForRp(legacyRpId, userId)) {
       return legacyRpId;
@@ -461,7 +469,8 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       throw new AuthError("invalid_scope", "The canvas.read scope is required", 400, "invalid_scope");
     }
     for (const scope of requested) {
-      if (!config.oauthScopes.includes(scope as (typeof config.oauthScopes)[number])) {
+      if (!config.oauthScopes.includes(scope as (typeof config.oauthScopes)[number]) &&
+          !["lecture.read", "canvas.messages.write", "canvas.files.write", "canvas.submissions.write"].includes(scope)) {
         throw new AuthError("invalid_scope", `Unsupported OAuth scope: ${scope}`, 400, "invalid_scope");
       }
     }
@@ -872,9 +881,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
            VALUES (?, ?, ?, ?, ?)`,
         ).run(sessionHash, userRow.id, sessionExpiresAt, at, at);
         if (
-          config.webauthnLegacyLoginEnabled &&
-          config.webauthnLegacyRpId !== null &&
-          credentialRow.rp_id === config.webauthnLegacyRpId &&
+          credentialRow.rp_id !== config.webauthnRpId &&
           !credentialExistsForRp(config.webauthnRpId, userRow.id)
         ) {
           const token = randomOpaqueToken("cstep_");
@@ -906,7 +913,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
       const action = requireStepUpAction(rawAction);
       const at = operationTime();
       requireActiveSession(userId, sessionId, at);
-      const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+      const user = db.prepare("SELECT id, institution FROM users WHERE id = ?").get(userId) as { id: string; institution: InstitutionKey } | undefined;
       if (!user) {
         throw new AuthError("account_missing", "The account no longer exists", 404);
       }
@@ -1469,7 +1476,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
 
     issueAuthorizationCode(userId, input) {
       const request = service.inspectAuthorizationRequest(input);
-      const user = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+      const user = db.prepare("SELECT id, institution FROM users WHERE id = ?").get(userId) as { id: string; institution: InstitutionKey } | undefined;
       if (!user) {
         throw new AuthError("invalid_session", "The authenticated user no longer exists", 401);
       }
@@ -1484,7 +1491,7 @@ export function createAuthService(options: AuthServiceOptions): AuthService {
         userId,
         request.clientId,
         request.redirectUri,
-        request.scope,
+        scopesForInstitution(request.scopes, user.institution).join(" "),
         request.resource,
         request.codeChallenge,
         at + config.oauthCodeTtlSeconds * 1000,

@@ -35,7 +35,7 @@
 
         <section>
           <h2>What this service does</h2>
-          <p>Study is an invite-only gateway that lets an authenticated user ask a compatible MCP client to read information from the user's own Hanyang HY-ON account and saved Study Lecture transcripts. The initial tool set is read-only.</p>
+          <p>Study is an invite-only gateway that lets an authenticated user ask a compatible MCP client to read information from the user's selected Berkeley bCourses or Hanyang HY-ON account. Saved Study Lecture transcripts belong only to the authorized Hanyang account. One Study connection covers the enabled capabilities for that school account. When explicitly requested, the service can upload files, submit individual assignments and send or reply to one selected Inbox recipient with optional attachments.</p>
         </section>
 
         <section>
@@ -46,18 +46,20 @@
           <p>We process the Canvas access token you provide, the Canvas account identity returned when the token is validated, and Canvas records requested through the service, such as courses, assignments, submissions and feedback, Inbox conversations, grades, announcements, and LearningX course records. We do not request your university password or campus SSO credential.</p>
           <h3>Saved lecture data</h3>
           <p>When Study Lecture is enabled, we process course-linked recording metadata and saved Korean transcript text with its Chinese translation. Raw microphone audio is sent directly from the browser to the configured transcription provider and is not stored by Study or Study Lecture.</p>
+          <h3>Message delivery data</h3><p>Requested message text and the chosen recipient are transmitted to the selected school's Canvas. The service stores only a delivery fingerprint, request ID, status, and conversation receipt to prevent duplicate sends; it does not store outgoing message bodies in this ledger.</p>
+          <h3>File and assignment delivery</h3><p>When enabled and explicitly requested, Study can upload files you select or ask your client to generate, send them with an Inbox message, and submit assignment text or files with a comment. File bytes pass through Core memory to the selected school's LMS or its explicitly approved storage service; Study does not save a local copy. The delivery ledger stores file names, sizes, hashes, account and target identifiers, operation status and receipts, but no temporary download URLs, file bytes or submission text. Files and submitted work remain in LMS under the school's policies, including files uploaded before a failed final send or submission. These permissions do not enable automatic daily-check submissions.</p>
           <h3>Operational data</h3>
           <p>We may process timestamps, request identifiers, coarse client information, and network addresses needed to prevent abuse, diagnose errors, and secure the service. Application logs must not contain Canvas access tokens, invitation tokens, session cookies, passkey challenges, or full Canvas response bodies.</p>
         </section>
 
         <section>
           <h2>How information is used</h2>
-          <p>Information is used to authenticate you, maintain the Hanyang connection, save and retrieve authorized lecture records, retrieve Canvas files you explicitly request, execute the requests you initiate, prevent abuse, and operate the service. This service does not sell personal information or use coursework or transcripts to build advertising profiles.</p>
+          <p>Information is used to authenticate you, maintain each independent school connection, save and retrieve authorized lecture records, retrieve Canvas files you explicitly request, execute the requests you initiate, prevent abuse, and operate the service. This service does not sell personal information or use coursework or transcripts to build advertising profiles.</p>
         </section>
 
         <section>
           <h2>Where information goes</h2>
-          <p>The service sends authorized Canvas requests only to Hanyang HY-ON. When you request a Canvas file, Study retrieves its original bytes and relays them through a short-lived signed link to the MCP client without disclosing the Canvas PAT or verifier URL. Study Lecture sends live microphone audio directly to OpenAI for transcription or translation and stores only the resulting text and recording metadata on the private service. If the separately gated Hanyang LearningX pilot is enabled, a signed LTI launch form may also be sent to an allowlisted Hanyang or Xinics HTTPS origin; the Canvas PAT is never sent there. Results are returned to the MCP client you chose. ChatGPT, Codex, OpenAI, and other clients or processors handle data under their own terms and privacy notices.</p>
+          <p>The service sends authorized Canvas requests only to the selected school: Berkeley bCourses or Hanyang HY-ON. Standard Canvas capabilities are shared by both schools; LearningX is Hanyang-only. When you request a Canvas file, Study retrieves its original bytes and relays them through a short-lived signed link to the MCP client without disclosing the Canvas PAT or verifier URL. Study Lecture sends live microphone audio directly to OpenAI for transcription or translation and stores only the resulting text and recording metadata on the private service. If the separately gated Hanyang LearningX pilot is enabled, a signed LTI launch form may also be sent to an allowlisted Hanyang or Xinics HTTPS origin; the Canvas PAT is never sent there. Results are returned to the MCP client you chose. ChatGPT, Codex, OpenAI, and other clients or processors handle data under their own terms and privacy notices.</p>
         </section>
 
         <section>

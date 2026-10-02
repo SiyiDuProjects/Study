@@ -1,0 +1,429 @@
+{
+  "synthetic": true,
+  "schoolNetworkCalls": 0,
+  "generatedAt": "2026-09-21T02:33:22.181Z",
+  "passed": 7,
+  "failed": 14,
+  "probes": [
+    {
+      "id": "P01",
+      "safetyExpectation": "Default work discovery must retain graded + missing work",
+      "passed": false,
+      "observed": {
+        "items": [],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "P02",
+      "safetyExpectation": "Missing work must not be classified completed even when included",
+      "passed": false,
+      "observed": {
+        "items": [
+          {
+            "id": "8",
+            "courseId": "7",
+            "type": "assignment",
+            "title": "Synthetic missing assignment",
+            "date": "2026-09-20T14:59:00Z",
+            "dueAt": "2026-09-20T14:59:00Z",
+            "htmlUrl": null,
+            "pointsPossible": null,
+            "completed": true,
+            "submissionStatus": "graded"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "C01",
+      "safetyExpectation": "Authoritative submission preserves graded + missing + zero",
+      "passed": true,
+      "observed": {
+        "id": "9",
+        "assignmentId": "8",
+        "courseId": "7",
+        "status": "missing",
+        "workflowState": "graded",
+        "submittedAt": null,
+        "gradedAt": null,
+        "score": 0,
+        "grade": null,
+        "attempt": null,
+        "late": false,
+        "missing": true,
+        "excused": false,
+        "secondsLate": 0,
+        "submissionType": null,
+        "attachments": [],
+        "history": []
+      }
+    },
+    {
+      "id": "P03",
+      "safetyExpectation": "Expose planner override separately so manual completion is distinguishable",
+      "passed": false,
+      "observed": {
+        "items": [
+          {
+            "id": "8",
+            "courseId": "7",
+            "type": "assignment",
+            "title": "Synthetic missing assignment",
+            "date": "2026-09-20T14:59:00Z",
+            "dueAt": "2026-09-20T14:59:00Z",
+            "htmlUrl": null,
+            "pointsPossible": null,
+            "completed": true,
+            "submissionStatus": "missing"
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "P04",
+      "safetyExpectation": "Preserve authoritative user lock and allowed attempt facts",
+      "passed": false,
+      "observed": {
+        "id": "8",
+        "courseId": "7",
+        "name": "Locked",
+        "descriptionHtml": null,
+        "descriptionText": null,
+        "dueAt": null,
+        "unlockAt": null,
+        "lockAt": null,
+        "pointsPossible": null,
+        "position": null,
+        "published": false,
+        "workflowState": null,
+        "submissionTypes": [],
+        "allowedExtensions": [],
+        "hasSubmittedSubmissions": false,
+        "htmlUrl": null,
+        "submission": {
+          "id": "9",
+          "assignmentId": "8",
+          "courseId": "7",
+          "status": "unsubmitted",
+          "workflowState": "unsubmitted",
+          "submittedAt": null,
+          "gradedAt": null,
+          "score": null,
+          "grade": null,
+          "attempt": 1,
+          "late": false,
+          "missing": false,
+          "excused": false,
+          "secondsLate": 0,
+          "submissionType": null,
+          "attachments": [],
+          "history": []
+        }
+      }
+    },
+    {
+      "id": "P05",
+      "safetyExpectation": "Preserve teacher resubmission request",
+      "passed": false,
+      "observed": {
+        "id": "9",
+        "assignmentId": "8",
+        "courseId": "7",
+        "status": "graded",
+        "workflowState": "graded",
+        "submittedAt": "2026-09-19T00:00:00Z",
+        "gradedAt": null,
+        "score": 0,
+        "grade": "0",
+        "attempt": null,
+        "late": false,
+        "missing": false,
+        "excused": false,
+        "secondsLate": 0,
+        "submissionType": null,
+        "attachments": [],
+        "history": []
+      }
+    },
+    {
+      "id": "P06",
+      "safetyExpectation": "Malformed empty submission must not pass as confirmed unsubmitted",
+      "passed": false,
+      "observed": {
+        "schemaAccepted": true,
+        "result": {
+          "id": null,
+          "assignmentId": "8",
+          "courseId": "7",
+          "status": "unsubmitted",
+          "workflowState": null,
+          "submittedAt": null,
+          "gradedAt": null,
+          "score": null,
+          "grade": null,
+          "attempt": null,
+          "late": false,
+          "missing": false,
+          "excused": false,
+          "secondsLate": 0,
+          "submissionType": null,
+          "attachments": [],
+          "history": []
+        }
+      }
+    },
+    {
+      "id": "P07",
+      "safetyExpectation": "Reject detail response for a different assignment/course",
+      "passed": false,
+      "observed": {
+        "id": "999",
+        "courseId": "7",
+        "name": "Wrong course",
+        "descriptionHtml": null,
+        "descriptionText": null,
+        "dueAt": null,
+        "unlockAt": null,
+        "lockAt": null,
+        "pointsPossible": null,
+        "position": null,
+        "published": false,
+        "workflowState": null,
+        "submissionTypes": [],
+        "allowedExtensions": [],
+        "hasSubmittedSubmissions": false,
+        "htmlUrl": null,
+        "submission": null
+      }
+    },
+    {
+      "id": "P08",
+      "safetyExpectation": "Reject submission detail identifying another assignment or student",
+      "passed": false,
+      "observed": {
+        "requested": {
+          "assignment": 8,
+          "user": 42
+        },
+        "upstream": {
+          "assignment": 999,
+          "user": 777
+        },
+        "result": {
+          "id": "9",
+          "assignmentId": "8",
+          "courseId": "7",
+          "status": "submitted",
+          "workflowState": "submitted",
+          "submittedAt": "2026-09-19T00:00:00Z",
+          "gradedAt": null,
+          "score": null,
+          "grade": null,
+          "attempt": null,
+          "late": false,
+          "missing": false,
+          "excused": false,
+          "secondsLate": 0,
+          "submissionType": null,
+          "attachments": [],
+          "history": []
+        }
+      }
+    },
+    {
+      "id": "P09",
+      "safetyExpectation": "Reject assignment list rows without a valid ID",
+      "passed": false,
+      "observed": {
+        "schemaAccepted": true,
+        "result": {
+          "items": [
+            {
+              "id": "",
+              "courseId": "7",
+              "name": "",
+              "descriptionHtml": null,
+              "descriptionText": null,
+              "dueAt": null,
+              "unlockAt": null,
+              "lockAt": null,
+              "pointsPossible": null,
+              "position": null,
+              "published": false,
+              "workflowState": null,
+              "submissionTypes": [],
+              "allowedExtensions": [],
+              "hasSubmittedSubmissions": false,
+              "htmlUrl": null,
+              "submission": null
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "id": "P10",
+      "safetyExpectation": "Preserve non-secret query parameters required to locate a resource",
+      "passed": false,
+      "observed": "<p>Required survey <a href=\"https://school.example/view\">form</a></p>"
+    },
+    {
+      "id": "P11",
+      "safetyExpectation": "Keep a safe reference or omission warning for embedded instruction files",
+      "passed": false,
+      "observed": "<p>Required instructions:</p>"
+    },
+    {
+      "id": "C02",
+      "safetyExpectation": "Unknown score remains null, never zero",
+      "passed": true,
+      "observed": {
+        "items": [
+          {
+            "enrollmentId": "4",
+            "courseId": "7",
+            "enrollmentState": null,
+            "currentScore": null,
+            "currentGrade": null,
+            "finalScore": null,
+            "finalGrade": null,
+            "currentPoints": null
+          }
+        ],
+        "nextCursor": null
+      }
+    },
+    {
+      "id": "C03",
+      "safetyExpectation": "Assignments remain discoverable across continuation",
+      "passed": true,
+      "observed": {
+        "first": [
+          "1"
+        ],
+        "second": [
+          "2"
+        ],
+        "calls": 2
+      }
+    },
+    {
+      "id": "C04",
+      "safetyExpectation": "Reject cursor replay into another course",
+      "passed": true,
+      "observed": {
+        "blocked": true
+      }
+    },
+    {
+      "id": "C05",
+      "safetyExpectation": "Unknown attendance is not classified absent or incomplete",
+      "passed": true,
+      "observed": [
+        {
+          "id": "8",
+          "courseId": "7",
+          "title": "",
+          "type": null,
+          "moduleItemId": null,
+          "translive": null,
+          "attendanceStatus": null,
+          "useAttendance": true,
+          "completed": null,
+          "dueAt": null,
+          "unlockAt": null,
+          "completedAt": null,
+          "progressSeconds": null,
+          "lastAtSeconds": null,
+          "required": null,
+          "durationSeconds": null,
+          "progressSupported": null,
+          "viewerUrl": "https://learning.hanyang.ac.kr/courses/7/external_tools/132"
+        }
+      ]
+    },
+    {
+      "id": "P12",
+      "safetyExpectation": "Real MCP tools/call retains missing work",
+      "passed": false,
+      "observed": {
+        "ok": true,
+        "result": {
+          "items": [],
+          "nextCursor": null
+        },
+        "error": null
+      }
+    },
+    {
+      "id": "P13",
+      "safetyExpectation": "Real MCP tools/call rejects malformed submission",
+      "passed": false,
+      "observed": {
+        "ok": true,
+        "result": {
+          "id": null,
+          "assignmentId": "8",
+          "courseId": "7",
+          "status": "unsubmitted",
+          "workflowState": null,
+          "submittedAt": null,
+          "gradedAt": null,
+          "score": null,
+          "grade": null,
+          "attempt": null,
+          "late": false,
+          "missing": false,
+          "excused": false,
+          "secondsLate": 0,
+          "submissionType": null,
+          "attachments": [],
+          "history": []
+        },
+        "error": null
+      }
+    },
+    {
+      "id": "C06",
+      "safetyExpectation": "Public tool rejects datetime without timezone offset",
+      "passed": true,
+      "observed": {
+        "isError": true
+      }
+    },
+    {
+      "id": "C07",
+      "safetyExpectation": "Permission failure never becomes empty coursework",
+      "passed": true,
+      "observed": {
+        "denied": true
+      }
+    },
+    {
+      "id": "P14",
+      "safetyExpectation": "Announcement publication date must not become an invented deadline",
+      "passed": false,
+      "observed": {
+        "items": [
+          {
+            "id": "10",
+            "courseId": "7",
+            "type": "announcement",
+            "title": "Class change for September 21",
+            "date": "2026-09-06T06:52:12Z",
+            "dueAt": "2026-09-06T06:52:12Z",
+            "htmlUrl": null,
+            "pointsPossible": null,
+            "completed": null,
+            "submissionStatus": null
+          }
+        ],
+        "nextCursor": null
+      }
+    }
+  ]
+}

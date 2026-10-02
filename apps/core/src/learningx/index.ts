@@ -1,4 +1,4 @@
-export { LearningXReadClient, type LearningXClientOptions } from "./client.js";
+export { LearningXReadClient, LearningXSessionCache, type LearningXClientOptions } from "./client.js";
 export type {
   LearningXAttendanceItem,
   LearningXBoard,

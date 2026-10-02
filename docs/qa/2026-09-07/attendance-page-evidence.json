@@ -1,0 +1,39 @@
+{
+  "observedAt": "2026-09-07T19:45:45.144Z",
+  "publicSources": [
+    {
+      "url": "https://learning.hanyang.ac.kr/learningx/js/LectureAttendance/course-menu.app.js",
+      "bytes": 75433,
+      "sha256": "d0e47eb857e0b4f3ef1f732ed7f63608c95fd7ca8907a8cd5d820147c0179dd6"
+    },
+    {
+      "url": "https://learning.hanyang.ac.kr/learningx/js/commons.js",
+      "bytes": 3874472,
+      "sha256": "470bec2dd07fd6e7bf6b22f3f0612d87b4fb17f899a248e29c522f609c45fcd1"
+    }
+  ],
+  "sourceAcquisition": "Public script URLs observed in the authenticated page DOM; unauthenticated HTTP downloads; not executed",
+  "authenticatedPage": {
+    "courseId": "215729",
+    "externalToolId": "138",
+    "attendanceItems": 2,
+    "attended": 2,
+    "absent": 0,
+    "incomplete": 0,
+    "firstItem": {
+      "displayedDuration": "00:24:03",
+      "progressPercent": 100,
+      "learningStatus": "Complete",
+      "attendanceStatus": "attended"
+    }
+  },
+  "existingProductionTools": {
+    "attendanceItems": 0,
+    "firstItemId": "1260902",
+    "firstItemCompleted": true,
+    "firstItemStatus": "attendance",
+    "firstItemProgressSeconds": 1443.34
+  },
+  "newEndpointAuthenticatedRawResponseCaptured": false,
+  "productionDeployed": false
+}

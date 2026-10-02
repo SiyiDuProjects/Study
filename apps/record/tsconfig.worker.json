@@ -1,16 +1,29 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["@cloudflare/workers-types", "node", "vitest/globals"],
+    "types": [
+      "@cloudflare/workers-types",
+      "node",
+      "vitest/globals"
+    ],
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["worker", "server/openai.ts", "server/schemas.ts", "server/study.ts", "shared", "src/types.ts"]
+  "include": [
+    "worker",
+    "services",
+    "shared",
+    "src/types.ts"
+  ]
 }

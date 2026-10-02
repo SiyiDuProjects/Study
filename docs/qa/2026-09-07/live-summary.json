@@ -1,0 +1,335 @@
+{
+  "date": "2026-09-07",
+  "scope": "Hanyang Study only; read-only connector calls; synthetic writes only in offline tests",
+  "activeTools": 33,
+  "attemptedTools": 29,
+  "callAttempts": 36,
+  "successes": 29,
+  "failures": 7,
+  "calls": [
+    {
+      "tool": "connection_status",
+      "sample": "baseline0",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_courses",
+      "sample": "baseline1",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 7
+    },
+    {
+      "tool": "get_timetable",
+      "sample": "baseline2",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "weekly_summary",
+      "sample": "weekly",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_conversations",
+      "sample": "inbox",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 10
+    },
+    {
+      "tool": "list_lecture_sessions",
+      "sample": "sessions",
+      "ok": false,
+      "errorCode": "invalid_response",
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_course_tabs",
+      "sample": "tabs",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 10
+    },
+    {
+      "tool": "list_assignments",
+      "sample": "assignments",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 1
+    },
+    {
+      "tool": "list_learningx_boards",
+      "sample": "boards",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 1
+    },
+    {
+      "tool": "list_learningx_attendance",
+      "sample": "attendance",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 0
+    },
+    {
+      "tool": "search_lecture_transcripts",
+      "sample": "lectureSearch",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 0
+    },
+    {
+      "tool": "get_course",
+      "sample": "course",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "get_submission_status",
+      "sample": "submission",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_learningx_modules",
+      "sample": "modulesLX",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 16
+    },
+    {
+      "tool": "list_pages",
+      "sample": "pages",
+      "ok": false,
+      "errorCode": "not_found",
+      "httpStatus": 404,
+      "resultCount": null
+    },
+    {
+      "tool": "list_files",
+      "sample": "files",
+      "ok": false,
+      "errorCode": "permission_denied",
+      "httpStatus": 401,
+      "resultCount": null
+    },
+    {
+      "tool": "get_conversation",
+      "sample": "conversation",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_lecture_sessions",
+      "sample": "sessions1",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 1
+    },
+    {
+      "tool": "list_lecture_sessions",
+      "sample": "sessionsDaily",
+      "ok": false,
+      "errorCode": "INVALID_ARGUMENT",
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_lecture_sessions",
+      "sample": "sessionsCourse",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 0
+    },
+    {
+      "tool": "list_learningx_board_posts",
+      "sample": "boardPosts",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_announcements",
+      "sample": "announcements",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 0
+    },
+    {
+      "tool": "get_lecture_transcript",
+      "sample": "transcript",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_lecture_sessions",
+      "sample": "sessionsReady",
+      "ok": false,
+      "errorCode": "invalid_response",
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_modules",
+      "sample": "modules",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 16
+    },
+    {
+      "tool": "get_grades",
+      "sample": "grades",
+      "ok": false,
+      "errorCode": "upstream_error",
+      "httpStatus": 500,
+      "resultCount": null
+    },
+    {
+      "tool": "list_quizzes",
+      "sample": "quizzes",
+      "ok": false,
+      "errorCode": "not_found",
+      "httpStatus": 404,
+      "resultCount": null
+    },
+    {
+      "tool": "list_course_submissions",
+      "sample": "courseSubmissions",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 1
+    },
+    {
+      "tool": "get_assignment",
+      "sample": "getAssignment",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "get_learningx_attendance_item",
+      "sample": "attendanceItem",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": null
+    },
+    {
+      "tool": "list_discussion_topics",
+      "sample": "discussionTopics",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 0
+    },
+    {
+      "tool": "get_upcoming_work",
+      "sample": "upcoming",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 1
+    },
+    {
+      "tool": "list_calendar_events",
+      "sample": "calendar",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 1
+    },
+    {
+      "tool": "list_lecture_sessions",
+      "sample": "sessions2",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 2
+    },
+    {
+      "tool": "search_lecture_transcripts",
+      "sample": "lectureSearchKnown",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 3
+    },
+    {
+      "tool": "list_lecture_sessions",
+      "sample": "sessions5",
+      "ok": true,
+      "errorCode": null,
+      "httpStatus": null,
+      "resultCount": 5
+    }
+  ],
+  "confirmedEvidence": {
+    "assignment": {
+      "courseId": "215729",
+      "assignmentId": "2803267",
+      "plannerStatus": "unsubmitted",
+      "plannerCompleted": false,
+      "submissionStatus": "submitted",
+      "submittedAt": "2026-09-06T06:44:13Z"
+    },
+    "attendance": {
+      "courseId": "215729",
+      "listCount": 0,
+      "completedVideoIds": [
+        "1260902",
+        "1260904"
+      ],
+      "itemId": "1260902",
+      "completed": true,
+      "progressSeconds": 1443.34,
+      "rawResponseShape": "not confirmed"
+    },
+    "lecture": {
+      "latestCourseId": "daily",
+      "limit5": "success",
+      "limit10": "invalid_response",
+      "productionSchemaInspection": {
+        "rows": 10,
+        "valid": 8,
+        "invalid": 2,
+        "errorPath": "models.transcription",
+        "historicalModel": "gpt-4o-transcribe",
+        "requiredLiteral": "gpt-realtime-whisper"
+      }
+    },
+    "currentSessionWriteTools": []
+  }
+}

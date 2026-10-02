@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from "express";
+import { CanvasApiError } from "../canvas/errors.js";
 
 import { safeEqualText } from "../crypto/secrets.js";
 import { CourseCatalogError, type CourseCatalogService } from "../course/index.js";
@@ -34,6 +35,18 @@ export function createInternalRouter(
     } catch (error) {
       if (error instanceof CourseCatalogError) {
         response.status(error.status).json({ error: error.code });
+        return;
+      }
+      response.status(500).json({ error: "internal_error" });
+    }
+  });
+
+  router.get("/internal/lecture/timetable", async (_request, response) => {
+    try {
+      response.json(await courseCatalog.getTimetableForLecture());
+    } catch (error) {
+      if (error instanceof CourseCatalogError || error instanceof CanvasApiError) {
+        response.status(error.status ?? 503).json({ error: error.code });
         return;
       }
       response.status(500).json({ error: "internal_error" });

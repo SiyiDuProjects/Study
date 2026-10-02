@@ -7,6 +7,7 @@ function createEnv(overrides: Partial<SitesEnv> = {}): SitesEnv {
       fetch: vi.fn(async () => new Response("asset"))
     } as unknown as Fetcher,
     DB: {} as D1Database,
+    STUDY_OWNER_EMAIL: "student@example.com",
     ...overrides
   };
 }
@@ -19,6 +20,28 @@ function browserHeaders(extra: HeadersInit = {}): Headers {
 }
 
 describe("Sites Worker API", () => {
+  it("keeps unknown D1 failure text and request values out of public responses and logs", async () => {
+    const sink = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const marker = "synthetic-private-database-fragment";
+      const env = createEnv({ DB: { prepare: () => { throw new Error(`${marker} no longer writable`); } } as unknown as D1Database });
+      const response = await handleRequest(new Request("https://record.example/api/sessions/" + marker, {
+        headers: browserHeaders(),
+      }), env);
+      expect(response.status).toBe(502);
+      expect(await response.text()).not.toContain(marker);
+      expect(sink).toHaveBeenCalledOnce();
+      expect(JSON.stringify(sink.mock.calls)).not.toContain(marker);
+      expect(JSON.parse(String(sink.mock.calls[0]?.[0]))).toMatchObject({
+        event: "api_request_failed", routeFamily: "api", error: { kind: "exception", status: null },
+      });
+    } finally { sink.mockRestore(); }
+  });
+
+  it("rejects another signed-in account before reading private transcripts", async () => {
+    const response = await handleRequest(new Request("https://record.example/api/sessions", { headers: browserHeaders() }), createEnv({ STUDY_OWNER_EMAIL: "owner@example.com" }));
+    expect(response.status).toBe(403);
+  });
   it("serves health without caching", async () => {
     const response = await handleRequest(new Request("https://record.example/api/health"), createEnv());
     expect(response.status).toBe(200);

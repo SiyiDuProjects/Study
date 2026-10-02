@@ -263,6 +263,9 @@ describe("RP-aware migration", () => {
       INSERT INTO schema_migrations(version, applied_at)
       VALUES (1, 0), (2, 0), (3, 0), (4, 0), (5, 0);
 
+      CREATE TABLE canvas_connections(user_id TEXT PRIMARY KEY, institution TEXT NOT NULL);
+      CREATE UNIQUE INDEX canvas_connections_single_owner_idx ON canvas_connections((1));
+
       CREATE TABLE webauthn_credentials(
         credential_id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -298,7 +301,7 @@ describe("RP-aware migration", () => {
       });
     }
     expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-      version: 6,
+      version: 10,
     });
 
     db.prepare(

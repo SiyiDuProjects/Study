@@ -1,0 +1,63 @@
+{
+  "capturedAt": "2026-09-07T08:54:11.6934129Z",
+  "head": "0c8569c05fdaa69876ba7ae7673e1e82760546ac",
+  "note": "Dirty and concurrently changing workspace; hashes identify sampled source, not a clean release",
+  "files": [
+    {
+      "path": "apps/core/src/canvas/client.ts",
+      "sha256": "575DD23EF879B9D5A2B0D56F70C6E51C4680D71C26B5706F6FE978DFA90EDCB2"
+    },
+    {
+      "path": "apps/core/src/learningx/client.ts",
+      "sha256": "EC31E2B0F25D085817FE0F99BF7AA5E64F6E81F52E4AC75E19B3A0EFE0664374"
+    },
+    {
+      "path": "apps/core/src/mcp/canvasTools.ts",
+      "sha256": "F2455D6C2EBB7C07BD4A4FF5916CBE8EB0B322B1B8BF086302239674CEFC37C6"
+    },
+    {
+      "path": "apps/core/src/mcp/lectureTools.ts",
+      "sha256": "352BAA609888C6F50CFBE88A3D176201AE86F76011489BD3C0F9FC9631B6D792"
+    },
+    {
+      "path": "apps/core/src/lecture/types.ts",
+      "sha256": "AA45CC1B7EBD1C53C1817A003D861D6B9BBD705F8A7A485213D2521E5C3F031C"
+    },
+    {
+      "path": "apps/core/src/canvas/messages.ts",
+      "sha256": "1BDE3381E82B62FF3FD4C0A085D4CFD7C9DE3D464C6B9167BDDDB224B5CFB4BC"
+    },
+    {
+      "path": "apps/core/src/app.ts",
+      "sha256": "4C69F52387275E4E4E78E4316390EB4EAF28B01C69E01B26622224F822D827D7"
+    },
+    {
+      "path": "apps/record/worker/db.ts",
+      "sha256": "C1755D7B0B362803C2866F13357E7F1435B2C91ADE45DF28F699A443E1829767"
+    },
+    {
+      "path": "apps/record/worker/index.ts",
+      "sha256": "17F538D692565BD697FFFC8DFA48A2670FE0933F4D10F57CA0328E0429291963"
+    },
+    {
+      "path": "apps/record/server/db.ts",
+      "sha256": "36E3EDDD4FA05F3B678D25195A2E0B55D184389CDC1C7440646CADD9A4BFD28B"
+    },
+    {
+      "path": "apps/record/server/schemas.ts",
+      "sha256": "34B8574DAD6D0D114A7251FF438E1CF6F1F113D1C961B55A52347EE6DDAA7CDC"
+    },
+    {
+      "path": "plugins/canvas/.codex-plugin/plugin.json",
+      "sha256": "D3E58C80AA4CBAB87BFE21F1227EF8E0DBAC976E08D675ACDA1F850438AD550B"
+    },
+    {
+      "path": "plugins/canvas/skills/canvas/SKILL.md",
+      "sha256": "9ED8C1E92D383EBBC910FC1A89BD5E23CB28FAF4753356455D6F4C6915131368"
+    },
+    {
+      "path": "plugins/canvas/skills/study/SKILL.md",
+      "sha256": "C2C122205BD2AC0976F183B59D2F49795B63571746FBADF0ECD8C954A3505099"
+    }
+  ]
+}

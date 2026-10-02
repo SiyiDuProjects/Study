@@ -1,0 +1,150 @@
+{
+  "checkedAt": "2026-09-21T02:34:06.207Z",
+  "schoolWrites": 0,
+  "scope": "Seven active course assignment/submission inventories; focused source samples, not a complete daily reminder or full university audit",
+  "courseInventories": [
+    {
+      "courseId": "215704",
+      "assignmentCount": 9,
+      "submissionCount": 9,
+      "assignmentsExhausted": true,
+      "submissionsExhausted": true,
+      "statesMatch": true
+    },
+    {
+      "courseId": "215714",
+      "assignmentCount": 0,
+      "submissionCount": 0,
+      "assignmentsExhausted": true,
+      "submissionsExhausted": true,
+      "statesMatch": true
+    },
+    {
+      "courseId": "215729",
+      "assignmentCount": 1,
+      "submissionCount": 1,
+      "assignmentsExhausted": true,
+      "submissionsExhausted": true,
+      "statesMatch": true
+    },
+    {
+      "courseId": "215739",
+      "assignmentCount": 12,
+      "submissionCount": 12,
+      "assignmentsExhausted": true,
+      "submissionsExhausted": true,
+      "statesMatch": true
+    },
+    {
+      "courseId": "214375",
+      "assignmentCount": 0,
+      "submissionCount": 0,
+      "assignmentsExhausted": true,
+      "submissionsExhausted": true,
+      "statesMatch": true
+    },
+    {
+      "courseId": "216115",
+      "assignmentCount": 1,
+      "submissionCount": 1,
+      "assignmentsExhausted": true,
+      "submissionsExhausted": true,
+      "statesMatch": true
+    },
+    {
+      "courseId": "214446",
+      "assignmentCount": 0,
+      "submissionCount": 0,
+      "assignmentsExhausted": true,
+      "submissionsExhausted": true,
+      "statesMatch": true
+    }
+  ],
+  "target": {
+    "courseId": "215704",
+    "assignmentId": "2807918",
+    "url": "https://learning.hanyang.ac.kr/courses/215704/assignments/2807918",
+    "dueAt": "2026-09-20T14:59:59Z",
+    "submission": {
+      "status": "missing",
+      "workflowState": "graded",
+      "submittedAt": null,
+      "score": 0,
+      "missing": true
+    },
+    "overdueCount": 0,
+    "upcomingBucketIds": [
+      "2807919"
+    ],
+    "plannerAllTarget": {
+      "id": "2807918",
+      "completed": true,
+      "submissionStatus": "graded"
+    },
+    "plannerIncompleteContainsTarget": false,
+    "hasSubmittedSubmissions": true,
+    "lockFieldsPresent": [
+      "unlockAt",
+      "lockAt"
+    ]
+  },
+  "announcement": {
+    "id": "514533",
+    "plannerDate": "2026-09-06T06:52:12Z",
+    "plannerDueAt": "2026-09-06T06:52:12Z",
+    "postedAt": "2026-09-06T06:52:12Z",
+    "titleMentionsDate": "2026-09-21"
+  },
+  "samples": {
+    "timetable": {
+      "ok": true,
+      "sourceDate": "2026-08-30",
+      "meetingCount": 7
+    },
+    "inbox": {
+      "pagesRead": 2,
+      "moreRemain": true,
+      "noDuplicateIds": true
+    },
+    "lecture": {
+      "pagesRead": 2,
+      "moreRemain": true,
+      "warnings": 0,
+      "noDuplicateIds": true
+    },
+    "attendance": {
+      "automaticSelectionError": "invalid_argument",
+      "selectedToolId": "138",
+      "ok": true,
+      "items": 3,
+      "offlineAttendanceAudited": false
+    },
+    "modules": 16,
+    "boardPosts": {
+      "ok": true,
+      "totalCount": 0,
+      "totalPages": 1
+    },
+    "quizzes": {
+      "ok": false,
+      "error": "not_found",
+      "status": 404
+    }
+  },
+  "limitations": [
+    "Live raw upstream payloads and historical ChatGPT tool trace unavailable",
+    "SSH runtime hash check blocked by local private key permissions; permissions not modified",
+    "ChatGPT native Skill snapshot not inspected; remote get_study_skill tested",
+    "No real message sent, assignment submitted, attendance changed, or recording started"
+  ],
+  "remoteSkillComparison": [
+    {
+      "name": "canvas",
+      "matches": true
+    },
+    {
+      "name": "daily-brief",
+      "matches": true
+    }
+  ]
+}

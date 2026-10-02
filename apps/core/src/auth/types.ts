@@ -63,7 +63,7 @@ export interface BearerAuthentication {
 }
 
 export type StepUpAction = "add_passkey" | "delete_account";
-export type WebAuthnLoginMode = "auto" | "canonical" | "legacy";
+export type WebAuthnLoginMode = "auto" | "canonical" | "legacy" | "berkeley";
 
 export interface OAuthAuthorizationInput {
   clientId: string;

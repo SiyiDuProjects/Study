@@ -1,16 +1,10 @@
-export type CanvasErrorCode =
-  | "configuration_error"
-  | "invalid_argument"
-  | "authentication_failed"
-  | "permission_denied"
-  | "not_found"
-  | "rate_limited"
-  | "canvas_error"
-  | "upstream_error"
-  | "timeout"
-  | "network_error"
-  | "invalid_response"
-  | "unsafe_pagination";
+export const CANVAS_ERROR_CODES = [
+  "configuration_error", "invalid_argument", "authentication_failed", "access_denied",
+  "permission_denied", "not_found", "rate_limited", "canvas_error", "upstream_error",
+  "timeout", "network_error", "invalid_response", "unsafe_pagination",
+] as const;
+
+export type CanvasErrorCode = typeof CANVAS_ERROR_CODES[number];
 
 export interface CanvasErrorDetails {
   status: number | null;

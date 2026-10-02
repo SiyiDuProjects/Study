@@ -8,6 +8,7 @@ export default defineConfig({
   root: projectRoot,
   cacheDir: "node_modules/.vite-test",
   test: {
+    setupFiles: ["src/test-setup.ts"],
     environment: "jsdom",
     globals: true,
     exclude: [...configDefaults.exclude, "dist/**", "dist-server/**", ".tsbuild/**"]

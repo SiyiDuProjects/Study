@@ -336,18 +336,22 @@ async function initSetup() {
 async function initLogin() {
   const button = document.querySelector("#login-button");
   const legacyButton = document.querySelector("#legacy-login-button");
+  const berkeleyButton = document.querySelector("#berkeley-login-button");
   const status = document.querySelector("#login-status");
   if (!button || !status) return;
 
   const returnTo = requestedReturnTo();
+  const recoveryLink = document.querySelector("#recovery-link");
+  if (recoveryLink) recoveryLink.href = `/recover?${new URLSearchParams({ returnTo })}`;
   try {
     requireWebAuthn();
     const session = await loadSession(returnTo);
-    if (session.authenticated === true) {
+    if (session.authenticated === true && new URLSearchParams(window.location.search).get("switch") !== "1") {
       redirectSameOrigin(session.redirectTo, returnTo);
       return;
     }
     if (legacyButton) legacyButton.hidden = session.legacyLoginEnabled !== true;
+    if (berkeleyButton) berkeleyButton.hidden = session.berkeleyLoginEnabled !== true;
   } catch (error) {
     setStatus(status, errorMessage(error), "error");
   }
@@ -356,6 +360,7 @@ async function initLogin() {
     setBusy(activeButton, true, "Waiting for your passkey…");
     if (activeButton !== button) button.disabled = true;
     if (legacyButton && activeButton !== legacyButton) legacyButton.disabled = true;
+    if (berkeleyButton && activeButton !== berkeleyButton) berkeleyButton.disabled = true;
     setStatus(status, "Approve the sign-in request on this device.");
     try {
       requireWebAuthn();
@@ -401,11 +406,13 @@ async function initLogin() {
       setBusy(activeButton, false);
       if (activeButton !== button) button.disabled = false;
       if (legacyButton && activeButton !== legacyButton) legacyButton.disabled = false;
+      if (berkeleyButton && activeButton !== berkeleyButton) berkeleyButton.disabled = false;
     }
   };
 
   button.addEventListener("click", () => void signIn("auto", button));
   legacyButton?.addEventListener("click", () => void signIn("legacy", legacyButton));
+  berkeleyButton?.addEventListener("click", () => void signIn("berkeley", berkeleyButton));
 }
 
 function formatDate(value) {
@@ -416,6 +423,7 @@ function formatDate(value) {
 }
 
 function institutionName(value) {
+  if (value === "berkeley") return "UC Berkeley bCourses";
   if (value === "hanyang") return "Hanyang HY-ON";
   return value || "Unknown";
 }
@@ -478,6 +486,7 @@ async function initAccount() {
     renderAccount(account);
     content.hidden = false;
     setStatus(status, "");
+    void loadRecordings();
   };
 
   try {
@@ -570,7 +579,101 @@ async function initAccount() {
   });
 }
 
+export async function loadRecordings() {
+  const status = document.querySelector("#recordings-status");
+  const list = document.querySelector("#recordings-list");
+  if (!list) return;
+  try {
+    const result = await api("/api/lecture/sessions");
+    if (!Array.isArray(result.items)) throw new Error("Invalid recordings response");
+    list.replaceChildren();
+    for (const session of result.items) {
+      const item = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = `https://lecture.siyidu.com/?session=${encodeURIComponent(session.id)}`;
+      link.textContent = session.title;
+      const details = document.createElement("p");
+      details.textContent = `${session.courseName} · ${session.status} · ${session.segmentCount} 段${session.finalizationWarning ? " · 文稿可能不完整" : ""}`;
+      item.append(link, details);
+      list.append(item);
+    }
+    if (result.items.length) {
+      const messages = [`最近 ${result.items.length} 条记录`];
+      if (result.nextCursor) messages.push("更多记录请打开全部课堂记录");
+      if (result.warnings?.length) messages.push("部分记录暂无法读取");
+      setStatus(status, messages.join("；"));
+    } else if (result.nextCursor || result.warnings?.length) {
+      setStatus(status, "本页没有可显示的记录，请打开录播网站继续查看。");
+    } else {
+      setStatus(status, "还没有保存的课堂记录。");
+    }
+  } catch { setStatus(status, "暂时无法读取录播记录，请打开录播网站查看。", "error"); }
+}
+
+async function initRecovery() {
+  const prepare = document.querySelector("#recovery-request");
+  const check = document.querySelector("#recovery-check");
+  const create = document.querySelector("#recovery-create");
+  const status = document.querySelector("#recovery-status");
+  const code = document.querySelector("#recovery-code");
+  const school = document.querySelector("#recovery-school");
+  const login = document.querySelector("#recovery-login");
+  const returnTo = requestedReturnTo();
+  login.href = `/login?${new URLSearchParams({ switch: "1", returnTo })}`;
+  let poll;
+  let completed = false;
+  function display(result) {
+    code.hidden = false;
+    code.textContent = `Request ID: ${result.requestId}`;
+    check.hidden = false;
+    create.hidden = result.state !== "approved";
+    school.hidden = result.state !== "approved";
+    school.textContent = result.school ? `Account: ${result.school}` : "";
+    setStatus(status, result.state === "approved" ? "Approved. Create your replacement passkey on this device or in your password manager." : "Waiting for the administrator to approve this request.");
+    clearTimeout(poll);
+    if (result.state === "pending") poll = setTimeout(refresh, 15_000);
+  }
+  async function refresh() {
+    if (completed) return;
+    try { display(await api("/auth/recovery/status", { method: "POST", body: {} })); }
+    catch (error) {
+      clearTimeout(poll);
+      prepare.hidden = false;
+      create.hidden = check.hidden = true;
+      setStatus(status, errorMessage(error), "error");
+    }
+  }
+  prepare.addEventListener("click", async () => {
+    setBusy(prepare, true, "Preparing…");
+    try {
+      requireWebAuthn();
+      display(await api("/auth/recovery/request", { method: "POST", body: {} }));
+      prepare.hidden = true;
+    } catch (error) { setStatus(status, errorMessage(error), "error"); }
+    finally { setBusy(prepare, false); }
+  });
+  check.addEventListener("click", refresh);
+  create.addEventListener("click", async () => {
+    clearTimeout(poll);
+    setBusy(create, true, "Creating your passkey…");
+    try {
+      const options = await api("/auth/recovery/options", { method: "POST", body: {} });
+      const credential = await createPasskey(options);
+      const result = await api("/auth/recovery/verify", { method: "POST", body: { credential } });
+      completed = true;
+      create.hidden = check.hidden = true;
+      login.hidden = false;
+      setStatus(status, `${result.school}: replacement passkey saved. Sign in to continue.`, "success");
+    } catch (error) { setStatus(status, errorMessage(error), "error"); }
+    finally { setBusy(create, false); }
+  });
+  // Reloads preserve the browser-bound request without creating a new one.
+  try { display(await api("/auth/recovery/status", { method: "POST", body: {} })); prepare.hidden = true; }
+  catch { /* no pending recovery yet */ }
+}
+
 const page = document.body.dataset.page;
 if (page === "setup") initSetup();
 if (page === "login") initLogin();
 if (page === "account") initAccount();
+if (page === "recovery") initRecovery();

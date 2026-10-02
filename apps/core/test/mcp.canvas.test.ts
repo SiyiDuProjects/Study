@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation";
@@ -7,6 +8,10 @@ import { z } from "zod";
 
 import type { CanvasConnection } from "../src/domain.js";
 import { createCanvasMcpServer } from "../src/mcp/index.js";
+import { getImportedTimetableOwnerId } from "../src/timetable.js";
+import { registerScopedTool } from "../src/mcp/tools.js";
+import { envelopeSchema } from "../src/mcp/contracts.js";
+import type { CanvasMessageService } from "../src/canvas/messages.js";
 
 const connection: CanvasConnection = {
   userId: "bound-user",
@@ -26,10 +31,12 @@ const TOOL_NAMES = [
   "get_assignment",
   "list_announcements",
   "list_modules",
+  "list_module_items",
   "list_course_tabs",
   "list_quizzes",
   "list_discussion_topics",
   "list_discussion_entries",
+  "list_discussion_replies",
   "list_pages",
   "get_page",
   "list_files",
@@ -66,10 +73,10 @@ const advertisedToolSchema = z
     outputSchema: objectJsonSchema,
     annotations: z
       .object({
-        readOnlyHint: z.literal(true),
-        destructiveHint: z.literal(false),
-        idempotentHint: z.literal(true),
-        openWorldHint: z.literal(false),
+        readOnlyHint: z.boolean(),
+        destructiveHint: z.boolean(),
+        idempotentHint: z.boolean(),
+        openWorldHint: z.boolean(),
       })
       .strict(),
     securitySchemes: z.array(oauthSecuritySchemeSchema),
@@ -112,12 +119,17 @@ async function connectedClient(options: {
   fetch?: typeof globalThis.fetch;
   learningXEnabled?: boolean;
   createFileLink?: (fileId: string) => { uri: string; expiresAt: string };
+  configure?: (server: McpServer) => void;
+  messageService?: CanvasMessageService;
+  now?: () => Date;
 }) {
   const server = createCanvasMcpServer({
     userId: "bound-user",
     getConnection: options.getConnection,
     fetch: options.fetch ?? profileFetch(),
     learningXEnabled: options.learningXEnabled ?? false,
+    now: options.now ?? (() => new Date("2026-09-07T12:00:00Z")),
+    ...(options.messageService ? { messageService: options.messageService } : {}),
     createFileLink:
       options.createFileLink ??
       ((fileId) => ({
@@ -125,6 +137,7 @@ async function connectedClient(options: {
         expiresAt: "2030-01-01T00:00:00.000Z",
       })),
   });
+  options.configure?.(server);
   const client = new Client({ name: "test-client", version: "1.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -139,12 +152,25 @@ async function advertisedTools(client: Client) {
 }
 
 describe("Canvas MCP tools", () => {
+  it("accepts the exact term_id at the MCP boundary and excludes still-active historical courses", async () => {
+    const client = await connectedClient({
+      getConnection: () => connection,
+      fetch: vi.fn(async () => new Response(JSON.stringify([
+        { id: 1, term: { id: 5648, name: "Fall 2025" }, workflow_state: "available" },
+        { id: 2, term: { id: 5751, name: "Fall 2026" }, workflow_state: "available" },
+      ]), { headers: { "content-type": "application/json" } })) as typeof globalThis.fetch,
+    });
+    const result = await client.callTool({ name: "list_courses", arguments: { term_id: "5751", limit: 10 } });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({ ok: true, result: { items: [{ id: "2" }], nextCursor: null } });
+  });
+
   it("publishes the focused tool set with strict schemas, annotations, and OAuth metadata", async () => {
     const client = await connectedClient({ getConnection: () => connection });
 
     const tools = await advertisedTools(client);
 
-    expect(tools.map((tool) => tool.name)).toEqual(TOOL_NAMES);
+    expect(tools.map((tool) => tool.name)).toEqual(["get_study_skill", "get_study_profile", ...TOOL_NAMES]);
     for (const tool of tools) {
       expect(tool.annotations).toMatchObject({
         readOnlyHint: true,
@@ -156,6 +182,7 @@ describe("Canvas MCP tools", () => {
         { type: "oauth2", scopes: ["canvas.read"] },
       ]);
       expect(tool._meta.securitySchemes).toEqual(tool.securitySchemes);
+      if (tool.name === "get_study_skill" || tool.name === "get_study_profile") continue;
       expect(tool.outputSchema).toMatchObject({
         type: "object",
         required: ["ok", "result", "error"],
@@ -179,14 +206,16 @@ describe("Canvas MCP tools", () => {
     const tools = await advertisedTools(client);
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...TOOL_NAMES.slice(0, 19),
+      "get_study_skill",
+      "get_study_profile",
+      ...TOOL_NAMES.slice(0, 21),
       "list_learningx_attendance",
       "get_learningx_attendance_item",
       "list_learningx_modules",
       "list_learningx_boards",
       "list_learningx_board_posts",
       "get_learningx_board_post",
-      ...TOOL_NAMES.slice(19),
+      ...TOOL_NAMES.slice(21),
     ]);
     for (const name of [
       "list_learningx_attendance",
@@ -233,7 +262,7 @@ describe("Canvas MCP tools", () => {
       type: "text",
     });
     if (result.content[0]?.type === "text") {
-      expect(result.content[0].text).toContain("Untrusted Canvas data follows");
+      expect(result.content[0].text).toContain("Untrusted Canvas data");
     }
     const validate = new AjvJsonSchemaValidator().getValidator(
       tool.outputSchema as JsonSchemaType,
@@ -242,7 +271,8 @@ describe("Canvas MCP tools", () => {
   });
 
   it("returns the complete imported timetable with stable Canvas course mappings", async () => {
-    const client = await connectedClient({ getConnection: () => connection });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ id: getImportedTimetableOwnerId(), name: "Owner" })));
+    const client = await connectedClient({ getConnection: () => connection, fetch });
     const tool = (await advertisedTools(client)).find(
       (candidate) => candidate.name === "get_timetable",
     );
@@ -288,9 +318,10 @@ describe("Canvas MCP tools", () => {
       tool.outputSchema as JsonSchemaType,
     );
     expect(validate(result.structuredContent)).toMatchObject({ valid: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("returns a short-lived MCP file reference without exposing the Canvas download URL", async () => {
+  it("returns file delivery in text and structured data for clients that reject resource_link", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       expect(url.pathname).toBe("/api/v1/files/52");
@@ -336,14 +367,14 @@ describe("Canvas MCP tools", () => {
       },
       error: null,
     });
-    expect(result.content[1]).toMatchObject({
-      type: "resource_link",
-      uri: "https://study.siyidu.com/files/signed-52",
-      name: "course-notes.pdf",
-      title: "Course notes.pdf",
-      mimeType: "application/pdf",
-      size: 1234,
+    expect(result.structuredContent).toMatchObject({
+      result: { download: {
+        url: "https://study.siyidu.com/files/signed-52",
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      } },
     });
+    expect(result.content.every((item) => item.type === "text")).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("https://study.siyidu.com/files/signed-52");
     expect(JSON.stringify(result)).not.toContain("verifier");
     const validate = new AjvJsonSchemaValidator().getValidator(
       tool.outputSchema as JsonSchemaType,
@@ -366,7 +397,7 @@ describe("Canvas MCP tools", () => {
     expect(result.structuredContent).toMatchObject({
       ok: false,
       result: null,
-      error: { code: "configuration_error", retryable: false },
+      error: { code: "permission_denied", retryable: false },
     });
     const validate = new AjvJsonSchemaValidator().getValidator(
       tool.outputSchema as JsonSchemaType,
@@ -401,5 +432,162 @@ describe("Canvas MCP tools", () => {
       error: { code: "authentication_failed", status: 401 },
     });
     expect(result._meta?.["mcp/www_authenticate"]).toBeUndefined();
+  });
+
+  it("publishes envelopes that reject inconsistent success and failure combinations for every read tool", async () => {
+    const client = await connectedClient({ getConnection: () => connection, learningXEnabled: true });
+    const error = { code: "access_denied", message: "Access denied", status: 401, retryable: false, requestId: null, retryAfterSeconds: null };
+    for (const tool of await advertisedTools(client)) {
+      if (tool.name === "get_study_skill" || tool.name === "get_study_profile") continue;
+      const validate = new AjvJsonSchemaValidator().getValidator(tool.outputSchema as JsonSchemaType);
+      expect(validate({ ok: false, result: null, error }), tool.name).toMatchObject({ valid: true });
+      expect(validate({ ok: true, result: null, error: null }), tool.name).toMatchObject({ valid: false });
+      expect(validate({ ok: false, result: null, error: null }), tool.name).toMatchObject({ valid: false });
+      expect(validate({ ok: true, result: null, error }), tool.name).toMatchObject({ valid: false });
+    }
+  });
+
+  it("advertises exactly-one-course-selector semantics for announcement requests", async () => {
+    const client = await connectedClient({ getConnection: () => connection });
+    const tool = (await advertisedTools(client)).find((candidate) => candidate.name === "list_announcements")!;
+    const validate = new AjvJsonSchemaValidator().getValidator(tool.inputSchema as JsonSchemaType);
+    expect(validate({ course_id: "7" })).toMatchObject({ valid: true });
+    expect(validate({ course_ids: ["7", "8"] })).toMatchObject({ valid: true });
+    expect(validate({})).toMatchObject({ valid: false });
+    expect(validate({ course_id: "7", course_ids: ["8"] })).toMatchObject({ valid: false });
+  });
+
+  it("returns Planner flags and unknown values through the actual tools/call output contract", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/api/v1/planner/items");
+      return new Response(JSON.stringify([
+        { plannable_id: 1, plannable_type: "assignment", submissions: { graded: true }, plannable: { title: "Graded" } },
+        { plannable_id: 2, plannable_type: "assignment", submissions: { needs_grading: true }, plannable: { title: "Waiting" } },
+        { plannable_id: 3, plannable_type: "assignment", plannable: { title: "Unknown" } },
+      ]));
+    });
+    const client = await connectedClient({ getConnection: () => connection, fetch });
+    const full = await client.callTool({ name: "get_upcoming_work", arguments: { include_completed: true } });
+    expect(full.isError).not.toBe(true);
+    expect(full.structuredContent).toMatchObject({ ok: true, result: { items: [
+      { id: "1", completed: null, submissionStatus: "graded" },
+      { id: "2", completed: true, submissionStatus: "submitted" },
+      { id: "3", completed: null, submissionStatus: null },
+    ], nextCursor: null } });
+    const incomplete = await client.callTool({ name: "get_upcoming_work", arguments: {} });
+    expect(incomplete.isError).not.toBe(true);
+    expect(incomplete.structuredContent).toMatchObject({ ok: true, result: { items: [{ id: "1" }, { id: "3" }], nextCursor: null } });
+    expect(new URL(String(fetch.mock.calls[1]?.[0])).searchParams.has("filter")).toBe(false);
+  });
+
+  it("returns graded missing work through public overdue and Planner calls with explicit coverage", async () => {
+    const client = await connectedClient({ getConnection: () => connection, fetch: async input => {
+      const url = new URL(String(input));
+      expect(url.searchParams.has("filter")).toBe(false);
+      expect(url.searchParams.has("bucket")).toBe(false);
+      return Response.json(url.pathname.endsWith("/assignments")
+        ? [{ id: 8, course_id: 7, due_at: "2026-09-01T00:00:00Z", submission: { assignment_id: 8, workflow_state: "graded", missing: true, score: 0 } }]
+        : [{ plannable_id: 8, plannable_type: "assignment", course_id: 7, submissions: { graded: true, missing: true }, planner_override: { marked_complete: true } }]);
+    } });
+    const overdue = await client.callTool({ name: "list_assignments", arguments: { course_id: 7, bucket: "overdue" } });
+    expect(overdue.isError).not.toBe(true);
+    expect(overdue.structuredContent).toMatchObject({ ok: true, result: { items: [{ id: "8", submission: { status: "missing", score: 0 } }], coverage: { source: "all_assignments", queryExhausted: true } } });
+    const planner = await client.callTool({ name: "get_upcoming_work", arguments: {} });
+    expect(planner.isError).not.toBe(true);
+    expect(planner.structuredContent).toMatchObject({ ok: true, result: { items: [{ id: "8", completed: false, submissionStatus: "missing", plannerOverride: { markedComplete: true } }] } });
+  });
+
+  it("turns an empty upstream submission into a safe public failure instead of unsubmitted", async () => {
+    const client = await connectedClient({ getConnection: () => connection, fetch: async () => Response.json({}) });
+    const result = await client.callTool({ name: "get_submission_status", arguments: { course_id: 7, assignment_id: 8 } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ ok: false, result: null, error: { code: "invalid_response" } });
+  });
+
+  it("continues a public Inbox page across newly constructed bound Canvas clients", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify([{ id: 1, subject: "First" }, { id: 2, subject: "Second" }])));
+    const client = await connectedClient({ getConnection: () => connection, fetch });
+    const first = await client.callTool({ name: "list_conversations", arguments: { scope: "unread", limit: 1 } });
+    const firstEnvelope = z.object({ ok: z.literal(true), result: z.object({ items: z.array(z.object({ id: z.string() })), nextCursor: z.string() }) }).parse(first.structuredContent);
+    expect(firstEnvelope.result.items.map((item) => item.id)).toEqual(["1"]);
+    const second = await client.callTool({ name: "list_conversations", arguments: { scope: "unread", limit: 1, cursor: firstEnvelope.result.nextCursor } });
+    expect(second.isError).not.toBe(true);
+    expect(second.structuredContent).toMatchObject({ ok: true, result: { items: [{ id: "2" }], nextCursor: null } });
+    const rejected = await client.callTool({ name: "list_conversations", arguments: { scope: "sent", limit: 1, cursor: firstEnvelope.result.nextCursor } });
+    expect(rejected.structuredContent).toMatchObject({ ok: false, result: null, error: { code: "invalid_argument" } });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets a caller traverse module metadata and explicit file items using returned IDs", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      return new Response(JSON.stringify(url.pathname.endsWith("/modules")
+        ? [{ id: 8, name: "Week 1", items_count: 1 }]
+        : [{ id: 9, title: "Notes", type: "File", content_id: 52, html_url: "/courses/7/files/52?verifier=hidden" }]));
+    });
+    const client = await connectedClient({ getConnection: () => connection, fetch });
+    const modules = await client.callTool({ name: "list_modules", arguments: { course_id: "7" } });
+    expect(modules.isError).not.toBe(true);
+    expect(modules.structuredContent).toMatchObject({ result: { items: [{ id: "8", itemCount: 1 }], nextCursor: null } });
+    expect(JSON.stringify(modules.structuredContent)).not.toContain('"items":[]');
+    const items = await client.callTool({ name: "list_module_items", arguments: { course_id: "7", module_id: "8" } });
+    expect(items.isError).not.toBe(true);
+    expect(items.structuredContent).toMatchObject({ result: { items: [{ moduleId: "8", contentId: "52", htmlUrl: "https://learning.hanyang.ac.kr/courses/7/files/52" }] } });
+    expect(JSON.stringify(items)).not.toContain("hidden");
+    expect(new URL(String(fetch.mock.calls[1]?.[0])).pathname).toBe("/api/v1/courses/7/modules/8/items");
+  });
+
+  it("lets a caller inspect recent discussion replies and continue the separate full reply collection", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      return new Response(JSON.stringify(url.pathname.endsWith("/replies")
+        ? [{ id: 2, message: "Recent answer" }, { id: 3, message: "Older answer" }]
+        : [{ id: 1, message: "Question", recent_replies: [{ id: 2, message: "Recent answer" }], has_more_replies: true }]));
+    });
+    const client = await connectedClient({ getConnection: () => connection, fetch });
+    const entries = await client.callTool({ name: "list_discussion_entries", arguments: { course_id: "7", topic_id: "9" } });
+    expect(entries.structuredContent).toMatchObject({ result: { items: [{ id: "1", hasMoreReplies: true, replies: [{ id: "2", messageText: "Recent answer" }] }] } });
+    const first = await client.callTool({ name: "list_discussion_replies", arguments: { course_id: "7", topic_id: "9", entry_id: "1", limit: 1 } });
+    const envelope = z.object({ ok: z.literal(true), result: z.object({ nextCursor: z.string() }) }).parse(first.structuredContent);
+    const second = await client.callTool({ name: "list_discussion_replies", arguments: { course_id: "7", topic_id: "9", entry_id: "1", limit: 1, cursor: envelope.result.nextCursor } });
+    expect(second.structuredContent).toMatchObject({ result: { items: [{ id: "3", messageText: "Older answer" }], nextCursor: null } });
+  });
+
+  it("turns invalid handler output into a valid safe failure envelope", async () => {
+    const client = await connectedClient({ getConnection: () => connection, configure: (server) => {
+      registerScopedTool(server, "invalid_output_fixture", {
+        title: "Invalid output fixture", description: "Local contract validation fixture.",
+        inputSchema: z.object({}).strict(), outputSchema: envelopeSchema(z.object({ count: z.number() }).strict()),
+        scopes: ["canvas.read"],
+      }, async () => ({ count: "secret-pat" }));
+    } });
+    const result = await client.callTool({ name: "invalid_output_fixture", arguments: {} });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ ok: false, result: null, error: { code: "invalid_response", retryable: false } });
+    expect(JSON.stringify(result)).not.toContain("secret-pat");
+    const tool = (await advertisedTools(client)).find((candidate) => candidate.name === "invalid_output_fixture")!;
+    expect(new AjvJsonSchemaValidator().getValidator(tool.outputSchema as JsonSchemaType)(result.structuredContent)).toMatchObject({ valid: true });
+  });
+
+  it("publishes write annotations and both OAuth mirrors only when the message service is present", async () => {
+    const deliver = vi.fn();
+    const client = await connectedClient({ getConnection: () => connection, messageService: { deliver } as unknown as CanvasMessageService });
+    const tools = await advertisedTools(client);
+    for (const name of ["send_message", "reply_message"]) {
+      const tool = tools.find((candidate) => candidate.name === name)!;
+      expect(tool.annotations).toEqual({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
+      expect(tool.securitySchemes).toEqual([{ type: "oauth2", scopes: ["canvas.read"] }]);
+      expect(tool._meta.securitySchemes).toEqual(tool.securitySchemes);
+      expect(tool.outputSchema.oneOf).toHaveLength(2);
+    }
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it("refuses a private imported timetable for a different live Canvas identity", async () => {
+    const client = await connectedClient({ getConnection: () => connection });
+    const result = await client.callTool({ name: "get_timetable", arguments: {} });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ ok: false, result: null, error: { code: "permission_denied" } });
   });
 });

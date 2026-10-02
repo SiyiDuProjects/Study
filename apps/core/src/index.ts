@@ -6,6 +6,7 @@ import { log } from "./logger.js";
 const config = loadConfig();
 const runtime = createApplication({ config });
 const server = runtime.app.listen(config.port, "0.0.0.0", () => {
+  if (process.env.STUDY_BACKGROUND_JOBS !== "off") runtime.startBackground();
   log("info", "server_started", {
     port: config.port,
     publicOrigin: config.publicOrigin,

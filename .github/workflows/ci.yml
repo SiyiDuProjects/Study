@@ -19,15 +19,26 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: |
+            package-lock.json
             apps/core/package-lock.json
             apps/record/package-lock.json
+      - name: Install repository checks
+        run: npm ci
+      - name: Validate plugin and skills
+        run: npm run validate:plugin
       - name: Install Core
         run: npm ci --prefix apps/core
       - name: Install Record
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: npm ci --prefix apps/record
+      - name: Check Record component artifacts
+        run: npm run check:record-dependencies
       - name: Typecheck
         run: npm run typecheck
       - name: Test
         run: npm test
       - name: Build
         run: npm run build
+      - name: Exercise the built Record Worker
+        run: npm run test:worker --prefix apps/record

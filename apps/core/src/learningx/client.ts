@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
+import { parseFragment, type DefaultTreeAdapterMap } from "parse5";
+
 import { INSTITUTIONS, type CanvasConnection } from "../domain.js";
+import { sanitizeHtml as sanitizeLearningXHtml, plainText as learningXPlainText } from "../content.js";
 import { CanvasApiError } from "../canvas/errors.js";
 import type { CanvasId } from "../canvas/types.js";
 import type {
@@ -18,6 +22,8 @@ export interface LearningXClientOptions {
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
   maxResponseBytes?: number;
+  sessionCache?: LearningXSessionCache;
+  now?: () => number;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -25,8 +31,57 @@ const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_FORM_FIELDS = 100;
 const MAX_FORM_BYTES = 256 * 1024;
 const MAX_JWT_LENGTH = 16 * 1024;
-const MAX_HTML_LENGTH = 50_000;
-const MAX_TEXT_LENGTH = 30_000;
+const SESSION_TTL_MS = 60_000;
+const MAX_CACHED_SESSIONS = 64;
+
+interface LearningXSession {
+  jwt: string;
+  toolId: string;
+  viewerUrl: string;
+  createdAt: number;
+}
+
+/** Short-lived launch reuse only; never caches course data or persists credentials. */
+export class LearningXSessionCache {
+  private readonly entries = new Map<string, { session: LearningXSession; expiresAt: number }>();
+
+  get(key: string, now: number): LearningXSession | undefined {
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= now) {
+      this.entries.delete(key);
+      return undefined;
+    }
+    return entry.session;
+  }
+
+  set(key: string, session: LearningXSession, now: number): void {
+    for (const [existingKey, entry] of this.entries) {
+      if (entry.expiresAt <= now) this.entries.delete(existingKey);
+    }
+    let expiresAt = session.createdAt + SESSION_TTL_MS;
+    try {
+      const claims = JSON.parse(Buffer.from(session.jwt.split(".")[1]!, "base64url").toString("utf8")) as unknown;
+      if (isRecord(claims) && typeof claims.exp === "number" && Number.isFinite(claims.exp)) {
+        expiresAt = Math.min(expiresAt, claims.exp * 1_000 - 5_000);
+      }
+    } catch {
+      // Opaque/legacy session tokens still have the short local lifetime.
+    }
+    if (expiresAt <= now) return;
+    this.entries.delete(key);
+    while (this.entries.size >= MAX_CACHED_SESSIONS) {
+      this.entries.delete(this.entries.keys().next().value!);
+    }
+    this.entries.set(key, { session, expiresAt });
+  }
+
+  invalidate(identity: string, jwt: string): void {
+    for (const [key, entry] of this.entries) {
+      if (key.startsWith(`${identity}:`) && entry.session.jwt === jwt) this.entries.delete(key);
+    }
+  }
+}
 
 const FEATURE_LABELS: Record<LearningXFeature, readonly RegExp[]> = {
   attendance: [
@@ -55,8 +110,32 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function records(value: unknown): JsonRecord[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
+function requireRecords(value: unknown, operation: string): JsonRecord[] {
+  if (!Array.isArray(value) || value.some((item) => !isRecord(item))) {
+    throw new CanvasApiError("invalid_response", `${operation} returned an unexpected list shape.`);
+  }
+  return value as JsonRecord[];
+}
+
+function optionalRecords(value: unknown, operation: string): JsonRecord[] {
+  return value === undefined || value === null ? [] : requireRecords(value, operation);
+}
+
+function requiredResponseId(value: unknown, operation: string): string {
+  const id = idValue(value);
+  if (!/^[1-9]\d*$/.test(id)) {
+    throw new CanvasApiError("invalid_response", `${operation} returned an invalid item identifier.`);
+  }
+  return id;
+}
+
+function scopedResponseId(value: unknown, expected: string, operation: string): string {
+  if (value === undefined || value === null) return expected;
+  const id = requiredResponseId(value, operation);
+  if (id !== expected) {
+    throw new CanvasApiError("invalid_response", `${operation} returned an item outside the requested scope.`);
+  }
+  return id;
 }
 
 function record(value: unknown): JsonRecord | null {
@@ -75,6 +154,10 @@ function booleanValue(value: unknown): boolean {
   return value === true;
 }
 
+function nullableBooleanValue(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 function idValue(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
 }
@@ -85,53 +168,6 @@ function idArgument(value: CanvasId, name: string): string {
     throw new CanvasApiError("invalid_argument", `${name} must be a positive Canvas id.`);
   }
   return id;
-}
-
-function decodeHtml(value: string): string {
-  return value
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&amp;/gi, "&")
-    .replace(/&#(\d+);/g, (_match, raw: string) => String.fromCodePoint(Number(raw)))
-    .replace(/&#x([0-9a-f]+);/gi, (_match, raw: string) =>
-      String.fromCodePoint(Number.parseInt(raw, 16)),
-    );
-}
-
-function sanitizeLearningXHtml(value: unknown): string | null {
-  const input = stringValue(value);
-  if (input === null) return null;
-  return input
-    .slice(0, MAX_HTML_LENGTH)
-    .replace(/<(script|style|iframe|object|embed|form|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/<(script|style|iframe|object|embed|form|meta|base)\b[^>]*\/?\s*>/gi, "")
-    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+(style|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(
-      /\s+(href|src|xlink:href|action|formaction)\s*=\s*(["'])\s*(?:javascript|data):[\s\S]*?\2/gi,
-      "",
-    )
-    .replace(
-      /\s+(href|src|xlink:href|action|formaction)\s*=\s*(?:javascript|data):[^\s>]*/gi,
-      "",
-    )
-    .slice(0, MAX_HTML_LENGTH);
-}
-
-function learningXPlainText(html: string | null): string | null {
-  if (html === null) return null;
-  return decodeHtml(
-    html
-      .replace(/<(br|\/p|\/div|\/li|\/tr|h[1-6])\b[^>]*>/gi, "\n")
-      .replace(/<[^>]+>/g, " "),
-  )
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n\s+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, MAX_TEXT_LENGTH);
 }
 
 function pageArgument(value: number): number {
@@ -151,7 +187,7 @@ function keywordArgument(value: string): string {
 
 function normalizeBoardAttachment(raw: JsonRecord): LearningXBoardAttachment {
   return {
-    id: idValue(raw.id),
+    id: requiredResponseId(raw.id, "LearningX attachment"),
     filename: stringValue(raw.filename) ?? stringValue(raw.display_name) ?? "",
     size: numberValue(raw.filesize ?? raw.size),
     canvasFileId:
@@ -161,10 +197,21 @@ function normalizeBoardAttachment(raw: JsonRecord): LearningXBoardAttachment {
   };
 }
 
-function htmlAttribute(tag: string, name: string): string | null {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = tag.match(new RegExp(`\\b${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"));
-  return match ? decodeHtml(match[1] ?? match[2] ?? "") : null;
+type HtmlNode = DefaultTreeAdapterMap["node"];
+
+function findHtmlNodes(node: HtmlNode, name: string): HtmlNode[] {
+  const found: HtmlNode[] = [];
+  const pending = [node];
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (current.nodeName === name) found.push(current);
+    if ("childNodes" in current) pending.push(...current.childNodes.slice().reverse());
+  }
+  return found;
+}
+
+function htmlAttribute(node: HtmlNode, name: string): string | null {
+  return "attrs" in node ? node.attrs.find((attribute) => attribute.name === name)?.value ?? null : null;
 }
 
 function statusError(status: number, operation: string): CanvasApiError {
@@ -198,11 +245,25 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   if (declared && /^\d+$/.test(declared) && Number(declared) > maxBytes) {
     throw new CanvasApiError("invalid_response", "LearningX returned an oversized response.");
   }
-  const body = await response.arrayBuffer();
-  if (body.byteLength > maxBytes) {
-    throw new CanvasApiError("invalid_response", "LearningX returned an oversized response.");
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new CanvasApiError("invalid_response", "LearningX returned an oversized response.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
   }
-  return new TextDecoder().decode(body);
+  return Buffer.concat(chunks, total).toString("utf8");
 }
 
 function parseJson(text: string, operation: string): unknown {
@@ -225,6 +286,9 @@ export class LearningXReadClient {
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly timeoutMs: number;
   private readonly maxResponseBytes: number;
+  private readonly sessionCache: LearningXSessionCache;
+  private readonly cacheIdentity: string;
+  private readonly now: () => number;
 
   constructor(connection: CanvasConnection, options: LearningXClientOptions = {}) {
     if (connection.institution !== "hanyang") {
@@ -258,6 +322,15 @@ export class LearningXReadClient {
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1 || this.timeoutMs > 120_000 ||
+        !Number.isInteger(this.maxResponseBytes) || this.maxResponseBytes < 1 || this.maxResponseBytes > 32 * 1024 * 1024) {
+      throw new CanvasApiError("configuration_error", "LearningX request limits are invalid.");
+    }
+    this.sessionCache = options.sessionCache ?? new LearningXSessionCache();
+    this.cacheIdentity = createHash("sha256").update(JSON.stringify([
+      connection.userId, connection.canvasUserId, actual.origin, connection.accessToken,
+    ])).digest("hex");
+    this.now = options.now ?? Date.now;
   }
 
   async listAttendance(
@@ -266,21 +339,40 @@ export class LearningXReadClient {
   ): Promise<LearningXAttendanceItem[]> {
     const course = idArgument(courseId, "course_id");
     const launch = await this.launch(course, "attendance", externalToolId);
-    const profile = await this.canvasJson("/api/v1/users/self/profile", "Canvas profile");
-    if (!isRecord(profile)) {
-      throw new CanvasApiError("invalid_response", "Canvas profile had an unexpected shape.");
+    const [rawItems, rawSummary] = await Promise.all([
+      this.learningXJson(
+        `/learningx/api/v1/courses/${course}/attendance_items?include_detail=true`,
+        launch.jwt,
+        "LearningX attendance items",
+      ),
+      this.learningXJson(
+        `/learningx/api/v1/courses/${course}/attendance_items/summary?only_use_attendance=true`,
+        launch.jwt,
+        "LearningX attendance summary",
+      ),
+    ]);
+    if (!isRecord(rawItems) || !isRecord(rawSummary) || !isRecord(rawSummary.attendance_summaries)) {
+      throw new CanvasApiError("invalid_response", "LearningX attendance returned an unexpected response shape.");
     }
-    const query = new URLSearchParams({ user_id: idValue(profile.id), role: "1" });
-    const loginId = stringValue(profile.login_id);
-    if (loginId) query.set("user_login", loginId);
-    const raw = await this.learningXJson(
-      `/learningx/api/v1/courses/${course}/allcomponents_db?${query.toString()}`,
-      launch.jwt,
-      "LearningX attendance",
-    );
-    return records(raw)
-      .map((item) => this.normalizeAttendance(item, course, launch.viewerUrl))
-      .filter((item) => item.id !== "");
+    const summaries = rawSummary.attendance_summaries;
+    for (const [key, summary] of Object.entries(summaries)) {
+      const itemId = requiredResponseId(key, "LearningX attendance summary");
+      if (!isRecord(summary)) {
+        throw new CanvasApiError("invalid_response", "LearningX attendance summary returned an unexpected item shape.");
+      }
+      scopedResponseId(summary.item_id, itemId, "LearningX attendance summary");
+      scopedResponseId(summary.course_id, course, "LearningX attendance summary");
+    }
+    return requireRecords(rawItems.attendance_items, "LearningX attendance items")
+      .map((item) => {
+        const normalized = this.normalizeAttendance(item, course, launch.viewerUrl);
+        if (normalized.useAttendance === null) {
+          throw new CanvasApiError("invalid_response", "LearningX attendance item did not provide a valid attendance inclusion flag.");
+        }
+        const summary = record(summaries[normalized.id]);
+        return { ...normalized, attendanceStatus: stringValue(summary?.attendance_status) };
+      })
+      .filter((item) => item.useAttendance === true);
   }
 
   async getAttendanceItem(
@@ -299,7 +391,11 @@ export class LearningXReadClient {
     if (!isRecord(raw)) {
       throw new CanvasApiError("invalid_response", "LearningX attendance item had an unexpected shape.");
     }
-    return this.normalizeAttendance(raw, course, launch.viewerUrl);
+    const result = this.normalizeAttendance(raw, course, launch.viewerUrl);
+    if (result.id !== item || result.courseId !== course) {
+      throw new CanvasApiError("invalid_response", "LearningX returned a different attendance item.");
+    }
+    return result;
   }
 
   async listModules(courseId: CanvasId, externalToolId?: CanvasId): Promise<LearningXModule[]> {
@@ -310,13 +406,13 @@ export class LearningXReadClient {
       launch.jwt,
       "LearningX modules",
     );
-    return records(raw)
+    return requireRecords(raw, "LearningX modules")
       .map((module) => {
-        const moduleId = idValue(module.module_id ?? module.id);
-        const rawItems = records(module.module_items ?? module.items);
+        const moduleId = requiredResponseId(module.module_id ?? module.id, "LearningX module");
+        const rawItems = requireRecords(module.module_items ?? module.items, "LearningX module items");
         return {
           id: moduleId,
-          courseId: idValue(module.course_id) || course,
+          courseId: scopedResponseId(module.course_id, course, "LearningX module"),
           name: stringValue(module.title) ?? stringValue(module.name) ?? "",
           position: numberValue(module.position ?? module.week_position),
           requiredCount: numberValue(module.required_count),
@@ -326,11 +422,9 @@ export class LearningXReadClient {
             .map((item) => {
               const content = record(item.content_data) ?? item;
               return this.normalizeAttendance(content, course, launch.viewerUrl, item);
-            })
-            .filter((item) => item.id !== ""),
+            }),
         } satisfies LearningXModule;
-      })
-      .filter((module) => module.id !== "");
+      });
   }
 
   async listBoards(courseId: CanvasId, externalToolId?: CanvasId): Promise<LearningXBoard[]> {
@@ -341,9 +435,8 @@ export class LearningXReadClient {
       launch.jwt,
       "LearningX boards",
     );
-    return records(raw)
-      .map((board) => this.normalizeBoard(board, course))
-      .filter((board) => board.id !== "");
+    return requireRecords(raw, "LearningX boards")
+      .map((board) => this.normalizeBoard(board, course));
   }
 
   async listBoardPosts(
@@ -370,16 +463,17 @@ export class LearningXReadClient {
     if (!isRecord(raw)) {
       throw new CanvasApiError("invalid_response", "LearningX board posts had an unexpected shape.");
     }
+    if (raw.pagination !== undefined && !isRecord(raw.pagination)) {
+      throw new CanvasApiError("invalid_response", "LearningX board pagination had an unexpected shape.");
+    }
     const pagination = record(raw.pagination) ?? {};
-    const items = records(raw.items);
+    const items = requireRecords(raw.items, "LearningX board posts");
     return {
       page: numberValue(pagination.current_page ?? pagination.page) ?? page,
       perPage: numberValue(pagination.per_page ?? pagination.page_size),
       totalCount: numberValue(pagination.total_count ?? pagination.total),
       totalPages: numberValue(pagination.total_pages ?? pagination.last_page),
-      posts: items
-        .map((post) => this.normalizeBoardPostSummary(post, course, board))
-        .filter((post) => post.id !== ""),
+      posts: items.map((post) => this.normalizeBoardPostSummary(post, course, board)),
     };
   }
 
@@ -403,25 +497,28 @@ export class LearningXReadClient {
     }
     const raw = record(rawResponse.post) ?? rawResponse;
     const summary = this.normalizeBoardPostSummary(raw, course, board);
+    if (summary.id !== post || summary.courseId !== course || summary.boardId !== board) {
+      throw new CanvasApiError("invalid_response", "LearningX returned a different board post.");
+    }
     const contentHtml = sanitizeLearningXHtml(raw.content);
     return {
       ...summary,
       contentHtml,
       contentText: learningXPlainText(contentHtml),
       updatedAt: stringValue(raw.updated_at),
-      attachments: records(raw.attachments).map(normalizeBoardAttachment),
-      comments: records(raw.comments)
+      attachments: optionalRecords(raw.attachments, "LearningX attachments").map(normalizeBoardAttachment),
+      comments: optionalRecords(raw.comments, "LearningX comments")
         .filter((comment) => !booleanValue(comment.is_deleted))
         .map((comment) => {
           const commentHtml = sanitizeLearningXHtml(comment.content);
           return {
-            id: idValue(comment.id),
+            id: requiredResponseId(comment.id, "LearningX comment"),
             userName: stringValue(comment.user_name),
             contentHtml: commentHtml,
             contentText: learningXPlainText(commentHtml),
             createdAt: stringValue(comment.created_at),
             secret: booleanValue(comment.is_secret),
-            attachments: records(comment.attachments).map(normalizeBoardAttachment),
+            attachments: optionalRecords(comment.attachments, "LearningX comment attachments").map(normalizeBoardAttachment),
           };
         }),
     };
@@ -430,8 +527,8 @@ export class LearningXReadClient {
   private normalizeBoard(raw: JsonRecord, courseId: string): LearningXBoard {
     const descriptionHtml = sanitizeLearningXHtml(raw.description);
     return {
-      id: idValue(raw.id),
-      courseId: idValue(raw.course_id) || courseId,
+      id: requiredResponseId(raw.id, "LearningX board"),
+      courseId: scopedResponseId(raw.course_id, courseId, "LearningX board"),
       title: stringValue(raw.title) ?? "",
       descriptionHtml,
       descriptionText: learningXPlainText(descriptionHtml),
@@ -455,14 +552,14 @@ export class LearningXReadClient {
     boardId: string,
   ): LearningXBoardPostSummary {
     return {
-      id: idValue(raw.id),
-      courseId: idValue(raw.course_id) || courseId,
-      boardId: idValue(raw.board_id) || boardId,
+      id: requiredResponseId(raw.id, "LearningX board post"),
+      courseId: scopedResponseId(raw.course_id, courseId, "LearningX board post"),
+      boardId: scopedResponseId(raw.board_id, boardId, "LearningX board post"),
       index: numberValue(raw.idx ?? raw.index),
       title: stringValue(raw.title) ?? "",
       userName: stringValue(raw.user_name),
-      attachmentCount: numberValue(raw.attachment_count) ?? records(raw.attachments).length,
-      commentCount: numberValue(raw.comment_count) ?? records(raw.comments).length,
+      attachmentCount: numberValue(raw.attachment_count) ?? optionalRecords(raw.attachments, "LearningX attachments").length,
+      commentCount: numberValue(raw.comment_count) ?? optionalRecords(raw.comments, "LearningX comments").length,
       viewCount: numberValue(raw.view_count) ?? 0,
       notice: booleanValue(raw.is_notice),
       createdAt: stringValue(raw.created_at),
@@ -477,27 +574,29 @@ export class LearningXReadClient {
   ): LearningXAttendanceItem {
     const content = record(raw.item_content_data) ?? {};
     const attendance = record(raw.attendance_data) ?? {};
+    const type = stringValue(content.content_type) ?? stringValue(raw.item_content_type) ?? stringValue(wrapper.content_type) ?? stringValue(raw.type);
+    const transliveId = String(content.translive_id ?? "");
     return {
-      id: idValue(raw.item_id ?? raw.id ?? wrapper.module_item_id ?? wrapper.id),
-      courseId: idValue(raw.course_id) || courseId,
+      id: requiredResponseId(raw.item_id ?? raw.id ?? wrapper.module_item_id ?? wrapper.id, "LearningX attendance item"),
+      courseId: scopedResponseId(raw.course_id, courseId, "LearningX attendance item"),
       title: stringValue(wrapper.title) ?? stringValue(raw.title) ?? "",
-      type:
-        stringValue(content.content_type) ??
-        stringValue(wrapper.content_type) ??
-        stringValue(raw.type),
+      type,
+      moduleItemId: wrapper.module_item_id == null ? null : requiredResponseId(wrapper.module_item_id, "Canvas module item"),
+      translive: type === "translive" && /^\d{1,20}$/.test(transliveId)
+        ? { id: transliveId, viewerUrl: `https://learning.hanyang.ac.kr/translive/v/${transliveId}` } : null,
       attendanceStatus:
         stringValue(attendance.attendance_status) ??
         stringValue(wrapper.attendance_status) ??
         stringValue(raw.attendance_status),
-      useAttendance: booleanValue(raw.use_attendance ?? wrapper.use_attendance),
-      completed: booleanValue(attendance.completed ?? wrapper.completed ?? raw.completed),
+      useAttendance: nullableBooleanValue(raw.use_attendance ?? wrapper.use_attendance),
+      completed: nullableBooleanValue(attendance.completed ?? wrapper.completed ?? raw.completed),
       dueAt: stringValue(raw.due_at ?? wrapper.due_at),
       unlockAt: stringValue(raw.unlock_at ?? wrapper.unlock_at),
       completedAt: stringValue(wrapper.completed_at ?? raw.completed_at),
       progressSeconds: numberValue(attendance.progress),
       lastAtSeconds: numberValue(attendance.last_at),
-      required: booleanValue(wrapper.required ?? raw.required),
-      durationSeconds: numberValue(content.duration ?? raw.duration),
+      required: nullableBooleanValue(wrapper.required ?? raw.required),
+      durationSeconds: type === "translive" ? null : numberValue(content.duration ?? raw.duration),
       progressSupported:
         content.progress_support === undefined && raw.progress_support === undefined
           ? null
@@ -510,10 +609,22 @@ export class LearningXReadClient {
     courseId: string,
     feature: LearningXFeature,
     explicitToolId?: CanvasId,
-  ): Promise<{ jwt: string; toolId: string; viewerUrl: string }> {
+  ): Promise<LearningXSession> {
+    const prefix = `${this.cacheIdentity}:${courseId}:`;
+    const selector = explicitToolId
+      ? `tool:${idArgument(explicitToolId, "external_tool_id")}`
+      : `feature:${feature}`;
+    const cached = this.sessionCache.get(prefix + selector, this.now());
+    if (cached) return cached;
     const toolId = explicitToolId
       ? idArgument(explicitToolId, "external_tool_id")
       : await this.findToolId(courseId, feature);
+    const toolKey = `${prefix}tool:${toolId}`;
+    const cachedTool = this.sessionCache.get(toolKey, this.now());
+    if (cachedTool) {
+      this.sessionCache.set(prefix + selector, cachedTool, this.now());
+      return cachedTool;
+    }
     const sessionless = await this.canvasJson(
       `/api/v1/courses/${courseId}/external_tools/sessionless_launch?id=${toolId}`,
       "Canvas LearningX launch",
@@ -523,11 +634,12 @@ export class LearningXReadClient {
     }
     const verifier = this.allowedExternalUrl(sessionless.url, "LearningX verifier");
     const html = (await this.externalText(verifier, undefined, "LearningX verifier")).text;
-    const formTag = html.match(/<form\b[^>]*>/i)?.[0];
-    if (!formTag) {
-      throw new CanvasApiError("invalid_response", "LearningX launch page did not contain a form.");
+    const forms = findHtmlNodes(parseFragment(html), "form");
+    if (forms.length !== 1) {
+      throw new CanvasApiError("invalid_response", "LearningX launch page must contain one form.");
     }
-    const actionValue = htmlAttribute(formTag, "action");
+    const launchForm = forms[0]!;
+    const actionValue = htmlAttribute(launchForm, "action");
     if (!actionValue) {
       throw new CanvasApiError("invalid_response", "LearningX launch form did not contain an action.");
     }
@@ -539,7 +651,7 @@ export class LearningXReadClient {
       );
     }
     const form = new URLSearchParams();
-    const inputTags = [...html.matchAll(/<input\b[^>]*>/gi)].map((match) => match[0]);
+    const inputTags = findHtmlNodes(launchForm, "input");
     if (inputTags.length < 1 || inputTags.length > MAX_FORM_FIELDS) {
       throw new CanvasApiError("invalid_response", "LearningX launch form had an unsafe field count.");
     }
@@ -579,11 +691,15 @@ export class LearningXReadClient {
     if (jwt.length > MAX_JWT_LENGTH || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(jwt)) {
       throw new CanvasApiError("invalid_response", "LearningX issued a malformed session token.");
     }
-    return {
+    const session = {
       jwt,
       toolId,
       viewerUrl: `${this.baseUrl}/courses/${courseId}/external_tools/${toolId}`,
+      createdAt: this.now(),
     };
+    this.sessionCache.set(toolKey, session, this.now());
+    if (prefix + selector !== toolKey) this.sessionCache.set(prefix + selector, session, this.now());
+    return session;
   }
 
   private async findToolId(courseId: string, feature: LearningXFeature): Promise<string> {
@@ -591,10 +707,21 @@ export class LearningXReadClient {
       `/api/v1/courses/${courseId}/tabs?include[]=external`,
       "Canvas course tabs",
     );
-    const tab = records(raw).find((candidate) => {
+    const candidates = requireRecords(raw, "Canvas course tabs").filter((candidate) => {
+      if (candidate.hidden === true || !/^context_external_tool_[1-9]\d*$/.test(stringValue(candidate.id) ?? "")) {
+        return false;
+      }
       const label = stringValue(candidate.label) ?? "";
       return FEATURE_LABELS[feature].some((pattern) => pattern.test(label));
     });
+    if (candidates.length > 1) {
+      const ids = candidates.map((candidate) => String(candidate.id).replace("context_external_tool_", ""));
+      throw new CanvasApiError(
+        "invalid_argument",
+        `Multiple ${feature} LearningX tabs match (tool IDs: ${ids.join(", ")}). Use list_course_tabs and pass the exact external_tool_id.`,
+      );
+    }
+    const tab = candidates[0];
     const id = tab ? stringValue(tab.id) : null;
     const toolId = id?.match(/^context_external_tool_(\d+)$/)?.[1];
     if (!toolId) {
@@ -628,16 +755,21 @@ export class LearningXReadClient {
     if (url.origin !== this.base.origin || !url.pathname.startsWith("/learningx/api/")) {
       throw new CanvasApiError("permission_denied", "LearningX credential routing was rejected.");
     }
-    const response = await this.fetchResponse(
-      url,
-      {
-        method: "GET",
-        headers: { Accept: "application/json", Authorization: `Bearer ${jwt}` },
-        redirect: "error",
-      },
-      operation,
-    );
-    return parseJson(response.text, operation);
+    try {
+      const response = await this.fetchResponse(
+        url,
+        {
+          method: "GET",
+          headers: { Accept: "application/json", Authorization: `Bearer ${jwt}` },
+          redirect: "error",
+        },
+        operation,
+      );
+      return parseJson(response.text, operation);
+    } catch (error) {
+      if (error instanceof CanvasApiError && error.status === 401) this.sessionCache.invalidate(this.cacheIdentity, jwt);
+      throw error;
+    }
   }
 
   private allowedExternalUrl(value: string, label: string): URL {
@@ -721,6 +853,11 @@ export class LearningXReadClient {
         throw statusError(response.status, operation);
       }
       return { response, text };
+    } catch (error) {
+      if (!(error instanceof CanvasApiError) && controller.signal.aborted) {
+        throw new CanvasApiError("timeout", `${operation} timed out.`, { retryable: true });
+      }
+      throw error;
     } finally {
       clearTimeout(timer);
     }

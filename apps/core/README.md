@@ -1,6 +1,6 @@
 # Canvas MCP service
 
-An invite-only, read-only gateway from one Hanyang HY-ON Canvas account to an authenticated remote MCP client. It uses Canvas REST APIs rather than browser automation and never asks for a campus username or password.
+An invite-only gateway from independent Berkeley bCourses and Hanyang HY-ON Canvas accounts to an authenticated remote MCP client. It uses Canvas REST APIs rather than browser automation and never asks for a campus username or password.
 
 The service has three public surfaces:
 
@@ -14,13 +14,13 @@ The current Instructure Canvas API Policy (effective August 12, 2025) lists acce
 
 ## Security model
 
-- Enrollment requires a single-use invitation bound to Hanyang. This private release enforces exactly one connected owner at the database layer because the linked Lecture archive is also single-owner.
+- Enrollment requires a single-use school-bound invitation. Each school has an independent account identity; the linked Lecture archive remains bound to its original Hanyang owner.
 - The user supplies a Canvas personal access token (PAT) over HTTPS. The browser sends it only in a POST body and does not persist it in URL state, cookies, `localStorage`, or `sessionStorage`.
 - The server validates the PAT against the invitation's fixed Canvas host, encrypts it with `MASTER_KEY_BASE64`, and stores only the encrypted value.
 - Account sign-in uses WebAuthn passkeys. Only public-key credential material is stored; the authenticator private key never reaches the server.
-- MCP clients use authorization code + PKCE. Access tokens are short-lived and scoped to `canvas.read`; enabling the private Lecture integration additionally requires `lecture.read`. Refresh tokens are rotated or revoked by the server implementation.
+- MCP clients use authorization code + PKCE. Access tokens are short-lived. The legacy identifier `canvas.read` now represents the single Study account authorization for enabled capabilities, including the user-approved coursework release. Refresh tokens are rotated or revoked by the server implementation.
 - Canvas endpoints and redirect targets are allowlisted. Never follow a Canvas redirect to another host while retaining the `Authorization` header.
-- The MCP tool surface is read-only. Tool results mark course-authored content as untrusted data, not instructions.
+- Canvas reads are read-only; explicit user requests can upload files, submit individual assignments, and send/reply with optional attachments when the release switches are enabled. Tool results mark course-authored content as untrusted data, not instructions.
 
 Read [SECURITY.md](./SECURITY.md) before operating the service outside localhost.
 
@@ -191,7 +191,7 @@ If an account-management endpoint is not implemented, remove or disable its UI c
 
 `GET /internal/lecture/courses` is a server-to-server endpoint for the Lecture container. It accepts only `Authorization: Bearer STUDY_SERVICE_TOKEN`, derives the owner from the sole Hanyang connection, refreshes active and completed courses subject to `COURSE_SYNC_MIN_INTERVAL_SECONDS`, and returns `{ courses, syncedAt, stale }`. The browser never receives either service token or the Canvas PAT.
 
-When `LECTURE_API_URL` and `LECTURE_SERVICE_TOKEN` are both configured, the MCP also registers `list_lecture_sessions`, `get_lecture_transcript`, and `search_lecture_transcripts`. Those tools call only the configured Lecture origin under `/internal/mcp/lecture/` and are annotated read-only. Canvas tools require only `canvas.read`; Lecture tool calls additionally require `lecture.read`. Existing canvas-only grants continue to work, while using Lecture tools requires reconnecting once to grant the additional scope. If Record is private on Sites, Core also sends `LECTURE_SITE_AUTH_TOKEN` in `OAI-Sites-Authorization`; it never exposes that token to MCP clients.
+When `LECTURE_API_URL` and `LECTURE_SERVICE_TOKEN` are both configured, the MCP also registers `list_lecture_sessions`, `get_lecture_transcript`, and `search_lecture_transcripts`. Those tools call only the configured Lecture origin under `/internal/mcp/lecture/` and are annotated read-only. All tools use the existing Study grant; Lecture additionally enforces its original Hanyang account ownership. Existing connections continue working without separate read/write grants. If Record is private on Sites, Core also sends `LECTURE_SITE_AUTH_TOKEN` in `OAI-Sites-Authorization`; it never exposes that token to MCP clients.
 
 ## Container deployment
 
@@ -218,7 +218,7 @@ The codebase also contains a Hanyang-only LearningX pilot for attendance items, 
 
 ### Codex
 
-The sibling `canvas` plugin maps its app name through `.app.json` to the registered Canvas application. Install it from the repo-scoped marketplace and use the existing account-level OAuth connection. Keep write-tool approval policies locked down; the initial server publishes only read-only tools.
+The canonical `plugins/study` package maps through `.app.json` to the online private Study app. Refresh that app and its native Skills in the target ChatGPT account; local installation is not delivery. Both school connections use shared Canvas services. `CANVAS_MESSAGES_ENABLED` and `CANVAS_COURSEWORK_WRITES_ENABLED` control rollout; operation intent and receipts govern sending/submission.
 
 ### ChatGPT
 
@@ -228,7 +228,7 @@ ChatGPT uses the registered remote MCP connection:
 2. Enable Developer mode under ChatGPT **Settings → Security and login**.
 3. In **ChatGPT Plugins**, add the MCP server URL and complete its connection details.
 4. Copy the generated application ID. ChatGPT URLs may show it with a `plugin_` compatibility prefix; `.app.json` stores the underlying `asdk_app_...` value.
-5. Add `plugins/canvas/.app.json` mapping a stable local app name to that exact application ID, then add `"apps": "./.app.json"` to `plugins/canvas/.codex-plugin/plugin.json`.
+5. Add `plugins/study/.app.json` mapping a stable local app name to that exact application ID, then add `"apps": "./.app.json"` to `plugins/study/.codex-plugin/plugin.json`.
 6. Add a local marketplace entry, refresh ChatGPT, install the plugin from that local source, and test in a new chat.
 
 After the intended private connection has completed DCR, set `OAUTH_DCR_ENABLED=false` and restart the service. Existing client IDs and refresh-token families remain valid; briefly re-enable registration only when deliberately adding a new connection.

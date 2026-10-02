@@ -1,0 +1,43 @@
+{
+  "name": "study",
+  "version": "0.2.0",
+  "description": "One private Study plugin for independent Berkeley bCourses and Hanyang HY-ON accounts, with shared Canvas capabilities and Hanyang extensions.",
+  "author": {
+    "name": "GAID Studio",
+    "url": "https://study.siyidu.com"
+  },
+  "homepage": "https://study.siyidu.com",
+  "license": "UNLICENSED",
+  "keywords": [
+    "study",
+    "canvas-lms",
+    "lecture-transcripts",
+    "education",
+    "coursework",
+    "hy-on"
+  ],
+  "skills": "./skills/",
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "Study",
+    "shortDescription": "Berkeley and Hanyang coursework in one private connection",
+    "longDescription": "Connect Berkeley bCourses and Hanyang HY-ON accounts independently inside one Study plugin. Read courses, assignments, submissions, grades, Inbox, announcements and files. Both accounts support explicitly requested uploads, assignment submissions and single-recipient Inbox send/reply with attachments. The Hanyang account also supports LearningX, timetable and saved Lecture transcripts.",
+    "developerName": "GAID Studio",
+    "category": "Education",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://study.siyidu.com",
+    "privacyPolicyURL": "https://study.siyidu.com/privacy",
+    "termsOfServiceURL": "https://study.siyidu.com/terms",
+    "defaultPrompt": [
+      "Review my Berkeley assignments and submission status.",
+      "Check today's Hanyang classes and unfinished work.",
+      "Show the selected school account before checking deadlines."
+    ],
+    "brandColor": "#1F6B45",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg"
+  }
+}

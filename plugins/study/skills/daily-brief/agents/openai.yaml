@@ -1,0 +1,15 @@
+interface:
+  display_name: "汉阳每日提醒"
+  short_description: "Brief Hanyang classes, deadlines, and preparation reminders"
+  default_prompt: "Use $daily-brief to check my Hanyang classes, tasks, and materials for today and give me a brief Chinese reminder."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "canvas"
+      description: "Hanyang course facts for a read-only daily reminder"
+      transport: "streamable_http"
+      url: "https://study.siyidu.com/mcp"
+
+policy:
+  allow_implicit_invocation: true

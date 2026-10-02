@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "20260921T064410206Z-0c8569c05fda-3f45e39ce1e8",
+  "status": "verified",
+  "updatedAt": "2026-09-21T07:30:41.253Z",
+  "report": "docs/releases/2026-09-21-current-term-filter.md",
+  "previousReleaseId": "20260921T055943461Z-0c8569c05fda-514df1ed3b2b",
+  "sourceSha256": "3f45e39ce1e859a58de1e84c8bfbb14cdb08d73ba7e9ff647cbca7fbc141b603",
+  "sourceManifest": ".deploy/releases/20260921T064410206Z-0c8569c05fda-3f45e39ce1e8/manifest.json",
+  "validatedAt": "2026-09-21T06:43:47.044Z",
+  "core": {
+    "status": "verified",
+    "origin": "https://study.siyidu.com",
+    "image": "sha256:68c0d289dad2a3b82c3c425d547e0164f37987f3376ce57fcceed2a8c09e0add",
+    "previousImage": "sha256:33c2229b0e7f709bf20a48bc10b54a95deca55134f8bf409b8fd090dd6ff2970",
+    "schemaVersion": 9,
+    "backupDirectory": "/home/ubuntu/siyi/backups/study-20260921T064410206Z-0c8569c05fda-3f45e39ce1e8",
+    "rollbackOnCandidateDatabase": "passed",
+    "localAndPublicHealth": "passed",
+    "berkeleyImport": "verified",
+    "legacyPasskeyFlagsEnabled": [],
+    "legacyPasskeyButtons": "disabled_after_both_canonical_credentials_used_and_browser_verified",
+    "configurationCleanup": {
+      "backupDirectory": "/home/ubuntu/siyi/backups/study-legacy-retirement-20260921",
+      "candidateLoginCheck": "passed",
+      "localAndPublicHealth": "passed",
+      "productionImageUnchanged": true,
+      "configurationRollback": "tested_during_startup_check_then_final_activation_verified"
+    }
+  },
+  "record": {
+    "status": "succeeded",
+    "projectId": "appgprj_6a84ba7dde3c81919d5d4a71c2cbbfff",
+    "versionId": "appgprj_6a84ba7dde3c81919d5d4a71c2cbbfff~appgver_116d373ff02c819196c2d149a4eee4c4",
+    "versionNumber": 10,
+    "deploymentId": "appgdep_6a9f91aecbf48191929dabe38b438326",
+    "sourceCommit": "4064f16ee09ef068ba1d4ef70fbaaf35d985523b",
+    "sourceManifest": ".deploy/releases/20260908T043357936Z-0c8569c05fda-cb785fdf1dde/manifest.json",
+    "sourceMatchesFinalCandidate": true,
+    "environmentRevision": 6,
+    "canonicalUrl": "https://lecture.siyidu.com",
+    "deployedUrl": "https://study-record.dusiyi0916.chatgpt.site",
+    "accessMode": "public",
+    "ownerGuard": "STUDY_OWNER_EMAIL",
+    "migration": "0002_school_captions.sql",
+    "backupSha256": "c4b898177f14dc0ad3fa6dc32dc6be78c48828fcf38f47f3b60509f4ee4c7c8f",
+    "originalSessionsUnchanged": 13,
+    "originalSegmentsUnchanged": 47,
+    "legacyAndPagedReads": "passed",
+    "unchangedThisRelease": true,
+    "retainedFromRelease": "20260908T044908360Z-0c8569c05fda-4eb20884025a"
+  },
+  "chatgpt": {
+    "status": "verified",
+    "appId": "asdk_app_6ab0bfacd2188191a0dee9b25994b83a",
+    "versionId": "asdk_app_v_6ab0bfacd224819191734e59bf00170c",
+    "connectionMode": "development",
+    "connectionUrl": "https://study.siyidu.com/mcp",
+    "installed": true,
+    "accountLinkUI": "both_independent_school_accounts_visible",
+    "verifiedConnectedSchools": [
+      "hanyang",
+      "berkeley"
+    ],
+    "hanyangConnection": {
+      "linkId": "link_6ab0cbcadde48191a08313f7c1b1466e",
+      "scopes": [
+        "canvas.read",
+        "lecture.read",
+        "canvas.messages.write"
+      ],
+      "scopeExpansionApprovedByUser": true,
+      "toolCatalogVisible": true,
+      "reconnectionWarningsCleared": true,
+      "messageSentDuringVerification": false,
+      "nickname": "Hanyang"
+    },
+    "nativeSkills": [
+      {
+        "name": "canvas",
+        "id": "6a9f1c63174881919332d2db04eb306c",
+        "bodySaveAndReload": "passed_exact_canonical_body_match_7713_characters"
+      },
+      {
+        "name": "daily-brief",
+        "id": "6a9f1e12a6b881919a8dd19cdb27b93e",
+        "bodySaveAndReload": "passed"
+      },
+      {
+        "name": "study",
+        "id": "6a9f1d1bfb248191b776d3f3eacdf66c",
+        "bodyAndDescriptionAudit": "matches_canonical_no_edit_needed"
+      },
+      {
+        "name": "study-lecture",
+        "id": "6a9f1d3a37688191982551e1de6116b5",
+        "bodyAndDescriptionAudit": "matches_canonical_no_edit_needed"
+      }
+    ],
+    "naturalLanguageEndToEnd": "hanyang_profile_courses_lectures_and_berkeley_profile_skill_current_term_courses_passed",
+    "passkeyHandoffState": "Both school canonical passkeys created by user and successful use verified",
+    "hanyangWebsiteRecovery": "verified_created_and_used_original_account_retained",
+    "hanyangReadCheckConversation": "6ab0cea7-f924-83ea-9932-7eb59ba01b86",
+    "berkeleyWebsiteRecovery": "verified_created_and_used_original_account_retained",
+    "berkeleyLinkId": "link_6ab0d32bbb3081919748e0c83445d4cd",
+    "berkeleyConnection": {
+      "linkId": "link_6ab0d32bbb3081919748e0c83445d4cd",
+      "nickname": "Berkeley",
+      "scopes": [
+        "canvas.read"
+      ],
+      "toolCatalogVisible": true
+    },
+    "berkeleyReadCheckConversation": "6ab0d6a6-8ef4-83ea-b668-f76359bb45d3",
+    "berkeleyCurrentTermCheck": {
+      "allAccessibleSites": 16,
+      "currentAcademicCourses": 3,
+      "termId": "5751",
+      "bothCollectionsExhausted": true,
+      "trainingSeparated": true
+    }
+  },
+  "cloudflare": {
+    "userActionTimeApproval": "received",
+    "previousVersionPrefix": "68232b70",
+    "worker": "webauthn-ror-bridge",
+    "publicOrigins": "verified",
+    "versionPrefix": "48236e5c"
+  },
+  "liveVerification": {
+    "lectureSessions": 14,
+    "noActiveRecording": true,
+    "lectureDetailPages": 287,
+    "hanyangCourses": 7,
+    "courseCollectionsExhausted": true,
+    "hanyangOnlyBoundaries": "passed",
+    "legacyAndPagedRecordReads": "passed",
+    "lectureWarnings": 0,
+    "stableSchoolProfiles": "passed",
+    "sqliteIntegrity": "ok",
+    "lectureSegments": 560,
+    "berkeleyCourses": 16,
+    "berkeleyTermFilter": {
+      "paginationExhausted": true,
+      "currentCourses": 3,
+      "historicalFall2025Courses": 4,
+      "allAccessibleCourses": 16,
+      "currentTerm": "Fall 2026"
+    },
+    "status": "verified"
+  },
+  "tests": {
+    "builtWorkerSmoke": "passed",
+    "releaseSkipped": 1,
+    "record": 72,
+    "releaseUnit": 11,
+    "coreAndRecordTypecheck": "passed",
+    "core": 269,
+    "pluginAndSkills": "passed",
+    "skillCreatorQuickValidate": "passed"
+  },
+  "postDeploymentMetadata": {
+    "path": "plugins/canvas/.app.json",
+    "pluginValidation": "passed",
+    "sha256": "d9f776c0dad521a6df953f2eafeec0972ce646a78e55a3bac86521600d5b610b",
+    "reason": "Remote app mapping retained in immutable term-filter candidate"
+  },
+  "scheduledTasks": {
+    "hanyangTaskId": "6a9e34ab92488191902f00f7db3ad2c9",
+    "mailOnlyTaskUnchanged": "6a933b33f4908191a63a3fd7f228eda3",
+    "status": "migrated_saved_and_manual_run_completed",
+    "manualRunConversation": "6a9e347d-b150-83ea-8d57-d8f0206e4f16",
+    "finalDualAccountCheck": "passed_after_explicit_hanyang_link_binding",
+    "hanyangLinkId": "link_6ab0cbcadde48191a08313f7c1b1466e",
+    "finalReadCheck": {
+      "completed": true,
+      "profileCallLinkId": "link_6ab0cbcadde48191a08313f7c1b1466e",
+      "hanyangTermId": "94",
+      "currentAcademicCourses": 7,
+      "originalSchedulePreserved": true,
+      "readOnly": true
+    }
+  },
+  "oldPluginCleanup": {
+    "hanyang": "deleted_from_created_apps",
+    "berkeley": "deleted_from_created_apps",
+    "permanentAppDeletion": true,
+    "createdAppListVerified": "only_unified_study_remains_for_school_integrations",
+    "localBerkeley": {
+      "pluginId": "berkeley-canvas@personal",
+      "status": "uninstalled_and_marketplace_entry_removed",
+      "sourceRetained": false,
+      "sourceCleanup": "legacy_personal_package_moved_to_recycle_bin",
+      "catalogBackup": ".deploy/legacy-personal-marketplace-before-cleanup.json"
+    },
+    "unifiedStudyRetained": true,
+    "localStudy": {
+      "status": "uninstalled_marketplace_source_removed",
+      "repositoryDiscoveryEntryRemoved": true,
+      "localInventoryVerified": {
+        "installed": 0,
+        "available": 0
+      },
+      "emptyCacheDirectoriesRemoved": true,
+      "canonicalSourceRetained": "plugins/study",
+      "onlineAppAndConnectionsUnchanged": true
+    }
+  },
+  "localPluginInstall": "not_requested",
+  "postReleaseSourceMaintenance": {
+    "status": "validated_packaging_only_not_a_new_deployment",
+    "pluginName": "study",
+    "pluginRoot": "plugins/study",
+    "recordProductBoundary": "classroom_recording_and_transcripts_are_a_study_feature",
+    "remoteAppIdUnchanged": true,
+    "mcpCatalogMatchesDeployedSource": true,
+    "checks": {
+      "portablePluginAndCatalog": "passed",
+      "officialPluginValidator": "passed",
+      "officialSkillValidators": 4,
+      "releaseTestsPassed": 11,
+      "releaseTestsSkipped": 1
+    },
+    "nextDeploymentRequiresFreshReleaseCheck": true
+  },
+  "limitations": [
+    "School-side Quiz 404s and restricted file-directory reads are reported as incomplete sources by the daily task",
+    "No actual message-send, assignment submission or microphone test"
+  ],
+  "legacyBerkeleyService": {
+    "status": "stopped",
+    "container": "berkeley-canvas-mcp-berkeley-canvas-1",
+    "image": "sha256:ee55350907bc9089688998ded6006b5dd095a81b36ad14f5632029d8ec8f1bb5",
+    "backupDirectory": "/home/ubuntu/siyi/backups/study-legacy-retirement-20260921",
+    "freshDatabaseAndConfigBackup": true,
+    "rollbackImageBootOnDatabaseCopy": "passed",
+    "originalDataAndContainerRetained": true
+  }
+}

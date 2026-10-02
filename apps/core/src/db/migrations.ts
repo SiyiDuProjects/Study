@@ -330,6 +330,71 @@ const migrations: readonly Migration[] = [
         ON webauthn_credentials(user_id, rp_id, created_at);
     `,
   },
+  {
+    version: 7,
+    sql: `CREATE TABLE canvas_message_receipts (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      request_id TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','sent','unknown','failed')),
+      result_json TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY(user_id, request_id)
+    );`,
+  },
+  {
+    version: 8,
+    sql: `
+      -- The archive belongs to its original identity, even if that account is deleted.
+      CREATE TABLE lecture_owner (
+        singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+        user_id TEXT NOT NULL UNIQUE
+      );
+      INSERT INTO lecture_owner(singleton, user_id)
+        SELECT 1, user_id FROM canvas_connections WHERE institution = 'hanyang';
+      DROP INDEX canvas_connections_single_owner_idx;
+      CREATE UNIQUE INDEX canvas_connections_institution_owner_idx
+        ON canvas_connections(institution);
+      -- New installations bind once. Deletion never grants the archive to a replacement.
+      CREATE TRIGGER lecture_owner_initial_bind AFTER INSERT ON canvas_connections
+        WHEN NEW.institution = 'hanyang' AND NOT EXISTS(SELECT 1 FROM lecture_owner)
+      BEGIN
+        INSERT INTO lecture_owner(singleton, user_id) VALUES (1, NEW.user_id);
+      END;
+    `,
+  },
+  {
+    version: 9,
+    sql: `CREATE TABLE passkey_recovery_requests (
+      id TEXT PRIMARY KEY,
+      browser_hash TEXT NOT NULL UNIQUE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      approved_at INTEGER,
+      used_at INTEGER,
+      challenge TEXT,
+      challenge_expires_at INTEGER,
+      rp_id TEXT NOT NULL,
+      expected_origin TEXT NOT NULL
+    );`,
+  },
+  {
+    version: 10,
+    sql: `CREATE TABLE canvas_write_receipts (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      request_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      target TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','unknown','complete')),
+      result_json TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY(user_id, request_id)
+    );
+    CREATE UNIQUE INDEX canvas_write_active_target ON canvas_write_receipts(user_id,kind,target)
+      WHERE status IN ('pending','unknown');`,
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

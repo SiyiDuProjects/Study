@@ -1,4 +1,7 @@
 import type { CourseOption } from "../../shared/courses";
+import { timetableSchema, type Timetable } from "../../shared/timetable";
+import { getLectureSessionResponseSchema, listLectureSessionsResponseSchema } from "../../../core/src/lecture/types";
+import { schoolCoursesSchema, type SchoolCourse } from "../../../core/src/lecture/school-types";
 import type {
   ClassSession,
   ClassSessionSummary,
@@ -26,10 +29,6 @@ interface RealtimeClientSecretResponse {
   expiresAt: number;
 }
 
-interface SessionsResponse {
-  sessions: ClassSessionSummary[];
-}
-
 interface SessionResponse {
   session: ClassSession;
 }
@@ -43,6 +42,27 @@ interface TranslateResponse {
 }
 
 export const BROWSER_API_TIMEOUT_MS = 8_000;
+
+export async function fetchSchoolCourses(): Promise<SchoolCourse[]> {
+  return schoolCoursesSchema.parse(await requestJson<unknown>("/api/school-captions")).courses;
+}
+
+export async function fetchSchoolLive(courseId: string): Promise<ClassSession | null> {
+  const raw = await requestJson<unknown>(`/api/school-captions/${encodeURIComponent(courseId)}/live`);
+  if (raw === null) return null;
+  const page = getLectureSessionResponseSchema.parse(raw);
+  return { ...page.session, segments: page.items };
+}
+
+export async function setSchoolCourse(courseId: string, enabled: boolean): Promise<SchoolCourse[]> {
+  return schoolCoursesSchema.parse(await requestJson<unknown>(`/api/school-captions/${encodeURIComponent(courseId)}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }),
+  })).courses;
+}
+
+export async function fetchTimetable(): Promise<Timetable> {
+  return timetableSchema.parse(await requestJson<unknown>("/api/timetable"));
+}
 
 export async function fetchCourses(includeArchived = false): Promise<CoursesResponse> {
   return requestJson<CoursesResponse>(
@@ -83,18 +103,60 @@ export async function listRemoteSessions(options: {
   courseId?: string;
   status?: LectureSessionStatus | "all";
   limit?: number;
+  onWarning?: (message: string) => void;
 } = {}): Promise<ClassSessionSummary[]> {
   const params = new URLSearchParams();
   if (options.courseId) params.set("courseId", options.courseId);
   if (options.status) params.set("status", options.status);
   if (options.limit) params.set("limit", String(options.limit));
-  const query = params.size > 0 ? `?${params}` : "";
-  const data = await requestJson<SessionsResponse>(`/api/sessions${query}`);
-  return data.sessions;
+  const items: ClassSessionSummary[] = [];
+  const cursors = new Set<string>();
+  let invalidCount = 0;
+  for (;;) {
+    const data = listLectureSessionsResponseSchema.parse(await requestJson<unknown>(`/api/sessions?${params}`));
+    items.push(...data.items);
+    invalidCount += data.warnings.length;
+    if (!data.nextCursor) break;
+    if (cursors.has(data.nextCursor)) throw new ApiRequestError("记录分页未能继续，请刷新后重试。", 502);
+    cursors.add(data.nextCursor);
+    params.set("cursor", data.nextCursor);
+  }
+  if (invalidCount) options.onWarning?.(`已跳过 ${invalidCount} 条字段损坏的历史记录，其余记录仍可读取。`);
+  return items;
 }
 
 export async function getRemoteSession(id: string): Promise<ClassSession> {
-  return (await requestJson<SessionResponse>(`/api/sessions/${encodeURIComponent(id)}`)).session;
+  // A background writer may advance the revision between transcript pages.
+  for (let attempt = 0; ; attempt += 1) {
+    try { return await getRemoteSessionPages(id); }
+    catch (error) {
+      if (!(error instanceof ApiRequestError) || error.code !== "invalid_cursor" || attempt >= 2) throw error;
+    }
+  }
+}
+
+async function getRemoteSessionPages(id: string): Promise<ClassSession> {
+  const params = new URLSearchParams({ limit: "50" });
+  const segments: ClassSession["segments"] = [];
+  const cursors = new Set<string>();
+  let invalidCount = 0;
+  for (;;) {
+    const data = getLectureSessionResponseSchema.parse(await requestJson<unknown>(`/api/sessions/${encodeURIComponent(id)}?${params}`));
+    segments.push(...data.items);
+    invalidCount += data.warnings.length;
+    if (!data.nextCursor) {
+      return {
+        ...data.session,
+        segments,
+        finalizationWarning: invalidCount
+          ? [data.session.finalizationWarning, `有 ${invalidCount} 段字幕字段损坏，读取结果可能不完整。`].filter(Boolean).join(" ")
+          : data.session.finalizationWarning,
+      };
+    }
+    if (cursors.has(data.nextCursor)) throw new ApiRequestError("字幕分页未能继续，请刷新后重试。", 502);
+    cursors.add(data.nextCursor);
+    params.set("cursor", data.nextCursor);
+  }
 }
 
 export async function createRemoteSession(input: CreateLectureSessionRequest): Promise<WritableSessionResponse> {

@@ -6,17 +6,19 @@ export interface LearningXAttendanceItem {
   title: string;
   type: string | null;
   attendanceStatus: string | null;
-  useAttendance: boolean;
-  completed: boolean;
+  useAttendance: boolean | null;
+  completed: boolean | null;
   dueAt: string | null;
   unlockAt: string | null;
   completedAt: string | null;
   progressSeconds: number | null;
   lastAtSeconds: number | null;
-  required: boolean;
+  required: boolean | null;
   durationSeconds: number | null;
   progressSupported: boolean | null;
   viewerUrl: string;
+  moduleItemId?: string | null;
+  translive?: { id: string; viewerUrl: string } | null;
 }
 
 export interface LearningXModule {

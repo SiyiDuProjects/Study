@@ -1,0 +1,18 @@
+{
+  "observedOn": "2026-09-07",
+  "environment": "existing production MCP tools in this task, before deployment of the optimization",
+  "readOnly": true,
+  "connectionVerified": true,
+  "activeCourseCount": 7,
+  "learningX": {
+    "courseId": "215729",
+    "externalToolId": "138",
+    "attendanceItems": 0,
+    "moduleCount": 16,
+    "moduleItems": 4,
+    "attendanceMarkedModuleItems": 2,
+    "completedAttendanceMarkedModuleItems": 2
+  },
+  "conclusion": "The production attendance tool returned no items while modules returned two completed attendance videos. This observation alone did not establish different source coverage. Follow-up authenticated page inspection and the page's public scripts confirmed that Lecture/Attendance uses attendance_items plus attendance_items/summary instead of the client's allcomponents_db path. See attendance-read-fix.md; the original observations remain unchanged and the fix has not been deployed.",
+  "secretsOrTranscriptTextIncluded": false
+}

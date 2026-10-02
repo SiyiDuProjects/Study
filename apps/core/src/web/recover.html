@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1f6b45">
+    <meta name="referrer" content="no-referrer">
+    <title>Recover access · Study</title>
+    <link rel="icon" href="/assets/app-icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/app.css">
+    <script type="module" src="/assets/auth.js?recovery=1"></script>
+  </head>
+  <body data-page="recovery">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">ST</span><span>Study</span></a></header>
+    <main id="main" class="shell narrow">
+      <section class="card auth-card" aria-labelledby="recovery-title">
+        <h1 id="recovery-title">Recover your Study account</h1>
+        <p>Create a replacement passkey after the administrator confirms your existing school account. Your courses and recordings stay with that account.</p>
+        <button id="recovery-request" type="button">Prepare recovery request</button>
+        <p id="recovery-code" class="meta" hidden></p>
+        <p id="recovery-school" hidden></p>
+        <button id="recovery-check" type="button" class="button-secondary" hidden>Check approval</button>
+        <button id="recovery-create" type="button" hidden>Create replacement passkey</button>
+        <p id="recovery-status" class="status" role="status" aria-live="polite"></p>
+        <p class="muted">Keep this page open. After approval you have 10 minutes to create the passkey. Existing passkeys and website sessions are replaced only after successful verification. Connected plugins keep their current permissions.</p>
+        <a id="recovery-login" href="/login" hidden>Sign in with your new passkey</a>
+      </section>
+    </main>
+  </body>
+</html>

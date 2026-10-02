@@ -3,6 +3,11 @@ import {
   getLectureSessionResponseSchema,
   listLectureSessionsResponseSchema,
   searchLectureTranscriptsResponseSchema,
+  lectureCourseIdSchema,
+  lectureSessionIdSchema,
+  lectureCursorSchema,
+  lectureDateWindowFields,
+  validLectureDateWindow,
   type GetLectureSessionResponse,
   type LectureStatusFilter,
   type ListLectureSessionsResponse,
@@ -24,13 +29,32 @@ export interface ListLectureSessionsOptions {
   courseId?: string;
   status?: LectureStatusFilter;
   limit?: number;
+  startAt?: string;
+  endAt?: string;
+  cursor?: string;
 }
 
-export interface SearchLectureTranscriptsOptions {
+export interface SearchLectureTranscriptsOptions extends ListLectureSessionsOptions {
   query: string;
-  courseId?: string;
-  status?: LectureStatusFilter;
+  sessionId?: string;
+}
+
+export interface TranscriptReadOptions {
+  startMs?: number;
+  endMs?: number;
+  cursor?: string;
   limit?: number;
+}
+
+function setReadFilters(query: URLSearchParams, options: ListLectureSessionsOptions): void {
+  if (options.courseId) query.set("course_id", lectureCourseIdSchema.parse(options.courseId));
+  if (options.status) query.set("status", options.status);
+  if (options.cursor) query.set("cursor", lectureCursorSchema.parse(options.cursor));
+  if (options.startAt) query.set("start_at", lectureDateWindowFields.start_at.parse(options.startAt)!);
+  if (options.endAt) query.set("end_at", lectureDateWindowFields.end_at.parse(options.endAt)!);
+  if (!validLectureDateWindow({ ...(options.startAt ? { start_at: options.startAt } : {}), ...(options.endAt ? { end_at: options.endAt } : {}) })) {
+    throw new CanvasApiError("invalid_argument", "end_at must be after start_at.");
+  }
 }
 
 function boundedInteger(value: number | undefined, fallback: number, maximum: number): number {
@@ -55,7 +79,7 @@ function boundedText(value: string, name: string, maximum: number): string {
   return normalized;
 }
 
-async function readBoundedText(response: Response, maximumBytes: number): Promise<string> {
+export async function readBoundedText(response: Response, maximumBytes: number): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -109,25 +133,34 @@ export class LectureClient {
 
   async listSessions(options: ListLectureSessionsOptions = {}): Promise<ListLectureSessionsResponse> {
     const query = new URLSearchParams();
-    if (options.courseId) query.set("course_id", boundedText(options.courseId, "course_id", 160));
-    if (options.status) query.set("status", options.status);
+    setReadFilters(query, options);
     query.set("limit", String(boundedInteger(options.limit, 20, 100)));
     return listLectureSessionsResponseSchema.parse(
       await this.getJson(`/internal/mcp/lecture/sessions?${query.toString()}`),
     );
   }
 
-  async getSession(sessionId: string): Promise<GetLectureSessionResponse> {
-    const id = boundedText(sessionId, "session_id", 128);
+  async getSession(sessionId: string, options: TranscriptReadOptions = {}): Promise<GetLectureSessionResponse> {
+    const id = lectureSessionIdSchema.parse(sessionId);
+    const query = new URLSearchParams({ limit: String(boundedInteger(options.limit, 20, 50)) });
+    if (options.cursor) query.set("cursor", lectureCursorSchema.parse(options.cursor));
+    for (const [name, value] of [["start_ms", options.startMs], ["end_ms", options.endMs]] as const) {
+      if (value === undefined) continue;
+      if (!Number.isInteger(value) || value < 0) throw new CanvasApiError("invalid_argument", `${name} must be a nonnegative integer.`);
+      query.set(name, String(value));
+    }
+    if (options.startMs !== undefined && options.endMs !== undefined && options.endMs <= options.startMs) {
+      throw new CanvasApiError("invalid_argument", "end_ms must be after start_ms.");
+    }
     return getLectureSessionResponseSchema.parse(
-      await this.getJson(`/internal/mcp/lecture/sessions/${encodeURIComponent(id)}`),
+      await this.getJson(`/internal/mcp/lecture/sessions/${encodeURIComponent(id)}?${query}`),
     );
   }
 
   async search(options: SearchLectureTranscriptsOptions): Promise<SearchLectureTranscriptsResponse> {
     const query = new URLSearchParams({ q: boundedText(options.query, "query", 500) });
-    if (options.courseId) query.set("course_id", boundedText(options.courseId, "course_id", 160));
-    if (options.status) query.set("status", options.status);
+    setReadFilters(query, options);
+    if (options.sessionId) query.set("session_id", lectureSessionIdSchema.parse(options.sessionId));
     query.set("limit", String(boundedInteger(options.limit, 20, 50)));
     return searchLectureTranscriptsResponseSchema.parse(
       await this.getJson(`/internal/mcp/lecture/search?${query.toString()}`),
@@ -146,6 +179,8 @@ export class LectureClient {
       const headers: Record<string, string> = {
         Accept: "application/json",
         Authorization: `Bearer ${this.options.serviceToken}`,
+        "X-Study-Lecture-Contract": "paged-v1",
+        "X-Study-Lecture-Source": "school-v1",
         "User-Agent": "canvas-mcp-service/0.1 (lecture-readonly)",
       };
       if (this.options.siteAuthToken) {
@@ -165,7 +200,9 @@ export class LectureClient {
       const text = await readBoundedText(response, MAX_RESPONSE_BYTES);
       if (!response.ok) {
         throw new CanvasApiError(
-          response.status === 401 || response.status === 403
+          response.status === 400
+            ? "invalid_argument"
+            : response.status === 401 || response.status === 403
             ? "permission_denied"
             : response.status === 404
               ? "not_found"

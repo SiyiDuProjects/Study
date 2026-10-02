@@ -1,6 +1,17 @@
 import type { InstitutionKey } from "../domain.js";
+import type { CanvasApiError } from "./errors.js";
 
 export type CanvasId = string | number;
+
+/** nextCursor is opaque. Null means this query has no further records. */
+export interface Page<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+export type SourceResult<T> =
+  | { ok: true; result: Page<T>; error: null }
+  | { ok: false; result: null; error: ReturnType<CanvasApiError["toJSON"]> };
 
 export type EnrollmentState =
   | "active"
@@ -66,7 +77,9 @@ export type NormalizedSubmissionStatus =
   | "submitted"
   | "graded"
   | "missing"
-  | "excused";
+  | "excused"
+  | "resubmission_required"
+  | "unknown";
 
 export interface CanvasSubmission {
   id: string | null;
@@ -79,10 +92,12 @@ export interface CanvasSubmission {
   score: number | null;
   grade: string | null;
   attempt: number | null;
-  late: boolean;
-  missing: boolean;
-  excused: boolean;
-  secondsLate: number;
+  late: boolean | null;
+  missing: boolean | null;
+  excused: boolean | null;
+  redoRequest: boolean | null;
+  extraAttempts: number | null;
+  secondsLate: number | null;
   submissionType: string | null;
   attachments: Array<{
     id: string;
@@ -130,6 +145,9 @@ export interface CanvasAssignment {
   dueAt: string | null;
   unlockAt: string | null;
   lockAt: string | null;
+  lockedForUser: boolean | null;
+  lockExplanation: string | null;
+  allowedAttempts: number | null;
   pointsPossible: number | null;
   position: number | null;
   published: boolean;
@@ -139,6 +157,17 @@ export interface CanvasAssignment {
   hasSubmittedSubmissions: boolean;
   htmlUrl: string | null;
   submission: CanvasSubmission | null;
+}
+
+export interface CanvasAssignmentPage extends Page<CanvasAssignment> {
+  coverage: {
+    courseId: string;
+    selection: string;
+    source: "all_assignments" | "upstream_bucket";
+    submissionIncluded: boolean;
+    queryExhausted: boolean;
+    checkedAt: string;
+  };
 }
 
 export interface CanvasAnnouncement {
@@ -191,7 +220,7 @@ export interface CanvasModule {
   state: string | null;
   completedAt: string | null;
   published: boolean;
-  items: CanvasModuleItem[];
+  itemCount: number | null;
 }
 
 export interface CanvasCourseTab {
@@ -236,6 +265,7 @@ export interface CanvasDiscussionEntry {
   readState: string | null;
   deleted: boolean;
   replies: CanvasDiscussionEntry[];
+  hasMoreReplies: boolean;
 }
 
 export interface CanvasDiscussionTopic {
@@ -361,8 +391,17 @@ export interface CanvasUpcomingWorkItem {
   dueAt: string | null;
   htmlUrl: string | null;
   pointsPossible: number | null;
-  completed: boolean;
+  completed: boolean | null;
   submissionStatus: NormalizedSubmissionStatus | null;
+  submissionFlags: {
+    submitted: boolean | null;
+    graded: boolean | null;
+    needsGrading: boolean | null;
+    missing: boolean | null;
+    excused: boolean | null;
+    redoRequest: boolean | null;
+  };
+  plannerOverride: { markedComplete: boolean | null; dismissed: boolean | null } | null;
 }
 
 export interface CanvasGrade {
@@ -381,25 +420,27 @@ export interface CanvasWeeklySummary {
     startAt: string;
     endAt: string;
   };
-  courses: CanvasCourse[];
-  upcomingWork: CanvasUpcomingWorkItem[];
-  calendarEvents: CanvasCalendarEvent[];
-  announcements: CanvasAnnouncement[];
-  counts: {
-    courses: number;
-    upcomingWork: number;
-    incompleteWork: number;
-    calendarEvents: number;
-    announcements: number;
+  announcementsWindow: {
+    startAt: string;
+    endAt: string;
+  };
+  sources: {
+    courses: SourceResult<CanvasCourse>;
+    upcomingWork: SourceResult<CanvasUpcomingWorkItem>;
+    calendarEvents: SourceResult<CanvasCalendarEvent>;
+    announcements: SourceResult<CanvasAnnouncement>;
   };
 }
 
 export interface ListOptions {
   limit?: number;
+  cursor?: string;
 }
 
 export interface ListCoursesOptions extends ListOptions {
   enrollmentState?: EnrollmentState;
+  courseIds?: CanvasId[];
+  termId?: CanvasId;
 }
 
 export interface ListAssignmentsOptions extends ListOptions {
@@ -413,9 +454,7 @@ export interface ListAnnouncementsOptions extends ListOptions {
   activeOnly?: boolean;
 }
 
-export interface ListModulesOptions extends ListOptions {
-  includeItems?: boolean;
-}
+export type ListModulesOptions = ListOptions;
 
 export interface ListDiscussionTopicsOptions extends ListOptions {
   orderBy?: "position" | "recent_activity" | "title";
@@ -461,6 +500,7 @@ export interface GradeOptions extends ListOptions {
 export interface WeeklySummaryOptions {
   startAt?: string;
   endAt?: string;
+  announcementsStartAt?: string;
   courseIds?: CanvasId[];
   limitPerCollection?: number;
 }

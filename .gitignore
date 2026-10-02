@@ -6,6 +6,9 @@ dist-server
 **/dist-server/
 data
 **/data/
+!apps/core/src/data/
+apps/core/src/data/*
+!apps/core/src/data/hanyang-timetable.json
 .DS_Store
 *.local
 *.log
@@ -30,3 +33,27 @@ test-results
 *.sqlite-*
 *.db
 .deploy/
+.tmp/
+
+# Local-only Mac migration inputs and reproducible output
+**/node_modules*/
+**/.next*/
+**/.venv*/
+**/__pycache__/
+**/.qa/
+**/.private/
+**/.runtime/
+.env
+.env.*
+!.env.example
+!.env.sample
+.npmrc
+.dev.vars
+*.pem
+*.key
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db
+*.tsbuildinfo

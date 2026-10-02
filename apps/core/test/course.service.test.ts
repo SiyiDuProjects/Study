@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CourseCatalogService } from "../src/course/index.js";
 import { openDatabase, type AppDatabase } from "../src/db/index.js";
 import type { CanvasConnection } from "../src/domain.js";
+import { getImportedTimetableOwnerId } from "../src/timetable.js";
 
 const databases: AppDatabase[] = [];
 
@@ -226,5 +227,83 @@ describe("CourseCatalogService", () => {
     expect(
       db.prepare("SELECT last_error_code FROM course_sync_state WHERE user_id = 'owner'").get(),
     ).toEqual({ last_error_code: "network_error" });
+  });
+
+  it("reads every active and completed course page before publishing the catalog", async () => {
+    const db = database();
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const completed = url.searchParams.get("enrollment_state") === "completed";
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const start = completed ? 1000 : 0;
+      const count = page === 3 ? 1 : 100;
+      const rows = Array.from({ length: count }, (_, index) => {
+        const id = start + (page - 1) * 100 + index + 1;
+        return course(id, `Course ${id}`, `C-${id}`);
+      });
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (page < 3) {
+        url.searchParams.set("page", String(page + 1));
+        headers.link = `<${url.href}>; rel="next"`;
+      }
+      return new Response(JSON.stringify(rows), { headers });
+    }) as unknown as typeof globalThis.fetch;
+    const service = new CourseCatalogService({ db, getConnection: () => connection, fetch, minIntervalSeconds: 0 });
+    const result = await service.listForLecture(true);
+    expect(result.stale).toBe(false);
+    expect(result.courses).toHaveLength(402);
+    expect(result.courses).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "201", status: "active" }),
+      expect.objectContaining({ id: "1201", status: "archived" }),
+    ]));
+    expect(fetch).toHaveBeenCalledTimes(6);
+  });
+
+  it("retains the previous complete catalog when a continuation page fails", async () => {
+    const db = database();
+    let failContinuation = false;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("enrollment_state") === "completed") return json([]);
+      if (!failContinuation) return json([course(999, "Keep this course", "C-999")]);
+      if (url.searchParams.get("page") === "2") return json({}, 503);
+      url.searchParams.set("page", "2");
+      return new Response(JSON.stringify(Array.from({ length: 200 }, (_, index) => course(index + 1, "New course", `C-${index + 1}`))), {
+        headers: { "content-type": "application/json", link: `<${url.href}>; rel="next"` },
+      });
+    }) as unknown as typeof globalThis.fetch;
+    const service = new CourseCatalogService({ db, getConnection: () => connection, fetch, minIntervalSeconds: 0 });
+    const before = await service.listForLecture(true);
+    failContinuation = true;
+    const after = await service.listForLecture(true);
+    expect(after.stale).toBe(true);
+    expect(after.courses).toEqual(before.courses);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM course_catalog").get()).toEqual({ count: 1 });
+  });
+
+  it("does not authorize an internal timetable merely because an App user is the sole connection", async () => {
+    const db = database();
+    const differentId = getImportedTimetableOwnerId() === "1" ? "2" : "1";
+    db.prepare("UPDATE canvas_connections SET canvas_user_id = ?").run(differentId);
+    const fetch = vi.fn() as unknown as typeof globalThis.fetch;
+    const service = new CourseCatalogService({ db, getConnection: () => connection, fetch, minIntervalSeconds: 0 });
+    await expect(service.getTimetableForLecture()).rejects.toMatchObject({ code: "timetable_owner_unavailable", status: 403 });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("verifies the selected timetable connection against live Canvas identity", async () => {
+    const db = database();
+    const importedOwner = getImportedTimetableOwnerId();
+    db.prepare("UPDATE canvas_connections SET canvas_user_id = ?").run(importedOwner);
+    let profileId = importedOwner === "1" ? "2" : "1";
+    const fetch = vi.fn(async () => json({ id: profileId, name: "Synthetic student" })) as unknown as typeof globalThis.fetch;
+    const service = new CourseCatalogService({
+      db, getConnection: () => connection, fetch, minIntervalSeconds: 0,
+      clock: () => Date.parse("2026-09-07T00:00:00Z"),
+    });
+    await expect(service.getTimetableForLecture()).rejects.toMatchObject({ code: "permission_denied" });
+    profileId = importedOwner;
+    await expect(service.getTimetableForLecture()).resolves.toMatchObject({ meetings: expect.any(Array) });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

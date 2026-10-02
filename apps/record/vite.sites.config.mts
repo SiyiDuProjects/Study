@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -18,11 +19,14 @@ export default defineConfig(async () => {
 
   return {
     root: projectRoot,
+    // Core's shared runtime schemas and Record use the same Zod version.
+    resolve: { dedupe: ["zod"] },
     cacheDir: "node_modules/.vite-sites",
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
     plugins: [
+      tailwindcss(),
       react(),
       sites(),
       cloudflare({
@@ -44,7 +48,7 @@ export default defineConfig(async () => {
           assets: {
             binding: "ASSETS",
             not_found_handling: "single-page-application",
-            run_worker_first: ["/api/*"]
+            run_worker_first: ["/api/*", "/internal/*"]
           }
         }
       })

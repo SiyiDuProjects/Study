@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "verifiedAtUtc": "2026-10-01T06:35:52Z",
+  "userDate": "2026-09-30",
+  "userTimezone": "America/Los_Angeles",
+  "scope": "Read-only validation of the existing Hanyang student's normal viewer authorization and a separate collector process. No production code/configuration changes, LMS writes, audio, recording controls, translation-generation commands, or transcript imports.",
+  "runtime": {
+    "credentialIssuer": "Existing Core Node container; production SQLite opened readonly; no AuthService initialization",
+    "collector": "Separate Node process in /tmp; explicitly supplied environment contains PATH only",
+    "collectorInputFields": ["viewerId", "vtoken", "case"],
+    "patOrLearningXCredentialSentToCollector": false,
+    "sitesRuntimeTested": false
+  },
+  "upstreamSource": {
+    "viewerScript": "https://learning.hanyang.ac.kr/translive/static/js/main.2691c3be.js",
+    "viewerScriptSha256": "23c78a8ff5e285aa3064540f54970adf03b93f0500ce32a39256e38aa64e2d6c",
+    "learningXScript": "https://learning.hanyang.ac.kr/learningx/js/commons.js",
+    "learningXScriptSha256": "470bec2dd07fd6e7bf6b22f3f0612d87b4fb17f899a248e29c522f609c45fcd1",
+    "normalViewerCredentialRequest": "GET /learningx/api/v1/translive/{discoveredViewerId}/viewer?vtoken=true",
+    "viewerCredentialLocation": "Fragment of the school-issued /translive/v/{id} URL",
+    "studentUiBehavior": "Live-view button disabled after session ends; replay button shown only when viewer_public is true; caption-download UI shown only when enable_caption_download is true.",
+    "socketDenialUi": "Viewer access denied. is routed to the school's viewer_denied page.",
+    "viewerPageGuard": "The viewer page locally rejects an ended, non-public session only when vtoken is absent. A supplied vtoken allows the socket handshake to proceed; server authorization can still reject it."
+  },
+  "credentials": {
+    "learningX": {
+      "normalSessionlessLaunchSucceeded": true,
+      "lifetimeSeconds": 7200,
+      "claimKeys": ["user_login", "role", "created_at", "iat", "exp"],
+      "explicitCourseClaimPresent": false
+    },
+    "viewer": {
+      "normalIssuanceSucceeded": true,
+      "lifetimeSeconds": 86400,
+      "claimKeys": ["iss", "translive_id", "viewer_user_id", "viewer_user_type", "iat", "exp"],
+      "viewerRoleObserved": 1,
+      "transliveIdMatchedRequestedSession": true,
+      "freshSessionlessLaunchAndRemintSucceeded": true,
+      "newCredentialHadLaterIssueTime": true,
+      "actual24HourExpiryWaitTested": false
+    }
+  },
+  "successfulHistory": {
+    "courseId": "214375",
+    "viewerId": "7042679618",
+    "viewerPublic": true,
+    "captionDownloadEnabled": true,
+    "recordingStatus": "end",
+    "koreanCount": 513,
+    "chineseCount": 513,
+    "orderRange": [1, 513],
+    "koreanContentDigest": "f13f6442fd6f1bbba84f9cb498910bfb14b61377231462fa959baeadcdb9a562",
+    "chineseContentDigest": "976686cf89239facf4265a17bdd68e74878823bb1cb300d7f32288f95beed117",
+    "credentialedConnectionEmittedGuestId": false,
+    "anonymousConnectionEmittedGuestId": true,
+    "otherOwnedSessionCredentialFellBackToGuest": true,
+    "historyUnchangedAfterRemintAndReconnect": true,
+    "interpretation": "The correct viewer credential is recognized as an identified viewer. Anonymous and mismatched-credential access to this public session returns the same public history via a guest connection. This does not establish access to restricted history or quantify live latency."
+  },
+  "restrictedHistory": {
+    "authenticatedSocketAttempts": [
+      {"courseId": "214375", "viewerId": "5239483487", "result": "Viewer access denied."},
+      {"courseId": "214375", "viewerId": "8766863776", "result": "Viewer access denied."},
+      {"courseId": "214375", "viewerId": "7852070529", "result": "Viewer access denied."},
+      {"courseId": "216115", "viewerId": "1320471740", "result": "Viewer access denied."},
+      {"courseId": "216115", "viewerId": "3579139569", "result": "Viewer access denied."},
+      {"courseId": "216115", "viewerId": "4559584486", "result": "Viewer access denied."}
+    ],
+    "allAttemptedSessionsEndedWithReplayAndDownloadDisabled": true,
+    "freshCredentialRetryStillDeniedFor5239483487": true,
+    "additionalMetadataOnly": {
+      "courseId": "216115",
+      "viewerId": "5525663888",
+      "viewerPublic": false,
+      "captionDownloadEnabled": false,
+      "recordingStatus": "end",
+      "recordingEndedAtUtc": "2026-10-01T05:39:49.962Z"
+    },
+    "languageListHttp200WasNotTreatedAsHistoryPermission": true,
+    "disabledDownloadEndpointsWereNotInvoked": true,
+    "interpretation": "Six isolated connections were rejected even with freshly issued viewer credentials. These sessions also had post-class replay disabled, but this correlation does not establish the reason for server rejection. The official viewer page exempts vtoken-bearing requests from its local ended/non-public guard. A same-session comparison with the user's normal signed-in browser is still required."
+  },
+  "sourceFinding": {
+    "file": "apps/core/src/lecture/school-reader.ts",
+    "lines": [120, 143, 168, 217],
+    "currentBehavior": "Rejects viewer_public=false regardless of recording state and always supplies a null vtoken.",
+    "implication": "This conflates post-class replay settings with current live-view eligibility. The official student UI treats these separately. A live-class test is required before implementing a corrected permission-aware adapter."
+  },
+  "notYetVerified": [
+    "Same-session comparison between a normal signed-in school browser and the isolated collector, including the user's reported successful post-class access",
+    "Identified access to an in-progress class with post-class replay disabled",
+    "Full-class connection stability, token expiry and unattended renewal over 24 hours",
+    "Korean partial/final/correction event granularity and Chinese realtime timing",
+    "Mid-class history-to-live merging and measured browser display latency",
+    "Credential issuance and school calls running in the actual Sites runtime"
+  ],
+  "architectureConclusion": "Separating the long-lived PAT from the collector is supported by the observed per-session viewer credential and isolated public-history read. Full acceptance remains pending matched browser/collector, live-class and Sites-runtime tests. Post-class access is demonstrably possible for the public control; the six rejected collector connections do not establish a blanket post-class prohibition or exclude a missing requirement in the collector's authorization flow.",
+  "followUpCorrection": {
+    "userObservation": "The user reports previously reopening or viewing captions after class; exact session and whether the page was newly opened remain unspecified.",
+    "correctedClaim": "Do not attribute Viewer access denied solely to disabled replay, or equate viewer_public=false with authenticated student denial.",
+    "browserComparison": "No Hanyang tab was found in the selected in-app browser; no matching signed-in browser comparison has been completed.",
+    "productionCodeChanged": false
+  }
+}

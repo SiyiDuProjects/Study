@@ -69,6 +69,49 @@ afterEach(() => {
 });
 
 describe("application HTTP boundary", () => {
+  it.each([
+    "upload_canvas_file", "submit_assignment", "send_message", "reply_message",
+  ])("uses the existing Study authorization for %s while retaining authentication", async name => {
+    const fetcher = vi.fn<typeof fetch>();
+    const created = runtime({ fetch: fetcher, env: { CANVAS_MESSAGES_ENABLED: "true", CANVAS_COURSEWORK_WRITES_ENABLED: "true" } });
+    seedCanvasConnection(created);
+    const now = Date.now();
+    created.database.prepare("INSERT INTO oauth_clients(client_id,client_name,redirect_uris_json,grant_types_json,response_types_json,token_endpoint_auth_method,created_at) VALUES('write-client','Test','[]','[\"authorization_code\"]','[\"code\"]','none',?)").run(now);
+    created.database.prepare("INSERT INTO oauth_tokens(token_hash,token_type,family_id,user_id,client_id,resource,scope,expires_at,created_at) VALUES(?,'access','write-family','owner','write-client',?,?,?,?)")
+      .run(hashOpaqueToken("scoped-write-test"), created.config.oauthResource, "canvas.read", now + 60000, now);
+    const dispatched = await request(created.app).post("/mcp")
+      .set("Authorization", "Bearer scoped-write-test").set("Accept", "application/json, text/event-stream")
+      .send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: {} } }).expect(200);
+    expect(dispatched.text).not.toContain("insufficient_scope");
+    created.database.prepare("UPDATE oauth_tokens SET scope='offline_access'").run();
+    await request(created.app).post("/mcp")
+      .set("Authorization", "Bearer scoped-write-test").set("Accept", "application/json, text/event-stream")
+      .send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name, arguments: {} } }).expect(403);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(created.database.prepare("SELECT COUNT(*) AS count FROM canvas_write_receipts").get()).toEqual({ count: 0 });
+  });
+
+  it("keeps coursework writes and their scopes disabled by default", () => {
+    const created = runtime();
+    expect(created.config.canvasCourseworkWritesEnabled).toBe(false);
+    expect(created.config.oauthScopes).not.toContain("canvas.files.write");
+    expect(created.config.oauthScopes).not.toContain("canvas.submissions.write");
+  });
+  it("keeps rejected JSON body fragments out of both responses and error logs", async () => {
+    const sink = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const marker = "synthetic-private-request-fragment";
+      const response = await request(runtime().app).post("/mcp")
+        .set("Content-Type", "application/json").send(marker).expect(400);
+      expect(response.text).not.toContain(marker);
+      expect(sink).toHaveBeenCalledOnce();
+      expect(JSON.stringify(sink.mock.calls)).not.toContain(marker);
+      expect(JSON.parse(String(sink.mock.calls[0]?.[0]))).toMatchObject({
+        event: "http_request_failed", status: 400, error: { kind: "syntax_error", status: 400 },
+      });
+    } finally { sink.mockRestore(); }
+  });
+
   it("serves health, static account pages, and hardened headers", async () => {
     const app = runtime().app;
     const health = await request(app).get("/healthz").expect(200);
@@ -78,7 +121,7 @@ describe("application HTTP boundary", () => {
 
     const setup = await request(app).get("/setup").expect(200);
     expect(setup.headers["cache-control"]).toBe("no-store");
-    expect(setup.text).toContain("Connect Hanyang HY-ON");
+    expect(setup.text).toContain("Connect your school to Study");
   });
 
   it("publishes OAuth discovery and challenges unauthenticated MCP requests", async () => {
@@ -250,7 +293,7 @@ describe("application HTTP boundary", () => {
     });
   });
 
-  it("lets old canvas-only grants discover tools but challenges Lecture tool calls", async () => {
+  it("lets the existing Study grant discover and dispatch Lecture tools", async () => {
     const created = runtime({
       env: {
         LECTURE_API_URL: "http://lecture:8091",
@@ -308,9 +351,70 @@ describe("application HTTP boundary", () => {
         method: "tools/call",
         params: { name: "list_lecture_sessions", arguments: {} },
       })
-      .expect(403);
+      .expect(200);
 
-    expect(denied.body.error).toBe("insufficient_scope");
-    expect(denied.headers["www-authenticate"]).toContain("lecture.read");
+    expect(denied.text).not.toContain("insufficient_scope");
+  });
+  it("lets the existing Study grant dispatch message tools", async () => {
+    const created = runtime({
+      env: {
+        CANVAS_MESSAGES_ENABLED: "true",
+
+      },
+    });
+    seedCanvasConnection(created);
+    const now = Date.now();
+    created.database.prepare(
+      `INSERT INTO oauth_clients(
+         client_id, client_name, redirect_uris_json, grant_types_json,
+         response_types_json, token_endpoint_auth_method, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "client-1",
+      "Old client",
+      "[]",
+      '["authorization_code"]',
+      '["code"]',
+      "none",
+      now,
+    );
+    created.database.prepare(
+      `INSERT INTO oauth_tokens(
+         token_hash, token_type, family_id, user_id, client_id, resource,
+         scope, expires_at, created_at
+       ) VALUES (?, 'access', ?, ?, ?, ?, 'canvas.read', ?, ?)`,
+    ).run(
+      hashOpaqueToken("old-canvas-access-token"),
+      "family-1",
+      "owner",
+      "client-1",
+      created.config.oauthResource,
+      now + 60_000,
+      now,
+    );
+
+    const discovered = await request(created.app)
+      .post("/mcp")
+      .set("Authorization", "Bearer old-canvas-access-token")
+      .set("Accept", "application/json, text/event-stream")
+      .send({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+      .expect(200);
+    const discoveryPayload = `${JSON.stringify(discovered.body)}\n${discovered.text}`;
+    expect(discoveryPayload).toContain("connection_status");
+    expect(discoveryPayload).toContain("send_message");
+
+    const denied = await request(created.app)
+      .post("/mcp")
+      .set("Authorization", "Bearer old-canvas-access-token")
+      .set("Accept", "application/json, text/event-stream")
+      .send({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "send_message", arguments: {} },
+      })
+      .expect(200);
+
+    expect(denied.text).not.toContain("insufficient_scope");
   });
 });

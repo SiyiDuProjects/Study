@@ -5,7 +5,7 @@ const LEGACY_SETTINGS_KEY = "korean-class-subtitler-settings";
 
 export const defaultSettings: AppSettings = {
   subtitleScale: 1,
-  showKoreanInline: false,
+  showKoreanInline: true,
   translationMode: "realtime-translate",
   textTranslationModel: "gpt-5.4-mini"
 };
@@ -17,12 +17,12 @@ export async function loadSettings(): Promise<AppSettings> {
   }
 
   try {
-    const value = JSON.parse(raw) as Partial<AppSettings>;
+    const value = JSON.parse(raw) as Partial<AppSettings> & { version?: number };
     return {
       ...defaultSettings,
       subtitleScale: typeof value.subtitleScale === "number" ? value.subtitleScale : defaultSettings.subtitleScale,
       showKoreanInline:
-        typeof value.showKoreanInline === "boolean" ? value.showKoreanInline : defaultSettings.showKoreanInline,
+        value.version === 2 && typeof value.showKoreanInline === "boolean" ? value.showKoreanInline : defaultSettings.showKoreanInline,
       translationMode: defaultSettings.translationMode,
       textTranslationModel:
         value.textTranslationModel === "gpt-5.4-mini" || value.textTranslationModel === "gpt-5.4-nano"
@@ -35,6 +35,6 @@ export async function loadSettings(): Promise<AppSettings> {
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, version: 2 }));
   window.localStorage.removeItem(LEGACY_SETTINGS_KEY);
 }

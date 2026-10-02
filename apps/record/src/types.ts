@@ -1,3 +1,5 @@
+import type { LectureSession, LectureSessionSummary } from "../../core/src/lecture/types";
+
 export type ConnectionStatus = "idle" | "connecting" | "recording" | "paused" | "closing" | "error";
 
 export type TranscriptChannel = "translation" | "source";
@@ -13,17 +15,7 @@ export type TranslationModel = "gpt-realtime-translate" | TextTranslationModel;
 export type LectureSessionStatus = (typeof LECTURE_SESSION_STATUSES)[number];
 export type CourseMatchStatus = (typeof COURSE_MATCH_STATUSES)[number];
 
-export interface TranscriptSegment {
-  id: string;
-  commitSequence?: number;
-  startedAtMs: number;
-  endedAtMs?: number;
-  sourceText: string;
-  translatedText: string;
-  isFinal: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+export type TranscriptSegment = LectureSession["segments"][number];
 
 export interface TranscriptState {
   segments: TranscriptSegment[];
@@ -36,32 +28,9 @@ export interface LectureModels {
   mode?: TranslationMode;
 }
 
-export interface ClassSession {
-  id: string;
-  title: string;
-  courseId: string;
-  courseCode: string;
-  courseName: string;
-  courseTerm: string;
-  courseFolderName: string;
-  courseMatchStatus: CourseMatchStatus;
-  finalizationWarning: string | null;
-  revision: number;
-  status: LectureSessionStatus;
-  startedAt: string;
-  endedAt: string | null;
-  durationMs: number;
-  sourceLanguage: "ko";
-  targetLanguage: "zh";
-  models: LectureModels;
-  segments: TranscriptSegment[];
-  savedAt: string | null;
-  updatedAt: string;
-}
-
-export type ClassSessionSummary = Omit<ClassSession, "segments"> & {
-  segmentCount: number;
-};
+// Historical reader metadata is intentionally independent of today's writer model choices.
+export type ClassSession = Omit<LectureSession, "segmentCount"> & { segmentCount?: number };
+export type ClassSessionSummary = LectureSessionSummary;
 
 export interface CreateLectureSessionRequest {
   courseId: string;

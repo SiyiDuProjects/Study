@@ -242,6 +242,10 @@ describe("database and invitation security", () => {
       { version: 4 },
       { version: 5 },
       { version: 6 },
+      { version: 7 },
+      { version: 8 },
+      { version: 9 },
+      { version: 10 },
     ]);
     expect(
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(
@@ -460,7 +464,7 @@ describe("OAuth 2.1 service", () => {
       token_endpoint_auth_method: "none",
     });
 
-    expect(config.oauthScopes).toEqual(["canvas.read", "lecture.read", "offline_access"]);
+    expect(config.oauthScopes).toEqual(["canvas.read", "offline_access"]);
     expect(
       service.inspectAuthorizationRequest(
         authorizationInput(config, client.client_id, "canvas.read"),
@@ -470,7 +474,7 @@ describe("OAuth 2.1 service", () => {
       service.inspectAuthorizationRequest(
         authorizationInput(config, client.client_id, "canvas.read lecture.read"),
       ).scope,
-    ).toBe("canvas.read lecture.read");
+    ).toBe("canvas.read");
 
     seedUser(db, Date.now());
     const { code } = service.issueAuthorizationCode(
@@ -485,10 +489,9 @@ describe("OAuth 2.1 service", () => {
       resource: config.oauthResource,
     });
     expect(tokens.refresh_token).toMatch(/^crt_/);
-    expect(tokens.scope).toBe("canvas.read lecture.read");
+    expect(tokens.scope).toBe("canvas.read");
     expect(service.validateAccessToken(tokens.access_token).scope).toEqual([
       "canvas.read",
-      "lecture.read",
     ]);
   });
 

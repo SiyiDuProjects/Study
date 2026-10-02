@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "20260921T212243716Z-0c8569c05fda-d94a9ec222a9",
+  "status": "verified",
+  "updatedAt": "2026-09-21T21:37:54.349Z",
+  "report": "docs/releases/2026-09-21-shared-coursework.md",
+  "previousReleaseId": "20260921T064410206Z-0c8569c05fda-3f45e39ce1e8",
+  "previousEvidence": "docs/releases/2026-09-21-before-coursework.json",
+  "sourceSha256": "d94a9ec222a9635a27bfe03620dac2dbce7eedbac9bc4b19a8696971956ebb66",
+  "sourceManifest": ".deploy/releases/20260921T212243716Z-0c8569c05fda-d94a9ec222a9/manifest.json",
+  "validatedAt": "2026-09-21T21:22:31.041Z",
+  "core": {
+    "status": "verified",
+    "origin": "https://study.siyidu.com",
+    "image": "sha256:1e0423a91ddfc697b3d5c3a1c05db5f7d27847d458171f9b8de912a1a6217398",
+    "previousImage": "sha256:d1c529a20b40a051fbc71ef50d99dfab5a869819a52ddbcb447c52eeb7bd9fba",
+    "preFeatureImage": "sha256:68c0d289dad2a3b82c3c425d547e0164f37987f3376ce57fcceed2a8c09e0add",
+    "schemaVersion": 10,
+    "backupDirectory": "/home/ubuntu/siyi/backups/study-20260921T212243716Z-0c8569c05fda-d94a9ec222a9",
+    "initialMigrationRelease": "20260921T210433721Z-0c8569c05fda-2eb5e4358310",
+    "rollbackOnCandidateDatabase": "passed",
+    "localAndPublicHealth": "passed",
+    "sharedSchoolReads": "passed",
+    "messagesEnabled": true,
+    "courseworkWritesEnabled": true,
+    "uploadOrigins": {
+      "hanyang": "https://kr.object.gov-ncloudstorage.com",
+      "berkeley": "https://inst-fs-iad-prod.inscloudgate.net"
+    },
+    "chatgptFileOrigins": [
+      "https://files.oaiusercontent.com",
+      "https://sdmntprwestus3.oaiusercontent.com"
+    ],
+    "fileOriginConfigurationBackup": "/home/ubuntu/siyi/backups/study-20260921T212243716Z-0c8569c05fda-d94a9ec222a9/before-chatgpt-file-origin.env"
+  },
+  "record": {
+    "status": "succeeded",
+    "projectId": "appgprj_6a84ba7dde3c81919d5d4a71c2cbbfff",
+    "versionId": "appgprj_6a84ba7dde3c81919d5d4a71c2cbbfff~appgver_116d373ff02c819196c2d149a4eee4c4",
+    "versionNumber": 10,
+    "deploymentId": "appgdep_6a9f91aecbf48191929dabe38b438326",
+    "sourceCommit": "4064f16ee09ef068ba1d4ef70fbaaf35d985523b",
+    "sourceManifest": ".deploy/releases/20260908T043357936Z-0c8569c05fda-cb785fdf1dde/manifest.json",
+    "sourceMatchesFinalCandidate": true,
+    "environmentRevision": 6,
+    "canonicalUrl": "https://lecture.siyidu.com",
+    "deployedUrl": "https://study-record.dusiyi0916.chatgpt.site",
+    "accessMode": "public",
+    "ownerGuard": "STUDY_OWNER_EMAIL",
+    "migration": "0002_school_captions.sql",
+    "backupSha256": "c4b898177f14dc0ad3fa6dc32dc6be78c48828fcf38f47f3b60509f4ee4c7c8f",
+    "originalSessionsUnchanged": 13,
+    "originalSegmentsUnchanged": 47,
+    "legacyAndPagedReads": "passed",
+    "unchangedThisRelease": true,
+    "retainedFromRelease": "20260908T044908360Z-0c8569c05fda-4eb20884025a"
+  },
+  "chatgpt": {
+    "appId": "asdk_app_6ab0bfacd2188191a0dee9b25994b83a",
+    "versionId": "asdk_app_v_6ab0bfacd224819191734e59bf00170c",
+    "status": "verified",
+    "connectionUrl": "https://study.siyidu.com/mcp",
+    "verifiedConnectedSchools": [
+      "hanyang",
+      "berkeley"
+    ],
+    "tools": [
+      "upload_canvas_file",
+      "submit_assignment",
+      "send_message",
+      "reply_message"
+    ],
+    "sharedAuthorization": true,
+    "nativeSkills": [
+      {
+        "name": "canvas",
+        "bodySaveAndReload": "passed_exact_canonical_body_match_9702_characters",
+        "supplementaryCardMetadata": "older_platform_generated_yaml_display_snapshot; canonical description and main body saved and verified"
+      },
+      {
+        "name": "study",
+        "bodySaveAndReload": "passed_exact_canonical_body_match_1930_characters"
+      }
+    ],
+    "fileHandoffConversation": "6ab19e1f-ec14-83ea-acc4-464ff15aa077",
+    "installed": true,
+    "connectionMode": "development",
+    "generatedFileHandoff": "passed_both_schools",
+    "userProvidedFileHandoff": "passed_both_schools_original_bytes",
+    "automaticToolDiscovery": "passed_natural_language_request"
+  },
+  "verification": {
+    "coreTests": 303,
+    "recordTests": 72,
+    "releaseTestsPassed": 12,
+    "releaseTestsSkipped": 1,
+    "pluginAndSkillValidation": "passed",
+    "buildsAndWorkerSmoke": "passed",
+    "realUploads": [
+      {
+        "school": "hanyang",
+        "fileId": "11643870",
+        "bytes": 69
+      },
+      {
+        "school": "berkeley",
+        "fileId": "95491091",
+        "bytes": 69
+      }
+    ],
+    "uploadTestSource": "synthetic in-memory text; live Canvas transfer and readback",
+    "teacherMessageSent": false,
+    "assignmentSubmitted": false,
+    "chatgptUploads": [
+      {
+        "school": "hanyang",
+        "source": "chatgpt_generated",
+        "fileId": "11643877",
+        "requestId": "7e753f75-4c2b-4b62-9d10-0fc06917a4e8",
+        "bytes": 51
+      },
+      {
+        "school": "berkeley",
+        "source": "chatgpt_generated",
+        "fileId": "95491333",
+        "requestId": "2d06e36a-5ad9-4b0e-a9fb-a58216923632",
+        "bytes": 51
+      },
+      {
+        "school": "hanyang",
+        "source": "user_attachment",
+        "fileId": "11643879",
+        "requestId": "16836578-0e23-4df7-9d74-8bc92cdbfdc3",
+        "bytes": 65
+      },
+      {
+        "school": "berkeley",
+        "source": "user_attachment",
+        "fileId": "95491364",
+        "requestId": "0ec18f94-33a2-42ff-a98d-c9c0042aed65",
+        "bytes": 65
+      }
+    ],
+    "generatedFileSha256": "b3890e9726a710d9e505eaaee43c70cdf37c0beaf478224cfbe503e2b4f9e5da",
+    "userAttachmentSha256": "e1408a187580369d5dc16b3d35dea385ed9cdb0afa05d2bcd095cd96dc82d239",
+    "chatgptReceiptsAndAuthenticatedCanvasReadback": "passed_all_four"
+  },
+  "scheduledTasks": {
+    "hanyangTaskId": "6a9e34ab92488191902f00f7db3ad2c9",
+    "mailOnlyTaskUnchanged": "6a933b33f4908191a63a3fd7f228eda3",
+    "status": "migrated_saved_and_manual_run_completed",
+    "manualRunConversation": "6a9e347d-b150-83ea-8d57-d8f0206e4f16",
+    "finalDualAccountCheck": "passed_after_explicit_hanyang_link_binding",
+    "hanyangLinkId": "link_6ab0cbcadde48191a08313f7c1b1466e",
+    "finalReadCheck": {
+      "completed": true,
+      "profileCallLinkId": "link_6ab0cbcadde48191a08313f7c1b1466e",
+      "hanyangTermId": "94",
+      "currentAcademicCourses": 7,
+      "originalSchedulePreserved": true,
+      "readOnly": true
+    },
+    "unchangedThisRelease": true
+  },
+  "localPluginInstall": "not_requested",
+  "limitations": [
+    "No real teacher message or assignment submission test; final send/submit operations are fixture-verified.",
+    "Uploads are limited to 20 MiB; raw audio/video and quiz/group/external-tool submissions are unsupported.",
+    "File-source and school-storage origins are exact allowlists; newly introduced client/CDN origins require inspection and configuration.",
+    "Native Canvas main description/body are current; supplementary platform-generated card YAML retains older display text."
+  ],
+  "liveVerification": {
+    "status": "verified",
+    "scope": "Both-school live account/course reads, file uploads from generated and directly attached ChatGPT files, receipt persistence and authenticated Canvas readback. No actual message delivery or assignment submission.",
+    "conversationUrl": "https://chatgpt.com/c/6ab19e1f-ec14-83ea-acc4-464ff15aa077"
+  }
+}

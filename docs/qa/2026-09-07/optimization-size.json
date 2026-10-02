@@ -1,0 +1,23 @@
+{
+  "basis": "Compared with the fresh pre-optimization workspace snapshot, not git HEAD; excludes concurrent Record frontend UI work and tests.",
+  "runtime": {
+    "before": {
+      "files": 51,
+      "lines": 13547
+    },
+    "after": {
+      "files": 51,
+      "lines": 12041
+    }
+  },
+  "skills": {
+    "before": {
+      "files": 3,
+      "words": 1874
+    },
+    "after": {
+      "files": 3,
+      "words": 1108
+    }
+  }
+}

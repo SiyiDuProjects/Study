@@ -22,13 +22,14 @@ afterEach(async () => {
 });
 
 describe("Lecture MCP tools", () => {
-  it("publishes least-privilege per-tool scopes and returns strict lecture content", async () => {
+  it("publishes the shared Study authorization and returns strict lecture content", async () => {
     const lectureFetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/search")) {
         return new Response(JSON.stringify({
           query: "homework",
-          hits: [{
+          nextCursor: null, warnings: [],
+          items: [{
             sessionId: "session-1",
             sessionTitle: "Week 1",
             sessionStatus: "ready",
@@ -48,7 +49,7 @@ describe("Lecture MCP tools", () => {
           headers: { "content-type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ sessions: [] }), {
+      return new Response(JSON.stringify({ items: [], nextCursor: null, warnings: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -94,9 +95,7 @@ describe("Lecture MCP tools", () => {
     for (const tool of listed.tools) {
       expect(tool.securitySchemes).toEqual([{
         type: "oauth2",
-        scopes: lectureTools.includes(tool)
-          ? ["canvas.read", "lecture.read"]
-          : ["canvas.read"],
+        scopes: ["canvas.read"],
       }]);
     }
     for (const tool of lectureTools) {
@@ -118,12 +117,15 @@ describe("Lecture MCP tools", () => {
       name: "search_lecture_transcripts",
       arguments: { query: "homework", course_id: "7" },
     });
+    const daily = await client.callTool({ name: "list_lecture_sessions", arguments: { course_id: "daily", limit: 1 } });
+    expect(daily.isError).not.toBe(true);
     expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toEqual({
       ok: true,
       result: {
         query: "homework",
-        hits: [expect.objectContaining({
+        nextCursor: null, warnings: [],
+        items: [expect.objectContaining({
           finalizationWarning: "The final sentence may be incomplete.",
         })],
       },
