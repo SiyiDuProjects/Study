@@ -1,8 +1,9 @@
 # Mac development snapshot
 
-This branch captures the working source of `Study` on 2026-10-02.
+This repository captures the working source of `Study` on 2026-10-02.
 
-- Branch: `codex/mac-migration-20261002`. The production/default branch was not deployed by this migration.
+- Development branch: `main`. This migration commit is marked `[skip ci] [skip deploy]` to skip automatic deployment for this code synchronization only.
+- On each computer, pull `main` before working; commit and push finished changes to the same repository. Keep environment files and real local data outside Git.
 - Keep the local folder name `Study`. The four projects remain siblings under `Projects`, alongside `_private/Keys`.
 - Restore the separate local migration package before installing private dependencies or using local data. No `.env`, SSH private keys, real databases or personal materials are published here.
 - Install dependencies for macOS using the checked-in lockfiles. Windows `node_modules`, Python virtual environments, build outputs and caches are deliberately omitted.
