@@ -17,24 +17,27 @@
 
 ## Commands
 
+Use `npm` on macOS/Linux; Windows PowerShell may use `npm.cmd` for the same commands.
+
 - Core root: `apps/core`
-  - `npm.cmd run typecheck`
-  - `npm.cmd test`
-  - `npm.cmd run build`
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build`
 - Record root: `apps/record`
-  - `npm.cmd run typecheck`
-  - `npm.cmd test`
-  - `npm.cmd run build`
-  - `npm.cmd run sites:build`
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build`
+  - `npm run sites:build`
 
 ## Deployments
 
-- Start at `docs/release-workflow.md` and `npm.cmd run release:status`. Run `release:check`, then `release:prepare` to create an immutable source/build manifest. Production evidence belongs in `docs/releases/latest.json` and its linked release report.
+- Start at `docs/release-workflow.md` and `npm run release:status`. Run `release:check`, then `release:prepare` to create an immutable source/build manifest. Production evidence belongs in `docs/releases/latest.json` and its linked release report.
 - Canonical edit locations are `plugins/study/skills`, `apps/core/src`, and `apps/record`. Generated Skills, installed caches, and `.deploy` release copies are not editing targets.
 - Use `scripts/release/core-release.sh` for the inspected Core candidate and `scripts/verify-sites.mjs` for the live paged Record contract. Historical one-off `.deploy` scripts are not the default release workflow.
 
 - Core SSH: `ubuntu@49.51.38.235:22`
-- SSH identity: `D:\Projects\_private\Keys\Siyi.pem`
+- SSH identity (Windows): `D:\Projects\_private\Keys\Siyi.pem`
+- SSH identity (macOS): `/Users/siyi/Projects/_private/Keys/Siyi.pem`
 - Core Compose root: `/home/ubuntu/siyi`
 - Core service directory: `/home/ubuntu/siyi/canvas`
 - Core public origin: `https://study.siyidu.com`

@@ -1,14 +1,16 @@
 # Study 发布入口
 
-在仓库根目录使用同一个入口：
+在仓库根目录使用同一个入口（适用于 macOS、Linux 和 Windows）：
 
-```powershell
+```sh
 node scripts/study-release.mjs status
 node scripts/study-release.mjs check
 node scripts/study-release.mjs prepare
 ```
 
 这三个命令只负责本地状态、完整校验和候选准备。它们不会连接学校、调用 Sites API、部署服务器、发送消息、启动录音、刷新 ChatGPT 或更新本机插件。
+
+文中的 npm 命令在 macOS/Linux 使用 `npm`；Windows PowerShell 可替换为 `npm.cmd`。
 
 ## 三个命令分别做什么
 
@@ -47,7 +49,7 @@ Record 只采用本次 `dist/client`、`dist/server` 和 `dist/.openai`，不会
 
 ## Record 共享依赖与 Sites 打包
 
-仅更新 Core、且 Record 及其共享源码与最近已发布清单完全一致时，可使用 `npm.cmd run release:prepare -- --core-only`。此模式仍要求完整 `release:check`，保留全部源码快照和 Core 归档 hash；不调用 Sites helper，也不生成或部署 Record 包。Record 文件增删改或共享源码变化会阻断此模式。发布者仍须检查内部协议没有变化，并记录保留的 Record 版本；协议变化必须配套发布。
+仅更新 Core、且 Record 及其共享源码与最近已发布清单完全一致时，可使用 `npm run release:prepare -- --core-only`。此模式仍要求完整 `release:check`，保留全部源码快照和 Core 归档 hash；不调用 Sites helper，也不生成或部署 Record 包。Record 文件增删改或共享源码变化会阻断此模式。发布者仍须检查内部协议没有变化，并记录保留的 Record 版本；协议变化必须配套发布。
 
 Record 当前会引用 `apps/core/src/lecture/types.ts` 和 `apps/core/src/logger.ts`。`manifest.record.sharedSourceFiles` 从实际相对 import 中列出外部共享源码及 SHA256，`source/` 快照保留这些相邻目录。
 

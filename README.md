@@ -25,22 +25,24 @@ Study Record 只通过独立的 service token 读取 Core 课程目录；Core �
 
 ## 常用命令
 
+以下命令在 macOS/Linux 使用 `npm`；Windows PowerShell 可将 `npm` 替换为 `npm.cmd`。
+
 发布从 [统一发布流程](docs/release-workflow.md) 开始；[最近上线记录](docs/releases/latest.json) 记录 Core 镜像、Sites 版本与线上验证。修改 Skills 只编辑 `plugins/study/skills`，修改工具编辑 `apps/core/src`，修改录音网站编辑 `apps/record`。
 
-```powershell
-npm.cmd run typecheck
-npm.cmd test
-npm.cmd run build
-npm.cmd run validate:plugin
-npm.cmd run release:status
-npm.cmd run release:check
-npm.cmd run release:prepare
+```sh
+npm run typecheck
+npm test
+npm run build
+npm run validate:plugin
+npm run release:status
+npm run release:check
+npm run release:prepare
 ```
 
 也可以分别在 `apps/core` 或 `apps/record` 中运行各自的命令。Record 的 `dev` 和 `build` 直接运行同一套 Worker/D1 实现；本地 D1 迁移由 `sites:db:apply` 应用。单独构建 Sites 产物使用：
 
-```powershell
-npm.cmd --prefix apps/record run sites:build
+```sh
+npm --prefix apps/record run sites:build
 ```
 
 ## 发布边界
