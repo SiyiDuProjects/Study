@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "20261002T113416998Z-b4a701a3e04c-ccb160ee59ee",
+  "status": "verified",
+  "updatedAt": "2026-10-02T11:40:43.487650+00:00",
+  "report": "docs/releases/2026-10-02-file-cdn-handoff.md",
+  "previousReleaseId": "20260928T025547964Z-0c8569c05fda-a5dba3f86b08",
+  "previousEvidence": "docs/releases/2026-10-02-before-file-cdn.json",
+  "sourceSha256": "ccb160ee59eeb47b15378b916b9c715bf45876d61ccb6c0a3326e74839b54790",
+  "sourceManifest": ".deploy/releases/20261002T113416998Z-b4a701a3e04c-ccb160ee59ee/manifest.json",
+  "validatedAt": "2026-10-02T11:28:57.136Z",
+  "core": {
+    "status": "verified",
+    "origin": "https://study.siyidu.com",
+    "image": "sha256:d114653a9df4142ca319a4f4c25110e50e07ef3ecfc9f89380f9c9febfb56f87",
+    "previousImage": "sha256:6922523655cf026cdba6bd91d5217bc90dbef88cbc7f32c4260ec4726c4b9cc4",
+    "schemaVersion": 10,
+    "schemaPolicy": "unchanged",
+    "backupDirectory": "/home/ubuntu/siyi/backups/study-20261002T113416998Z-b4a701a3e04c-ccb160ee59ee",
+    "rollbackOnCandidateDatabase": "passed",
+    "localAndPublicHealth": "passed",
+    "configurationChanged": false,
+    "sourceDiffFromPrevious": [
+      "apps/core/src/canvas/fileSources.ts"
+    ],
+    "chatgptFileOrigins": [
+      "https://files.oaiusercontent.com",
+      "https://sdmntprwestus3.oaiusercontent.com"
+    ],
+    "nativeFileSourceRule": "single-label subdomains of oaiusercontent.com over HTTPS on default port; signed ChatGPT endpoint unchanged",
+    "sourceFileSha256": "d848e826dc2b53935acc1759905c5eb45d5b40fe683392835d8493a2a87b00b6",
+    "messagesEnabled": true,
+    "courseworkWritesEnabled": true
+  },
+  "record": {
+    "status": "succeeded",
+    "projectId": "appgprj_6a84ba7dde3c81919d5d4a71c2cbbfff",
+    "versionId": "appgprj_6a84ba7dde3c81919d5d4a71c2cbbfff~appgver_116d373ff02c819196c2d149a4eee4c4",
+    "versionNumber": 10,
+    "deploymentId": "appgdep_6a9f91aecbf48191929dabe38b438326",
+    "sourceCommit": "4064f16ee09ef068ba1d4ef70fbaaf35d985523b",
+    "sourceManifest": ".deploy/releases/20260908T043357936Z-0c8569c05fda-cb785fdf1dde/manifest.json",
+    "environmentRevision": 6,
+    "canonicalUrl": "https://lecture.siyidu.com",
+    "deployedUrl": "https://study-record.dusiyi0916.chatgpt.site",
+    "accessMode": "public",
+    "ownerGuard": "STUDY_OWNER_EMAIL",
+    "migration": "0002_school_captions.sql",
+    "backupSha256": "c4b898177f14dc0ad3fa6dc32dc6be78c48828fcf38f47f3b60509f4ee4c7c8f",
+    "originalSessionsUnchanged": 13,
+    "originalSegmentsUnchanged": 47,
+    "legacyAndPagedReads": "passed",
+    "unchangedThisRelease": true,
+    "retainedFromRelease": "20260908T044908360Z-0c8569c05fda-4eb20884025a",
+    "verificationThisRelease": {
+      "sessions": 14,
+      "segments": 560,
+      "detailPages": 287,
+      "legacyAndPagedReads": "passed",
+      "warnings": 0
+    }
+  },
+  "chatgpt": {
+    "appId": "asdk_app_6ab0bfacd2188191a0dee9b25994b83a",
+    "connectionUrl": "https://study.siyidu.com/mcp",
+    "status": "existing_connections_verified_after_server_patch",
+    "verifiedConnectedSchools": [
+      "hanyang",
+      "berkeley"
+    ],
+    "toolAndSkillContractsChanged": false,
+    "refreshRequired": false,
+    "nativeFileUpload": "passed",
+    "nativeFileDownloadLink": "passed",
+    "skillsReimported": false
+  },
+  "verification": {
+    "primaryWorkspaceCoreTests": 349,
+    "candidateCoreTests": 341,
+    "recordTests": 72,
+    "releaseTestsPassed": 12,
+    "releaseTestsSkipped": 1,
+    "pluginAndSkillValidation": "passed",
+    "buildsAndWorkerSmoke": "passed",
+    "realUploads": [
+      {
+        "school": "hanyang",
+        "source": "native_file_parameter",
+        "requestId": "5cb3009a-3593-4cf0-91a3-e58bcde209cf",
+        "fileId": "11712217",
+        "bytes": 103,
+        "sha256": "578583d8d16b304fae81bbd087049c638b768e6fed3c1a1966abe75e2b2271ed",
+        "purpose": "message",
+        "sent": false,
+        "submitted": false,
+        "publicSignedDownloadByteReadback": "passed"
+      }
+    ],
+    "teacherMessageSentByThisRelease": false,
+    "assignmentSubmittedByThisRelease": false,
+    "existingPdfReadback": {
+      "fileId": "11711480",
+      "bytes": 80247,
+      "sha256": "e3b75ad10aaa60156664005b52a968dcf39ba9c8dab00c1365951a9ee53a9f11",
+      "status": "passed"
+    }
+  },
+  "liveVerification": {
+    "status": "verified_upload_and_public_signed_download_byte_readback",
+    "upload": {
+      "school": "hanyang",
+      "source": "native_file_parameter",
+      "requestId": "5cb3009a-3593-4cf0-91a3-e58bcde209cf",
+      "fileId": "11712217",
+      "bytes": 103,
+      "sha256": "578583d8d16b304fae81bbd087049c638b768e6fed3c1a1966abe75e2b2271ed",
+      "purpose": "message",
+      "sent": false,
+      "submitted": false,
+      "publicSignedDownloadByteReadback": "passed"
+    }
+  },
+  "localPluginInstall": "not_requested",
+  "limitations": [
+    "Only the Hanyang account received a benign live upload; both school connections were read successfully and both school upload paths are covered by regression tests.",
+    "The file CDN domain rule is a Study trust policy, not a permanent hostname guarantee from OpenAI.",
+    "Some generic HTTP user agents receive Cloudflare 1010; public signed download verification used a browser User-Agent.",
+    "Existing unrelated message/submission receipt changes in the main workspace were excluded; Record and its user-modified lockfile were not deployed."
+  ]
+}
