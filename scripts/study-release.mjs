@@ -11,7 +11,7 @@ const schemaVersion = 1;
 const sourceTrees = [
   "apps/core/src", "apps/core/scripts", "apps/core/test",
   "apps/record/src", "apps/record/worker", "apps/record/services", "apps/record/shared",
-  "apps/record/build", "apps/record/scripts", "apps/record/public", "apps/record/drizzle",
+  "apps/record/build", "apps/record/scripts", "apps/record/tests", "apps/record/public", "apps/record/drizzle",
   "plugins/study", "scripts", "infra",
 ];
 const sourceFiles = [

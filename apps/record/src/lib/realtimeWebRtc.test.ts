@@ -1,10 +1,62 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRealtimeWebRtcTransport } from "./realtimeWebRtc";
+import { RealtimeTranslationClient } from "./realtimeTranslation";
+import { RealtimeTranscriptionTranslationClient } from "./realtimeTranscriptionTranslation";
 
 describe("createRealtimeWebRtcTransport cancellation", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("closes the peer when creating the data channel fails before negotiation", async () => {
+    const peer = installFakePeerConnection();
+    const error = new DOMException("SCTP channel allocation failed", "OperationError");
+    peer.createDataChannel.mockImplementationOnce(() => { throw error; });
+    const onOpen = vi.fn();
+
+    await expect(connect(peer.stream, onOpen)).rejects.toBe(error);
+    expect(peer.close).toHaveBeenCalledOnce();
+    expect(peer.createOffer).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("releases channel, peer, and abort listener when attaching an audio track fails", async () => {
+    vi.useFakeTimers();
+    const peer = installFakePeerConnection();
+    const error = new DOMException("Could not attach audio track", "InvalidAccessError");
+    peer.addTrack.mockImplementationOnce(() => { throw error; });
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const onOpen = vi.fn();
+
+    await expect(connect(peer.stream, onOpen, controller.signal)).rejects.toBe(error);
+    expect(peer.dataChannel.close).toHaveBeenCalledOnce();
+    expect(peer.close).toHaveBeenCalledOnce();
+    expect(peer.dataChannel.onopen).toBeNull();
+    expect(peer.dataChannel.onmessage).toBeNull();
+    expect(peer.onconnectionstatechange).toBeNull();
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+    expect(peer.createOffer).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it.each(["translation", "transcription"] as const)("stops acquired microphone tracks after %s transport startup fails", async (mode) => {
+    const peer = installFakePeerConnection();
+    const error = new DOMException("Channel allocation failed", "OperationError");
+    peer.createDataChannel.mockImplementationOnce(() => { throw error; });
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue(peer.stream) } });
+    const callbacks = { onOpen: vi.fn(), onDelta: vi.fn(), onError: vi.fn(), onClose: vi.fn() };
+    const getSecret = async () => "synthetic-test-secret";
+    const client = mode === "translation"
+      ? new RealtimeTranslationClient(getSecret, callbacks)
+      : new RealtimeTranscriptionTranslationClient(getSecret, "gpt-5.4-mini", callbacks);
+
+    await expect(client.start()).rejects.toBe(error);
+    expect(peer.close).toHaveBeenCalledOnce();
+    expect(peer.stream.getTracks()[0].stop).toHaveBeenCalledOnce();
+    expect(callbacks.onOpen).not.toHaveBeenCalled();
   });
 
   it("aborts a deferred SDP request, closes WebRTC resources, and ignores a late response", async () => {

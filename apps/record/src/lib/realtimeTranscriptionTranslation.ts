@@ -323,6 +323,14 @@ export class RealtimeTranscriptionTranslationClient {
       if (!commit || commit.state !== "pending") return;
       commit.state = "completed";
       commit.transcript = event.transcript ?? "";
+      if (commit.transcript.trim()) {
+        // Preserve known source even if translation or an earlier transcription
+        // is still pending. Translation later updates this same audio commit.
+        this.callbacks.onSegment?.({
+          sourceText: commit.transcript.trim(), translatedText: "",
+          elapsedMs: commit.startedAtMs, commitSequence: commit.sequence
+        });
+      }
       this.drainCompletedCommits();
       return;
     }

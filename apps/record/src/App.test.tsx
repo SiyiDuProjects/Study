@@ -20,7 +20,9 @@ const apiMocks = vi.hoisted(() => ({
 const realtimeState = vi.hoisted(() => ({
   callbacks: undefined as RealtimeClientCallbacks | undefined,
   emittedTail: false,
-  startCalls: 0
+  startCalls: 0,
+  flushError: null as Error | null,
+  flushPending: null as Promise<void> | null
 }));
 
 vi.mock("./lib/api", async () => ({
@@ -37,6 +39,8 @@ vi.mock("./lib/realtimeTranslation", () => ({
     pause() {}
     resume() {}
     async stopAndFlush() {
+      if (realtimeState.flushError) throw realtimeState.flushError;
+      if (realtimeState.flushPending) await realtimeState.flushPending;
       if (!realtimeState.emittedTail) {
         realtimeState.emittedTail = true;
         realtimeState.callbacks?.onSegment?.({
@@ -54,6 +58,7 @@ vi.mock("./lib/realtimeTranscriptionTranslation", () => ({
 }));
 
 import App from "./App";
+import { ApiRequestError } from "./lib/api";
 
 describe("App final transcript persistence", () => {
   let revision = 0;
@@ -65,6 +70,8 @@ describe("App final transcript persistence", () => {
     realtimeState.callbacks = undefined;
     realtimeState.emittedTail = false;
     realtimeState.startCalls = 0;
+    realtimeState.flushError = null;
+    realtimeState.flushPending = null;
     for (const mock of Object.values(apiMocks)) mock.mockReset();
     apiMocks.fetchCourses.mockResolvedValue({
       courses: [DAILY_COURSE], syncedAt: "2026-08-18T00:00:00.000Z", stale: false, source: "study"
@@ -110,6 +117,283 @@ describe("App final transcript persistence", () => {
       input.segments.some((segment: { translatedText: string }) => segment.translatedText === "最后一句")
     );
     expect(persistedTail).toBe(true);
+  });
+
+  it.each(["reject", "resolve"] as const)("keeps End in control after a default-mode flush error even if stop later %ss", async (outcome) => {
+    await startRecording();
+    act(() => realtimeState.callbacks?.onDelta({ channel: "translation", delta: "已收到的尾句", elapsedMs: 500 }));
+    let rejectFlush!: (error: Error) => void;
+    let resolveFlush!: () => void;
+    realtimeState.flushPending = new Promise<void>((resolve, reject) => { resolveFlush = resolve; rejectFlush = reject; });
+    apiMocks.resumeRemoteSession.mockImplementation(async () => ({
+      session: session({ revision: ++revision }),
+      writerLease: { token: "writer-token-000000000000000000000000" }
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "结束" }));
+    await screen.findAllByText("保存中");
+    act(() => realtimeState.callbacks?.onError("network dropped during final flush"));
+    // A click must not start another connection while the old End still awaits
+    // its flush: that old continuation would invalidate the new callbacks.
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    await act(async () => { await Promise.resolve(); });
+    const prematureResumes = apiMocks.resumeRemoteSession.mock.calls.length;
+    const prematureFailureWrites = apiMocks.failRemoteSession.mock.calls.length;
+    const endDisabledWhileFlushing = (screen.getByRole("button", { name: "结束" }) as HTMLButtonElement).disabled;
+
+    await act(async () => {
+      if (outcome === "reject") rejectFlush(new Error("final transcript was not confirmed"));
+      else resolveFlush();
+    });
+    await waitFor(() => expect(apiMocks.failRemoteSession).toHaveBeenCalled());
+    expect(prematureResumes).toBe(0);
+    expect(prematureFailureWrites).toBe(0);
+    expect(endDisabledWhileFlushing).toBe(true);
+    expect(realtimeState.startCalls).toBe(1);
+    expect(apiMocks.completeRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.failRemoteSession.mock.lastCall?.[1].segments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ translatedText: "已收到的尾句" })
+    ]));
+    expect(screen.getByText("待恢复")).toBeTruthy();
+  });
+
+  it.each(["resolve", "reject"] as const)("keeps End locked through a checkpoint lease conflict until flush %ss, then allows takeover", async (outcome) => {
+    await startRecording();
+    const oldCallbacks = realtimeState.callbacks!;
+    let rejectCheckpoint!: (reason: unknown) => void;
+    apiMocks.checkpointRemoteSession.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectCheckpoint = reject; }));
+    fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await waitFor(() => expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledOnce());
+    let resolveFlush!: () => void;
+    let rejectFlush!: (error: Error) => void;
+    realtimeState.flushPending = new Promise<void>((resolve, reject) => { resolveFlush = resolve; rejectFlush = reject; });
+    fireEvent.click(screen.getByRole("button", { name: "结束" }));
+    await act(async () => rejectCheckpoint(new ApiRequestError("other owner", 409, "writer_lease_conflict", 5)));
+    const continueDisabled = (screen.getByRole("button", { name: "继续" }) as HTMLButtonElement).disabled;
+    const endDisabled = (screen.getByRole("button", { name: "结束" }) as HTMLButtonElement).disabled;
+    // Settle even in the red run so no deferred work escapes the test.
+    await act(async () => {
+      if (outcome === "reject") rejectFlush(new Error("tail was not confirmed"));
+      else resolveFlush();
+    });
+    await screen.findByText("待恢复");
+    expect(continueDisabled).toBe(true);
+    expect(endDisabled).toBe(true);
+    expect(apiMocks.resumeRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.failRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.completeRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledOnce();
+    expect(screen.getByText(/这条记录已被另一台设备或页面接管/)).toBeTruthy();
+
+    realtimeState.flushPending = null;
+    apiMocks.resumeRemoteSession.mockResolvedValueOnce({
+      session: session({ revision: 6, finalizationWarning: "接管前尾段未确认" }),
+      writerLease: { token: "replacement-writer-token-00000000000000" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "继续" }));
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }));
+    await waitFor(() => expect(realtimeState.startCalls).toBe(2));
+    expect(apiMocks.resumeRemoteSession).toHaveBeenCalledExactlyOnceWith("lecture_test", { takeover: true, expectedRevision: 5 });
+    act(() => realtimeState.callbacks?.onDelta({ channel: "translation", delta: "新连接首句", elapsedMs: 100 }));
+    expect(document.querySelector(".subtitle-canvas")?.textContent).toContain("新连接首句");
+    act(() => {
+      oldCallbacks.onDelta({ channel: "translation", delta: "旧连接字幕", elapsedMs: 200 });
+      oldCallbacks.onError("stale error");
+      oldCallbacks.onClose();
+      realtimeState.callbacks?.onDelta({ channel: "translation", delta: "新连接后续句", elapsedMs: 300 });
+    });
+    expect(document.querySelector(".subtitle-canvas")?.textContent).toContain("新连接后续句");
+    expect(document.body.textContent).not.toContain("旧连接字幕");
+    expect(screen.getByRole("button", { name: "暂停" })).toBeTruthy();
+  });
+
+  it("unlocks End with the lease conflict when a checkpoint fails after flush has settled", async () => {
+    await startRecording();
+    let rejectCheckpoint!: (reason: unknown) => void;
+    apiMocks.checkpointRemoteSession.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectCheckpoint = reject; }));
+    fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await waitFor(() => expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "结束" }));
+    await act(async () => { await Promise.resolve(); });
+    expect(realtimeState.emittedTail).toBe(true);
+    await act(async () => rejectCheckpoint(new ApiRequestError("other owner", 409, "writer_lease_conflict", 5)));
+    await screen.findByText("待恢复");
+    expect((screen.getByRole("button", { name: "继续" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/这条记录已被另一台设备或页面接管/)).toBeTruthy();
+    expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledOnce();
+    expect(apiMocks.failRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.completeRemoteSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["complete", "failed"] as const)("unlocks End and preserves the lease conflict from its final %s write", async (mode) => {
+    await startRecording();
+    const conflict = new ApiRequestError("other owner", 409, "writer_lease_conflict", 5);
+    if (mode === "failed") {
+      realtimeState.flushError = new Error("tail was not confirmed");
+      apiMocks.failRemoteSession.mockRejectedValueOnce(conflict);
+    } else {
+      apiMocks.completeRemoteSession.mockRejectedValueOnce(conflict);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "结束" }));
+    await screen.findByText("待恢复");
+    expect((screen.getByRole("button", { name: "继续" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/这条记录已被另一台设备或页面接管/)).toBeTruthy();
+    expect(apiMocks.resumeRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.failRemoteSession).toHaveBeenCalledTimes(mode === "failed" ? 1 : 0);
+    expect(apiMocks.completeRemoteSession).toHaveBeenCalledTimes(mode === "complete" ? 1 : 0);
+  });
+
+  it("handles an unmount flush rejection and ignores late callbacks from the removed recording", async () => {
+    await startRecording();
+    act(() => realtimeState.callbacks?.onSegment?.({
+      sourceText: "저장된 문장", translatedText: "已收到的字幕", elapsedMs: 500
+    }));
+    const oldCallbacks = realtimeState.callbacks!;
+    realtimeState.flushError = new Error("synthetic unmount tail confirmation failure");
+
+    cleanup();
+    oldCallbacks.onSegment?.({ sourceText: "늦은 문장", translatedText: "卸载后到达", elapsedMs: 1000 });
+    oldCallbacks.onError("late connection error");
+    // Let rejected flush promises settle; Vitest also fails this test run on
+    // any unhandled rejection raised by React's cleanup path.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledOnce();
+    expect(apiMocks.checkpointRemoteSession.mock.calls[0]?.[1].segments.map(
+      (segment: { translatedText: string }) => segment.translatedText
+    )).toEqual(["已收到的字幕"]);
+    expect(apiMocks.failRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.completeRemoteSession).not.toHaveBeenCalled();
+  });
+
+  it("does not let a completed recording's late translation overwrite a new recording's same sequence", async () => {
+    await startRecording();
+    const previousCallbacks = realtimeState.callbacks!;
+    act(() => previousCallbacks.onSegment?.({
+      sourceText: "이전 기록", translatedText: "旧记录", elapsedMs: 500, commitSequence: 0
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "结束" }));
+    await screen.findByRole("button", { name: "返回课堂记录" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭课堂记录" }));
+    apiMocks.createRemoteSession.mockResolvedValueOnce({
+      session: session({ id: "lecture_new", revision: 0 }),
+      writerLease: { token: "new-writer-token-000000000000000000000" }
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "开始" }));
+    await waitFor(() => expect(realtimeState.startCalls).toBe(2));
+    act(() => {
+      realtimeState.callbacks?.onSegment?.({
+        sourceText: "새 기록", translatedText: "新记录", elapsedMs: 300, commitSequence: 0
+      });
+      previousCallbacks.onSegment?.({
+        sourceText: "이전 기록", translatedText: "旧记录的迟到译文", elapsedMs: 500, commitSequence: 0
+      });
+      previousCallbacks.onError("old recording failed late");
+      previousCallbacks.onClose();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await waitFor(() => expect(apiMocks.checkpointRemoteSession.mock.lastCall?.[0]).toBe("lecture_new"));
+    const saved = apiMocks.checkpointRemoteSession.mock.lastCall![1];
+    expect(saved.writerLeaseToken).toBe("new-writer-token-000000000000000000000");
+    expect(saved.expectedRevision).toBe(0);
+    expect(saved.segments).toHaveLength(1);
+    expect(saved.segments[0]).toMatchObject({ sourceText: "새 기록", translatedText: "新记录", commitSequence: 0 });
+    expect(apiMocks.failRemoteSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps a completed session successful when refreshing history fails", async () => {
+    await startRecording();
+    apiMocks.listRemoteSessions.mockRejectedValueOnce(new Error("history unavailable"));
+
+    fireEvent.click(screen.getByRole("button", { name: "结束" }));
+    await waitFor(() => expect(document.querySelector(".records-sheet")?.textContent)
+      .toContain("记录已保存，但历史列表刷新失败"));
+    expect(apiMocks.completeRemoteSession).toHaveBeenCalledOnce();
+    expect(apiMocks.failRemoteSession).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("保存尚未完成");
+    expect(document.body.textContent).not.toContain("字幕完整性警告");
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭课堂记录" }));
+    expect(screen.getByRole("button", { name: "开始" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByRole("button", { name: "结束" })).toBeNull();
+  });
+
+  it.each([500, 502, 503, 504])("recovers an uncertain checkpoint HTTP %i using the same writer lease", async (status) => {
+    await startRecording();
+    // The write committed, but the gateway failed before its response arrived.
+    apiMocks.checkpointRemoteSession.mockImplementationOnce(async () => {
+      revision = 1;
+      throw new ApiRequestError("gateway unavailable", status);
+    });
+    apiMocks.getRemoteSession.mockResolvedValue(session({ revision: 1 }));
+    apiMocks.resumeRemoteSession.mockImplementationOnce(async () => ({
+      session: session({ revision: ++revision }),
+      writerLease: { token: "writer-token-000000000000000000000000" }
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await waitFor(() => expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledTimes(2));
+    expect(apiMocks.resumeRemoteSession).toHaveBeenCalledWith("lecture_test", {
+      takeover: false, expectedRevision: 1, writerLeaseToken: "writer-token-000000000000000000000000"
+    });
+    expect(apiMocks.checkpointRemoteSession.mock.calls[1]?.[1].expectedRevision).toBe(2);
+    expect(screen.getByRole("button", { name: "继续" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("自动保存暂时失败");
+  });
+
+  it("recognizes completion after a gateway timeout without sending a duplicate completion", async () => {
+    await startRecording();
+    apiMocks.completeRemoteSession.mockRejectedValueOnce(new ApiRequestError("gateway timeout", 504));
+    apiMocks.getRemoteSession.mockResolvedValue(session({ status: "ready", revision: 2, endedAt: "2026-08-18T01:10:00.000Z" }));
+    apiMocks.resumeRemoteSession.mockRejectedValueOnce(new ApiRequestError("already complete", 409, "session_not_writable"));
+
+    fireEvent.click(screen.getByRole("button", { name: "结束" }));
+    await screen.findByRole("button", { name: "关闭课堂记录" });
+    expect(apiMocks.completeRemoteSession).toHaveBeenCalledOnce();
+    expect(apiMocks.resumeRemoteSession).toHaveBeenCalledWith("lecture_test", expect.objectContaining({ takeover: false, expectedRevision: 2 }));
+    expect(apiMocks.failRemoteSession).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("保存尚未完成");
+  });
+
+  it("does not retry a checkpoint or take over when the writer lease is rejected", async () => {
+    await startRecording();
+    apiMocks.checkpointRemoteSession.mockRejectedValueOnce(new ApiRequestError("writer changed", 409, "writer_lease_conflict", 3));
+
+    fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await screen.findByText(/这条记录已被另一台设备或页面接管/);
+    expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledOnce();
+    expect(apiMocks.getRemoteSession).not.toHaveBeenCalled();
+    expect(apiMocks.resumeRemoteSession).not.toHaveBeenCalled();
+  });
+
+  it("stops uncertain-write recovery when another page now owns the lease", async () => {
+    await startRecording();
+    apiMocks.checkpointRemoteSession.mockRejectedValueOnce(new ApiRequestError("gateway unavailable", 502));
+    apiMocks.getRemoteSession.mockResolvedValue(session({ revision: 3 }));
+    apiMocks.resumeRemoteSession.mockRejectedValueOnce(new ApiRequestError("writer changed", 409, "writer_lease_conflict", 3));
+
+    fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await screen.findByText(/这条记录已被另一台设备或页面接管/);
+    expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledOnce();
+    expect(apiMocks.resumeRemoteSession).toHaveBeenCalledExactlyOnceWith("lecture_test", {
+      takeover: false, expectedRevision: 3, writerLeaseToken: "writer-token-000000000000000000000000"
+    });
+  });
+
+  it("bounds recovery to one retry when the gateway stays unavailable", async () => {
+    await startRecording();
+    apiMocks.checkpointRemoteSession.mockRejectedValue(new ApiRequestError("gateway unavailable", 503));
+    apiMocks.getRemoteSession.mockResolvedValue(session({ revision: 0 }));
+    apiMocks.resumeRemoteSession.mockResolvedValue({
+      session: session({ revision: 1 }),
+      writerLease: { token: "writer-token-000000000000000000000000" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await screen.findByText("自动保存暂时失败，将继续重试。");
+    expect(apiMocks.checkpointRemoteSession).toHaveBeenCalledTimes(2);
+    expect(apiMocks.getRemoteSession).toHaveBeenCalledOnce();
+    expect(apiMocks.resumeRemoteSession).toHaveBeenCalledOnce();
   });
 
   it("does not start a late microphone client after End cancels a deferred resume", async () => {
@@ -187,6 +471,13 @@ describe("App final transcript persistence", () => {
     expect(apiMocks.completeRemoteSession).not.toHaveBeenCalled();
   });
 });
+
+async function startRecording() {
+  render(<App />);
+  await waitFor(() => expect((screen.getByRole("button", { name: "开始" }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "开始" }));
+  await waitFor(() => expect(realtimeState.startCalls).toBe(1));
+}
 
 function session(overrides: Partial<ClassSession> = {}): ClassSession {
   return {

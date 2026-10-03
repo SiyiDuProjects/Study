@@ -86,7 +86,11 @@ function isWriterLeaseConflictError(error: unknown): error is ApiRequestError {
 }
 
 function isUncertainWriteError(error: unknown): boolean {
-  return error instanceof TypeError || (error instanceof ApiRequestError && error.code === "client_timeout");
+  // A server/gateway error can arrive after the write committed. Reconcile
+  // through the existing lease check before retrying; never retry a 4xx conflict.
+  return error instanceof TypeError || (error instanceof ApiRequestError && (
+    error.code === "client_timeout" || (error.status >= 500 && error.status < 600)
+  ));
 }
 
 async function waitForPromise(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
@@ -135,6 +139,7 @@ export default function App() {
   const recordingCourseRef = useRef<CourseOption | null>(null);
   const commitTimerRef = useRef<number | null>(null);
   const checkpointQueueRef = useRef(new CoalescingTaskQueue());
+  const failureWriteRef = useRef<Promise<void> | null>(null);
   const savedSegmentSignaturesRef = useRef(new Map<string, string>());
   const finalizationWarningRef = useRef<string | null>(null);
   const writerLeaseTokenRef = useRef<string | null>(null);
@@ -284,7 +289,9 @@ export default function App() {
   useEffect(() => {
     return () => {
       connectionGenerationRef.current += 1;
-      void clientRef.current?.stopAndFlush(750);
+      // Unmount cannot confirm completion. Keep the session recoverable even
+      // when the bounded tail flush rejects after this component is gone.
+      void clientRef.current?.stopAndFlush(750).catch(() => undefined);
       if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
       if (activeSessionIdRef.current && writerLeaseTokenRef.current) {
         void queuePersistence("checkpoint").catch(() => undefined);
@@ -354,7 +361,9 @@ export default function App() {
     clientRef.current = null;
     writerLeaseTokenRef.current = null;
     if (error.currentRevision !== undefined) sessionRevisionRef.current = error.currentRevision;
-    setConnectionStatus("error");
+    // Revoke the writer immediately, but let an in-flight End finish before
+    // allowing takeover: its pending flush still owns the closing lifecycle.
+    if (statusRef.current !== "closing") setConnectionStatus("error");
     setErrorMessage("这条记录已被另一台设备或页面接管。当前页面已停止录音且不会继续写入；如需接管，请再次点击继续并确认。");
     void refreshSessions().catch(() => undefined);
     return true;
@@ -395,7 +404,7 @@ export default function App() {
     const startIsCurrent = () => connectionGeneration === connectionGenerationRef.current;
 
     try {
-      await waitForCheckpointQueue();
+      await waitForPendingWrites();
       if (!startIsCurrent()) {
         markPreparationFinished();
         return;
@@ -504,6 +513,11 @@ export default function App() {
       markPreparationFinished();
       if (connectionGeneration !== connectionGenerationRef.current) return;
       if (handleWriterLeaseConflict(error)) return;
+      if (error instanceof CheckpointDrainTimeoutError) {
+        setConnectionStatus("error");
+        setErrorMessage("保存请求仍未结束，暂未重新连接。当前字幕已保留，可以在网络稳定后再次点击继续。");
+        return;
+      }
       await handleConnectionFailure(error instanceof Error ? error.message : "无法启动麦克风或 Realtime 连接。");
     }
   }
@@ -546,8 +560,11 @@ export default function App() {
   }
 
   async function handleConnectionFailure(message: string) {
-    clientRef.current = null;
     latchIncompleteFinalization();
+    // End owns the in-flight flush and final writes. Keep controls locked until
+    // it settles; a reconnect here would be invalidated by End's continuation.
+    if (statusRef.current === "closing") return;
+    clientRef.current = null;
     setConnectionStatus("error");
     setErrorMessage(`${message} 已保存当前字幕，但最后一段可能缺失。继续录制，或再次点击结束并明确确认不完整记录。`);
     if (activeSessionIdRef.current) {
@@ -623,7 +640,7 @@ export default function App() {
     }
     if (!clientRef.current && !finalizationWarningRef.current && !cancellingStartup) {
       latchIncompleteFinalization();
-      await persistWithUncertainWriteRecovery("failed", true).catch(() => undefined);
+      await persistFailureAfterCheckpointQueue(true).catch(() => undefined);
       setConnectionStatus("error");
       setErrorMessage("当前没有可确认尾段的 Realtime 连接。记录仍为失败状态；再次点击结束可明确选择保存不完整记录。");
       return;
@@ -649,10 +666,18 @@ export default function App() {
       connectionGenerationRef.current += 1;
       clientRef.current = null;
       if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
+      if (!writerLeaseTokenRef.current) {
+        setConnectionStatus("error");
+        return;
+      }
     } catch (error) {
       connectionGenerationRef.current += 1;
       clientRef.current = null;
       latchIncompleteFinalization();
+      if (!writerLeaseTokenRef.current) {
+        setConnectionStatus("error");
+        return;
+      }
       const finalTranscript = commitActiveSegment(transcriptRef.current);
       setTranscriptState(finalTranscript);
       transcriptRef.current = finalTranscript;
@@ -661,7 +686,10 @@ export default function App() {
         leaseLost = handleWriterLeaseConflict(persistenceError);
         if (!leaseLost) handlePersistenceFailure(persistenceError);
       });
-      if (leaseLost) return;
+      if (leaseLost) {
+        setConnectionStatus("error");
+        return;
+      }
       setConnectionStatus("error");
       setErrorMessage(error instanceof Error
         ? `结束时未能确认最后一段：${error.message}。当前字幕已保留且记录仍为失败状态；再次点击结束可明确选择保存不完整记录。`
@@ -673,7 +701,7 @@ export default function App() {
       const finalTranscript = commitActiveSegment(transcriptRef.current);
       setTranscriptState(finalTranscript);
       transcriptRef.current = finalTranscript;
-      await waitForCheckpointQueue();
+      await waitForPendingWrites();
       await persistWithUncertainWriteRecovery("checkpoint", true);
       if (finalizationWarningRef.current) {
         if (!acceptIncomplete) {
@@ -705,9 +733,16 @@ export default function App() {
       setElapsedMs(0);
       setConnectionStatus("idle");
       setViewMode("document");
-      await refreshSessions();
+      await refreshSessions().catch(() => {
+        // Completion is already durable; a failed list read must not turn it
+        // into a failed recording or latch an incomplete-transcript warning.
+        setErrorMessage("记录已保存，但历史列表刷新失败。可稍后重新打开课堂记录刷新。");
+      });
     } catch (error) {
-      if (handleWriterLeaseConflict(error)) return;
+      if (handleWriterLeaseConflict(error)) {
+        setConnectionStatus("error");
+        return;
+      }
       latchIncompleteFinalization();
       if (error instanceof CheckpointDrainTimeoutError) {
         void persistFailureAfterCheckpointQueue(true).catch(handlePersistenceFailure);
@@ -720,7 +755,10 @@ export default function App() {
         leaseLost = handleWriterLeaseConflict(persistenceError);
         if (!leaseLost) handlePersistenceFailure(persistenceError);
       });
-      if (leaseLost) return;
+      if (leaseLost) {
+        setConnectionStatus("error");
+        return;
+      }
       setConnectionStatus("error");
       setErrorMessage(error instanceof Error
         ? `保存尚未完成：${error.message}。记录保持待恢复并标注字幕可能不完整，可以稍后重试。`
@@ -743,7 +781,34 @@ export default function App() {
     }
   }
 
-  async function persistFailureAfterCheckpointQueue(forceAll: boolean): Promise<void> {
+  async function waitForPendingWrites(): Promise<void> {
+    // Failure writes also advance the writer revision. Resume must not overtake
+    // them, including their bounded response-loss reconciliation and retry.
+    const pending = Promise.all([waitForCheckpointQueue(), failureWriteRef.current]);
+    if (!(await waitForPromise(pending.then(() => undefined), CHECKPOINT_DRAIN_TIMEOUT_MS))) {
+      throw new CheckpointDrainTimeoutError();
+    }
+    await pending;
+  }
+
+  function persistFailureAfterCheckpointQueue(forceAll: boolean): Promise<void> {
+    const previous = failureWriteRef.current;
+    const pending = (async () => {
+      if (previous) {
+        try { await previous; } catch (error) {
+          if (isWriterLeaseConflictError(error)) throw error;
+        }
+      }
+      await persistFailureAfterCheckpoints(forceAll);
+    })();
+    const tracked = pending.finally(() => {
+      if (failureWriteRef.current === tracked) failureWriteRef.current = null;
+    });
+    failureWriteRef.current = tracked;
+    return tracked;
+  }
+
+  async function persistFailureAfterCheckpoints(forceAll: boolean): Promise<void> {
     try {
       await waitForCheckpointQueue();
     } catch (error) {

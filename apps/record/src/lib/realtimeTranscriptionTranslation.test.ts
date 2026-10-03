@@ -186,13 +186,15 @@ describe("RealtimeTranscriptionTranslationClient stopAndFlush", () => {
     internals.handleMessage(JSON.stringify({
       type: "conversation.item.input_audio_transcription.completed", item_id: "item_2", transcript: "둘째"
     }));
-    expect(onSegment).not.toHaveBeenCalled();
+    expect(onSegment).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      sourceText: "둘째", translatedText: "", commitSequence: 8
+    }));
     internals.handleMessage(JSON.stringify({
       type: "conversation.item.input_audio_transcription.completed", item_id: "item_1", transcript: "첫째"
     }));
     await internals.translationQueue;
 
-    expect(onSegment.mock.calls.map(([segment]) => [segment.sourceText, segment.commitSequence])).toEqual([
+    expect(onSegment.mock.calls.filter(([segment]) => segment.translatedText).map(([segment]) => [segment.sourceText, segment.commitSequence])).toEqual([
       ["첫째", 7],
       ["둘째", 8]
     ]);
@@ -225,7 +227,7 @@ describe("RealtimeTranscriptionTranslationClient stopAndFlush", () => {
       type: "conversation.item.input_audio_transcription.completed", transcript: "둘"
     }));
     await internals.translationQueue;
-    expect(onSegment.mock.calls.map(([segment]) => segment.commitSequence)).toEqual([0, 1]);
+    expect(onSegment.mock.calls.filter(([segment]) => segment.translatedText).map(([segment]) => segment.commitSequence)).toEqual([0, 1]);
   });
 
   it("rejects when buffered tail audio cannot be committed and never turns a retry into success", async () => {

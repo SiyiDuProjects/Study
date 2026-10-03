@@ -36,7 +36,14 @@ export async function createRealtimeWebRtcTransport({
   throwIfAborted(signal);
 
   const peerConnection = new RTCPeerConnection();
-  const dataChannel = peerConnection.createDataChannel("oai-events");
+  let dataChannel: RTCDataChannel;
+  try {
+    dataChannel = peerConnection.createDataChannel("oai-events");
+  } catch (error) {
+    // There is no transport yet for the caller to dispose of.
+    peerConnection.close();
+    throw error;
+  }
   const setupController = new AbortController();
   const unlinkExternalAbort = forwardAbort(signal, setupController);
   let closed = false;
@@ -147,10 +154,6 @@ export async function createRealtimeWebRtcTransport({
     }
   };
 
-  for (const track of stream.getAudioTracks()) {
-    peerConnection.addTrack(track, stream);
-  }
-
   let sdpTimedOut = false;
   const sdpTimeout = globalThis.setTimeout(() => {
     sdpTimedOut = true;
@@ -158,6 +161,9 @@ export async function createRealtimeWebRtcTransport({
   }, Math.max(1, sdpTimeoutMs));
 
   try {
+    for (const track of stream.getAudioTracks()) {
+      peerConnection.addTrack(track, stream);
+    }
     const offer = await awaitAbortable(peerConnection.createOffer(), setupController.signal);
     throwIfAborted(setupController.signal);
     await awaitAbortable(peerConnection.setLocalDescription(offer), setupController.signal);

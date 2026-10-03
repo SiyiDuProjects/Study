@@ -68,28 +68,35 @@ export function appendTranscriptSegment(
   nowIso = new Date().toISOString()
 ): TranscriptState {
   const sourceText = segment.sourceText.trim();
-  const translatedText = segment.translatedText.trim();
+  let translatedText = segment.translatedText.trim();
   if (!sourceText && !translatedText) {
     return state;
   }
 
   const committedState = commitActiveSegment(state, nowIso);
-  const startedAtMs = segment.elapsedMs ?? inferNextStartMs(committedState);
+  // A transcription and its later translation share one audio commit. Keep
+  // the persisted ID so checkpoint retries update that row instead of adding it.
+  const previous = segment.commitSequence === undefined ? undefined
+    : committedState.segments.find(item => item.commitSequence === segment.commitSequence);
+  translatedText ||= previous?.translatedText ?? "";
+  const startedAtMs = previous?.startedAtMs ?? segment.elapsedMs ?? inferNextStartMs(committedState);
   const nextSegment: TranscriptSegment = {
-    id: createId("seg"),
+    id: previous?.id ?? createId("seg"),
     commitSequence: segment.commitSequence,
     startedAtMs,
     endedAtMs: startedAtMs + Math.max(1200, Math.max(sourceText.length, translatedText.length) * 90),
     sourceText,
     translatedText,
     isFinal: true,
-    createdAt: nowIso,
+    createdAt: previous?.createdAt ?? nowIso,
     updatedAt: nowIso
   };
 
   return {
     ...committedState,
-    segments: sortCommittedSegments([...committedState.segments, nextSegment]),
+    segments: previous
+      ? committedState.segments.map(item => item === previous ? nextSegment : item)
+      : sortCommittedSegments([...committedState.segments, nextSegment]),
     activeSegment: null
   };
 }

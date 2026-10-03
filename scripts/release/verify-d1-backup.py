@@ -8,7 +8,7 @@ import sys
 backup = pathlib.Path(sys.argv[1])
 migrations = pathlib.Path(sys.argv[2])
 tables = json.loads(backup.read_text(encoding="utf-8"))["tables"]
-expected = ["app_metadata", "courses", "sessions", "transcript_segments"]
+expected = ["app_metadata", "courses", "school_caption_courses", "sessions", "transcript_segments"]
 assert sorted(tables) == sorted(expected), "Unexpected table set"
 db = sqlite3.connect(":memory:")
 db.execute("PRAGMA foreign_keys=ON")

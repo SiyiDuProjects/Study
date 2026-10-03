@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { nextCommitSequence } from "./sessionTimeline";
 import {
   appendTranscriptSegment,
   applyTranscriptDelta,
@@ -73,5 +74,26 @@ describe("transcript reducer", () => {
     expect(state.segments.map((segment) => [segment.translatedText, segment.commitSequence])).toEqual([
       ["第一", 0], ["第二", 1]
     ]);
+  });
+
+  it("updates a transcribed segment in place when its translation arrives or is replayed", () => {
+    const original = { sourceText: "마지막 문장", translatedText: "", elapsedMs: 700, commitSequence: 0 };
+    let state = appendTranscriptSegment(createTranscriptState(), original, "2026-10-02T00:00:00.000Z");
+    const first = state.segments[0];
+    expect(nextCommitSequence(state.segments)).toBe(1);
+    const translated = { ...original, translatedText: "最后一句" };
+    state = appendTranscriptSegment(state, translated, "2026-10-02T00:00:01.000Z");
+    state = appendTranscriptSegment(state, translated, "2026-10-02T00:00:02.000Z");
+    // A delayed source-only replay must not erase an already known translation.
+    state = appendTranscriptSegment(state, original, "2026-10-02T00:00:03.000Z");
+    expect(state.segments).toHaveLength(1);
+    expect(state.segments[0]).toMatchObject({
+      id: first.id, createdAt: first.createdAt, startedAtMs: 700,
+      sourceText: original.sourceText, translatedText: "最后一句", commitSequence: 0
+    });
+    expect(nextCommitSequence(state.segments)).toBe(1);
+    // Identical spoken text in a different audio commit is a separate sentence.
+    state = appendTranscriptSegment(state, { ...translated, commitSequence: 1, elapsedMs: 2000 });
+    expect(state.segments).toHaveLength(2);
   });
 });
