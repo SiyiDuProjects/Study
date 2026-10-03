@@ -36,3 +36,9 @@ No local token was read or transferred, and no secret was obtained from Connecti
 The exact beta.8 download has **not** been verified against CollectUI with a real key in this repair. Synthetic tests cover the pinned-version gate, successful staged installation, missing/wrong credentials, wrong versions, incomplete files, cleanup and redacted provider errors. The live cloud installer must still retrieve beta.8 successfully and pass the full workflow before CI is reported green. An unavailable beta.8 must fail for review, never silently upgrade to beta.9 or downgrade.
 
 Read-only implementation reference: Connection `web/docs/cloud-build.md` and `web/scripts/install-reviewed-pro.mjs`. Only their public installation code was consulted; that repository and its credentials were not modified or copied. Public package source reviewed: `hpsetup@4.7.1/src/download.js`, `constants.js`, and `install.js`.
+
+## Verified repair result
+
+Commit `ca503d7` passed all 10 synthetic installer tests, 12 release tooling tests (one optional fixture skipped), the local beta.8 artifact check, and Record typechecks/build. The frozen root lockfile dry run passed. No real installation key was used.
+
+[GitHub run 37091511193](https://github.com/SiyiDuProjects/Study/actions/runs/37091511193) passed dependency installation and the installer guard tests, then failed at the explicit CollectUI installation step because `HEROUI_KEY` was empty. Downstream cloud checks were skipped. This confirms the remaining configuration blocker; it does not verify real beta.8 download or a successful cloud build.

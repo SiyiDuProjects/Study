@@ -94,9 +94,11 @@
   },
   "ci": {
     "status": "blocked",
-    "runUrl": "https://github.com/SiyiDuProjects/Study/actions/runs/37087305875",
+    "runUrl": "https://github.com/SiyiDuProjects/Study/actions/runs/37091511193",
     "reason": "Migration d2205e5 newly introduced an incorrect direct-website HEROUI_AUTH_TOKEN assumption. The reviewed repair uses CollectUI hpsetup 4.7.1 with exact Pro beta.8. Study still has no configured HEROUI_KEY repository secret; no credential was transferred, and real beta.8 download/full CI remain unverified.",
-    "configurationGuide": "docs/record-cloud-build.md"
+    "configurationGuide": "docs/record-cloud-build.md",
+    "repairCommit": "ca503d7472289c14d2036ad6f4bccb172031c88c",
+    "observed": "Root/Core/Record npm ci and the 10 synthetic installer tests passed. The CollectUI installation step failed with an empty HEROUI_KEY; later typecheck/tests/build were skipped. This is not a green cloud build."
   },
   "limitations": [
     "Deployment uses the isolated validated source at 672e085; later optional WASM lock metadata repair 85496e7 changes no existing dependency version or runtime source.",
