@@ -3,7 +3,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const recordRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../apps/record");
-const packageRoot = resolve(recordRoot, "node_modules/@heroui-pro/react");
+export const REVIEWED_PRO_VERSION = "1.0.0-beta.8";
 
 async function readJson(path, label) {
   try {
@@ -28,11 +28,13 @@ async function importedStyles(directory) {
   return styles;
 }
 
-try {
+export async function checkRecordDependencies({ recordRoot: targetRoot = recordRoot, packageRoot = resolve(targetRoot, "node_modules/@heroui-pro/react") } = {}) {
+  const recordRoot = targetRoot;
+  const manifest = await readJson(resolve(recordRoot, "package.json"), "Record package manifest");
   const lock = await readJson(resolve(recordRoot, "package-lock.json"), "Record package lock");
   const expectedVersion = lock.packages?.["node_modules/@heroui-pro/react"]?.version;
-  if (typeof expectedVersion !== "string" || !expectedVersion) {
-    throw new Error("Record package lock does not pin @heroui-pro/react.");
+  if (expectedVersion !== REVIEWED_PRO_VERSION || manifest.dependencies?.["@heroui-pro/react"] !== REVIEWED_PRO_VERSION || lock.packages?.[""]?.dependencies?.["@heroui-pro/react"] !== REVIEWED_PRO_VERSION) {
+    throw new Error(`Record manifest and lock must pin reviewed @heroui-pro/react ${REVIEWED_PRO_VERSION}.`);
   }
   const installed = await readJson(resolve(packageRoot, "package.json"), "HeroUI Pro package");
   if (installed.name !== "@heroui-pro/react" || installed.version !== expectedVersion) {
@@ -58,9 +60,15 @@ try {
   }
   if (missing.length) throw new Error(`HeroUI Pro artifacts are missing or empty: ${missing.join(", ")}.`);
 
-  console.log(`HeroUI Pro artifacts: ${installed.version}`);
-} catch (error) {
-  console.error(`Record dependency check failed: ${error.message}`);
-  console.error("Configure the encrypted HEROUI_AUTH_TOKEN secret with a HeroUI CI/CD token, then rerun npm ci --prefix apps/record with install scripts enabled.");
-  process.exitCode = 1;
+  return installed.version;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    console.log(`HeroUI Pro artifacts: ${await checkRecordDependencies()}`);
+  } catch (error) {
+    console.error(`Record dependency check failed: ${error.message}`);
+    console.error("Run npm run install:record-pro using Study's authorized CollectUI HEROUI_KEY, then rerun this check. See docs/record-cloud-build.md; HEROUI_AUTH_TOKEN is a different installation channel.");
+    process.exitCode = 1;
+  }
 }

@@ -95,7 +95,8 @@
   "ci": {
     "status": "blocked",
     "runUrl": "https://github.com/SiyiDuProjects/Study/actions/runs/37087305875",
-    "reason": "HEROUI_AUTH_TOKEN repository secret is absent; clean installation lacks licensed HeroUI Pro component artifacts. Optional lockfile Invalid Version was repaired; CI now reaches the artifact check."
+    "reason": "Migration d2205e5 newly introduced an incorrect direct-website HEROUI_AUTH_TOKEN assumption. The reviewed repair uses CollectUI hpsetup 4.7.1 with exact Pro beta.8. Study still has no configured HEROUI_KEY repository secret; no credential was transferred, and real beta.8 download/full CI remain unverified.",
+    "configurationGuide": "docs/record-cloud-build.md"
   },
   "limitations": [
     "Deployment uses the isolated validated source at 672e085; later optional WASM lock metadata repair 85496e7 changes no existing dependency version or runtime source.",

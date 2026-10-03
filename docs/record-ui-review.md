@@ -37,6 +37,6 @@ The initial gzip payload is 35.2% smaller. All UI assets combined are 20.1% smal
 
 ## Build and release prerequisites
 
-The local `@heroui-pro/react` beta.8 installation contains the user's licensed component artifacts. The public npm package is a bootstrap package: a clean install requires the approved CollectUI/HeroUI Pro installation process and the encrypted `HEROUI_AUTH_TOKEN` secret. Do not commit licensed artifacts or keys, and do not assume `npm ci` alone reproduces this build.
+The local `@heroui-pro/react` beta.8 installation contains the user's licensed component artifacts. The public npm package is a bootstrap package. Clean cloud installation follows the existing CollectUI channel with pinned `hpsetup@4.7.1` and an authorized `HEROUI_KEY`; see [Record cloud installation](record-cloud-build.md). The migration-added `HEROUI_AUTH_TOKEN` requirement was a mistaken channel assumption, not a prerequisite the user had previously configured. Do not commit licensed artifacts or keys, and do not assume `npm ci` alone reproduces this build.
 
 This UI revision has not been published. The concurrent backend change introduces `items`, `nextCursor`, and `warnings` read contracts; Core and Record must be released together as described in `DEPLOY_CICD.md`. The authentication identity question remains separate from the UI redesign.

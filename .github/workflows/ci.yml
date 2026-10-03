@@ -28,10 +28,14 @@ jobs:
         run: npm run validate:plugin
       - name: Install Core
         run: npm ci --prefix apps/core
+      - name: Test Record installation guard
+        run: npm run test:record-install
       - name: Install Record
-        env:
-          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: npm ci --prefix apps/record
+      - name: Install reviewed Record components from CollectUI
+        env:
+          HEROUI_KEY: ${{ secrets.HEROUI_KEY }}
+        run: npm run install:record-pro
       - name: Check Record component artifacts
         run: npm run check:record-dependencies
       - name: Typecheck

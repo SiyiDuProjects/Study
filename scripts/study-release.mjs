@@ -28,6 +28,7 @@ const requiredBuildFiles = [
 ];
 const steps = [
   ["发布工具测试", ".", "test:release"],
+  ["Record 安装流程测试", ".", "test:record-install"],
   ["插件校验", ".", "validate:plugin"],
   ["Core 类型检查", "apps/core", "typecheck"],
   ["Core 测试", "apps/core", "test"],

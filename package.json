@@ -12,9 +12,12 @@
     "release:prepare": "node scripts/study-release.mjs prepare",
     "test:release": "node --test scripts/release/*.test.mjs",
     "check:record-dependencies": "node scripts/check-record-dependencies.mjs",
-    "validate:plugin": "node scripts/validate-plugin.mjs && node scripts/build-mcp-skills.mjs --check"
+    "validate:plugin": "node scripts/validate-plugin.mjs && node scripts/build-mcp-skills.mjs --check",
+    "install:record-pro": "node scripts/install-record-pro.mjs",
+    "test:record-install": "node --test scripts/record-install.test.mjs"
   },
   "devDependencies": {
+    "hpsetup": "4.7.1",
     "yaml": "2.9.0"
   }
 }
