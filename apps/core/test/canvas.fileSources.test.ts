@@ -11,6 +11,27 @@ const databases: AppDatabase[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
 
 describe("ChatGPT generated file handoff", () => {
+  it.each(["files", "sdmntprwestus", "sdmntprwestus3", "sdmntpr-new-region"])("accepts native CDN host %s without per-region configuration", host => {
+    const raw = `https://${host}.oaiusercontent.com/file?sig=cdn`;
+    expect(chatGptFileSource(raw, fileId, []).toString()).toBe(raw);
+  });
+
+  it.each([
+    "https://oaiusercontent.com/file",
+    "https://evil-oaiusercontent.com/file",
+    "https://files.oaiusercontent.com.evil.test/file",
+    "https://files.oaiusercontent.com:8443/file",
+    "https://files.oaiusercontent.com./file",
+    "https://nested.files.oaiusercontent.com/file",
+    "http://files.oaiusercontent.com/file",
+    "https://user:password@files.oaiusercontent.com/file",
+    "https://files.oaiusercontent.com/file#fragment",
+    "https://127.0.0.1/file",
+    "https://169.254.169.254/file",
+  ])("rejects CDN lookalikes and unsafe references (%#)", raw => {
+    expect(() => chatGptFileSource(raw, fileId, cdnOrigins)).toThrow();
+  });
+
   it("accepts the observed signed endpoint without broadening the configured CDN origins", () => {
     expect(chatGptFileSource(signedUrl, fileId, cdnOrigins).toString()).toBe(signedUrl);
     for (const origin of cdnOrigins) expect(chatGptFileSource(`${origin}/file?sig=cdn`, fileId, cdnOrigins).origin).toBe(origin);
@@ -37,14 +58,14 @@ describe("ChatGPT generated file handoff", () => {
     catch (error) { expect(String(error)).not.toContain("test-only-signature"); }
   });
 
-  function setup(school: "hanyang" | "berkeley", sourceStatus = 200) {
+  function setup(school: "hanyang" | "berkeley", sourceStatus = 200, sourceUrl = signedUrl) {
     const db = openDatabase(":memory:"); databases.push(db);
     db.prepare("INSERT INTO users(id,display_name,institution,created_at,updated_at) VALUES('u','Student',?,1,1)").run(school);
     const baseUrl = school === "hanyang" ? "https://learning.hanyang.ac.kr" : "https://bcourses.berkeley.edu";
     const connection: CanvasConnection = { userId: "u", institution: school, baseUrl, accessToken: "test-only-pat", canvasUserId: "42", canvasName: "Student" };
     const fetcher = vi.fn<typeof fetch>(async (url, init) => {
       const parsed = new URL(String(url));
-      if (parsed.origin === "https://chatgpt.com") {
+      if (parsed.origin === new URL(sourceUrl).origin) {
         expect(init?.headers).toBeUndefined();
         expect(init?.credentials).toBe("omit");
         expect(init?.redirect).toBe("manual");
@@ -65,7 +86,7 @@ describe("ChatGPT generated file handoff", () => {
       throw new Error("Unexpected request");
     });
     const writes = new CanvasWriteService(db, () => connection, fetcher, {}, cdnOrigins);
-    const input = { request_id: "d9aa433a-976a-44e3-8519-e2a615f1950c", filename: "homework.pdf", purpose: "assignment" as const, course_id: "123", assignment_id: "456", file: { file_id: fileId, download_url: signedUrl, mime_type: "application/pdf" } };
+    const input = { request_id: "d9aa433a-976a-44e3-8519-e2a615f1950c", filename: "homework.pdf", purpose: "assignment" as const, course_id: "123", assignment_id: "456", file: { file_id: fileId, download_url: sourceUrl, mime_type: "application/pdf" } };
     return { db, writes, input, fetcher };
   }
 
@@ -82,6 +103,19 @@ describe("ChatGPT generated file handoff", () => {
 
   it.each([302, 401, 403])("rejects a failed/redirected file download (%s) before any LMS write", async status => {
     const { db, writes, input, fetcher } = setup("hanyang", status);
+    await expect(writes.upload("u", input)).rejects.toThrow("selected ChatGPT file is unavailable");
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    expect(fetcher.mock.calls.some(([url]) => new URL(String(url)).hostname === "evil.test")).toBe(false);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM canvas_write_receipts").get()).toEqual({ count: 0 });
+  });
+
+  it.each(["hanyang", "berkeley"] as const)("%s transfers bytes from a rotated CDN host with the old configuration", async school => {
+    const { writes, input } = setup(school, 200, "https://sdmntprwestus.oaiusercontent.com/file?sig=rotated");
+    await expect(writes.upload("u", input)).resolves.toMatchObject({ status: "uploaded", fileId: "88", size: 9 });
+  });
+
+  it("does not follow a trusted CDN redirect to another address", async () => {
+    const { writes, input, fetcher, db } = setup("hanyang", 302, "https://sdmntprwestus.oaiusercontent.com/file?sig=rotated");
     await expect(writes.upload("u", input)).rejects.toThrow("selected ChatGPT file is unavailable");
     expect(fetcher.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
     expect(fetcher.mock.calls.some(([url]) => new URL(String(url)).hostname === "evil.test")).toBe(false);

@@ -2,6 +2,9 @@ import { CanvasApiError } from "./errors.js";
 
 const CHATGPT_ORIGIN = "https://chatgpt.com";
 const GENERATED_FILE_PATH = "/backend-api/estuary/content";
+// Native file handoffs rotate between regional CDN hosts. Trust the file-service
+// domain boundary, not one observed region; never accept suffix lookalikes.
+const FILE_CDN_HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.oaiusercontent\.com$/;
 const reject = (message: string): never => { throw new CanvasApiError("invalid_argument", message); };
 
 /** Validate the client file reference without logging or persisting its signed URL. */
@@ -22,7 +25,7 @@ export function chatGptFileSource(raw: string, fileId: string, allowedOrigins: r
     }
     return url;
   }
-  if (!allowedOrigins.includes(url.origin)) {
+  if (!(url.port === "" && FILE_CDN_HOST.test(url.hostname)) && !allowedOrigins.includes(url.origin)) {
     return reject(`ChatGPT file source origin is not enabled: ${url.origin}. Rejected before any LMS upload.`);
   }
   return url;
